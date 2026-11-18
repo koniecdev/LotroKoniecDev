@@ -979,13 +979,21 @@ public sealed class MainWindowTests
                     bool playEnabledDuring = playButton.IsEffectivelyEnabled;
                     string? statusDuring = status.Text;
                     double barDuring = bar.Value;
+                    bool percentShownDuring = !bar.IsIndeterminate && window.FindControl<TextBlock>("ProgressText")?.IsVisible == true;
 
                     patch.SetResult(Result.Success(new PatchIfNeededResponse(true, true, 900, 100, 0, null)));
                     await WaitUntil(() => !viewModel.PatchAndPlay.IsRunning);
                     Dispatcher.UIThread.RunJobs();
 
                     return new PatchRunSnapshot(
-                        patchEnabledDuring, playEnabledDuring, statusDuring, barDuring, bar.Value, status.Text, patchButton.IsEffectivelyEnabled);
+                        patchEnabledDuring,
+                        playEnabledDuring,
+                        statusDuring,
+                        barDuring,
+                        percentShownDuring,
+                        bar.Value,
+                        status.Text,
+                        patchButton.IsEffectivelyEnabled);
                 }
                 finally
                 {
@@ -1000,6 +1008,7 @@ public sealed class MainWindowTests
         run.PlayEnabledDuring.ShouldBeFalse();
         run.StatusDuring.ShouldBe("Nakładam spolszczenie…");
         run.BarDuring.ShouldBe(60);
+        run.PercentShownDuring.ShouldBeTrue();
         run.BarAfter.ShouldBe(100);
         run.StatusAfter.ShouldBe("Spolszczenie nałożone.");
         run.EnabledAfter.ShouldBeTrue();
@@ -1185,6 +1194,7 @@ public sealed class MainWindowTests
         bool PlayEnabledDuring,
         string? StatusDuring,
         double BarDuring,
+        bool PercentShownDuring,
         double BarAfter,
         string? StatusAfter,
         bool EnabledAfter);

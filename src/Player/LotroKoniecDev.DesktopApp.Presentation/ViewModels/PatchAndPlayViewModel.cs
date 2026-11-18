@@ -90,8 +90,15 @@ public sealed partial class PatchAndPlayViewModel : INotifyPropertyChanged
                 return;
             }
 
-            EndWithSuccess(PatchAndPlayTexts.WithEarlierDownloadNote(
-                PatchAndPlayTexts.PatchOutcome(result.Value), prepared.UsedEarlierDownload));
+            string outcome = PatchAndPlayTexts.WithEarlierDownloadNote(
+                PatchAndPlayTexts.PatchOutcome(result.Value), prepared.UsedEarlierDownload);
+            if (PatchAndPlayTexts.IsFailedPatch(result.Value))
+            {
+                EndWithFailure(outcome);
+                return;
+            }
+
+            EndWithSuccess(outcome);
         }
         finally
         {

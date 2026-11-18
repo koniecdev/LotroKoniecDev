@@ -31,6 +31,9 @@ internal static class PatchAndPlayTexts
 
     public const string Repaired = "Gra przywróciła część angielskich tekstów. Spolszczenie nałożono na nie ponownie.";
 
+    /// <summary>The file parsed, but every row was skipped: not approved, no source digest, or its English moved.</summary>
+    public const string NothingApplied = "Wczytano plik spolszczenia, ale nie nałożono z niego żadnego tekstu. " + LogHint;
+
     public const string RepairFailed =
         "Gra przywróciła część angielskich tekstów, ale nie udało się ponownie nałożyć na nie spolszczenia. " + LogHint;
 
@@ -38,6 +41,9 @@ internal static class PatchAndPlayTexts
     public const string LauncherStarted = "Uruchomiono launcher gry.";
 
     public const string PatchedAndLauncherStarted = "Spolszczenie nałożone. Uruchomiono launcher gry.";
+
+    public const string LauncherStartedNothingApplied =
+        "Uruchomiono launcher gry, ale z pliku spolszczenia nie nałożono żadnego tekstu. " + LogHint;
 
     public const string LauncherStartedRepairFailed =
         "Uruchomiono launcher gry, ale część tekstów będzie po angielsku: nie udało się ponownie nałożyć spolszczenia. " + LogHint;
@@ -90,14 +96,20 @@ internal static class PatchAndPlayTexts
     public static string PatchOutcome(PatchIfNeededResponse response) => response switch
     {
         { RepairFailure: not null } => RepairFailed,
+        { TranslationsApplied: true, AppliedCount: 0 } => NothingApplied,
         { TranslationChanged: true } => Patched,
         { TranslationsApplied: true } => Repaired,
         _ => Unchanged
     };
 
+    /// <summary>A Patch that wrote nothing it should have ends with the bar at 0, like any failure.</summary>
+    public static bool IsFailedPatch(PatchIfNeededResponse response) =>
+        response is { RepairFailure: not null } or { TranslationsApplied: true, AppliedCount: 0 };
+
     public static string LaunchOutcome(GameLaunchingResponse response) => response switch
     {
         { RepairFailure: not null } => LauncherStartedRepairFailed,
+        { TranslationsApplied: true, AppliedCount: 0 } => LauncherStartedNothingApplied,
         { TranslationsApplied: true } => PatchedAndLauncherStarted,
         _ => LauncherStarted
     };

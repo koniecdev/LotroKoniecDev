@@ -124,9 +124,9 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 
         BrowseGameFolderCommand = new DelegateCommand(() => _ = BrowseGameFolderAsync(), () => !_isPicking);
         BrowseTranslationFileCommand = new DelegateCommand(() => _ = BrowseTranslationFileAsync(), () => !_isPicking);
-        SaveCommand = new DelegateCommand(() => Save(), () => !_isPicking && !_gate.IsBusy);
+        // Not disabled by the busy gate: a click then says why nothing was saved.
+        SaveCommand = new DelegateCommand(() => Save(), () => !_isPicking);
         CancelCommand = new DelegateCommand(Cancel, () => true);
-        _gate.PropertyChanged += (_, _) => SaveCommand.RaiseCanExecuteChanged();
     }
 
     private bool SaveChecked()

@@ -27,12 +27,17 @@ public sealed class PatchAndPlayViewModelTests
     {
         { new PatchIfNeededResponse(true, true, 900, 100, 0, null), "Spolszczenie nałożone." },
         { new PatchIfNeededResponse(false, false, 0, 0, 0, null), "Plik spolszczenia się nie zmienił, więc pliki gry zostały bez zmian." },
-        { new PatchIfNeededResponse(false, true, 95, 5, 2, null), "Gra przywróciła część angielskich tekstów. Spolszczenie nałożono na nie ponownie." },
+        { new PatchIfNeededResponse(false, true, 95, 5, 2, null), "Gra przywróciła część angielskich tekstów. Spolszczenie nałożono na nie ponownie." }
+    };
+
+    public static TheoryData<PatchIfNeededResponse, string> PatchOutcomesThatWroteNothing() => new()
+    {
         {
             new PatchIfNeededResponse(false, false, 0, 0, 2, "CannotOpen failed"),
-            "Gra przywróciła część angielskich tekstów, ale nie udało się ponownie nałożyć na nie spolszczenia. " +
-            "Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu."
-        }
+            "Gra przywróciła część angielskich tekstów, ale nie udało się ponownie nałożyć na nie spolszczenia. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu."
+        },
+        { new PatchIfNeededResponse(true, true, 0, 1200, 0, null), "Wczytano plik spolszczenia, ale nie nałożono z niego żadnego tekstu. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu." },
+        { new PatchIfNeededResponse(false, true, 0, 40, 2, null), "Wczytano plik spolszczenia, ale nie nałożono z niego żadnego tekstu. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu." }
     };
 
     [Theory]
@@ -55,6 +60,61 @@ public sealed class PatchAndPlayViewModelTests
         run.Percent.ShouldBe(100);
         run.IsIndeterminate.ShouldBeFalse();
         run.GateBusy.ShouldBeFalse();
+    }
+
+    [Theory]
+    [MemberData(nameof(PatchOutcomesThatWroteNothing))]
+    public async Task PatchAsync_AnOutcomeThatWroteNothing_ShowsItsPolishTextAndEndsTheBarAtZero(PatchIfNeededResponse response, string expectedStatus)
+    {
+        // Arrange: every row skipped (not approved, no source digest, English moved) or a failed repair.
+        ViewModelBuilder builder = SavedGameUsingTheDownload();
+        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>()).Returns(Result.Success(response));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe(expectedStatus);
+        run.Percent.ShouldBe(0);
+        run.IsIndeterminate.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task PatchAsync_ASecondRun_StartsTheBarAtZeroAgain()
+    {
+        // Arrange: the first run leaves the bar at 100.
+        ViewModelBuilder builder = SavedGameUsingTheDownload();
+        TaskCompletionSource<Result<PatchIfNeededResponse>> secondPatch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int calls = 0;
+        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ++calls == 1
+                ? new ValueTask<Result<PatchIfNeededResponse>>(Result.Success(new PatchIfNeededResponse(true, true, 10, 0, 0, null)))
+                : new ValueTask<Result<PatchIfNeededResponse>>(secondPatch.Task));
+
+        (int AfterFirst, int DuringSecond, bool PercentShownDuringSecond) bar = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                PatchAndPlayViewModel viewModel = Create(builder);
+                await viewModel.PatchAsync();
+                Dispatcher.UIThread.RunJobs();
+                int afterFirst = builder.Progress.Percent;
+
+                // Act
+                Task second = viewModel.PatchAsync();
+                await WaitUntil(() => viewModel.StatusText == "Nakładam spolszczenie…");
+                Dispatcher.UIThread.RunJobs();
+                (int Percent, bool PercentShown) during = (builder.Progress.Percent, !builder.Progress.IsIndeterminate);
+
+                secondPatch.SetResult(Result.Success(new PatchIfNeededResponse(false, false, 0, 0, 0, null)));
+                await second;
+                return (afterFirst, during.Percent, during.PercentShown);
+            },
+            CancellationToken.None);
+
+        // Assert: during the patch step the bar shows the patcher's percent, starting from 0.
+        bar.AfterFirst.ShouldBe(100);
+        bar.DuringSecond.ShouldBe(0);
+        bar.PercentShownDuringSecond.ShouldBeTrue();
     }
 
     [Fact]
@@ -135,6 +195,58 @@ public sealed class PatchAndPlayViewModelTests
         run.Status.ShouldBe(
             "Nie udało się pobrać spolszczenia, a na tym komputerze nie ma jeszcze pobranego pliku. " +
             "Sprawdź połączenie z internetem i adres serwera w „Ustawieniach”, a potem spróbuj ponownie.");
+        await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PatchAsync_TheDownloadCannotBeSaved_ShowsTheGeneralTextAndPatchesNothing()
+    {
+        // Arrange: a full disk or a locked file in the data folder.
+        ViewModelBuilder builder = SavedGameUsingTheDownload();
+        builder.SyncHandler.Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Failure<TranslationFileSyncResponse>(
+                DomainErrors.TranslationFileSync.CacheWriteError(ViewModelBuilder.DownloadedTranslationFilePath, "disk full")));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe("Coś poszło nie tak. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.");
+        run.Percent.ShouldBe(0);
+        await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PatchAsync_TheOverrideCannotBeCopied_SaysTheProgramFolderFailedAndPatchesNothing()
+    {
+        // Arrange
+        ViewModelBuilder builder = SavedGameWithTheOverride();
+        builder.Workspace.UseTranslationFile(OverrideFile)
+            .Returns(Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(ViewModelBuilder.WorkingTranslationFilePath, "denied")));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe("Nie udało się przygotować plików spolszczenia w folderze programu. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.");
+        run.Percent.ShouldBe(0);
+        await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PatchAsync_TheDownloadCannotBeCopied_SaysTheProgramFolderFailedAndPatchesNothing()
+    {
+        // Arrange
+        ViewModelBuilder builder = SavedGameUsingTheDownload();
+        builder.Workspace.UseTranslationFile(ViewModelBuilder.DownloadedTranslationFilePath)
+            .Returns(Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(ViewModelBuilder.WorkingTranslationFilePath, "denied")));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe("Nie udało się przygotować plików spolszczenia w folderze programu. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.");
+        run.Percent.ShouldBe(0);
         await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
     }
 
@@ -331,6 +443,10 @@ public sealed class PatchAndPlayViewModelTests
     {
         { new GameLaunchingResponse(null, false, 0), "Uruchomiono launcher gry." },
         {
+            new GameLaunchingResponse(null, false, 0, TranslationsApplied: true, AppliedCount: 0, SkippedCount: 1200),
+            "Uruchomiono launcher gry, ale z pliku spolszczenia nie nałożono żadnego tekstu. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu."
+        },
+        {
             new GameLaunchingResponse(null, false, 0, WipedSubFileCount: 2, RepairFailure: "CannotOpen"),
             "Uruchomiono launcher gry, ale część tekstów będzie po angielsku: nie udało się ponownie nałożyć spolszczenia. " +
             "Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu."
@@ -352,20 +468,48 @@ public sealed class PatchAndPlayViewModelTests
         run.Status.ShouldBe(expectedStatus);
     }
 
-    [Fact]
-    public async Task PlayAsync_TheLauncherIsMissing_SaysWhereToLook()
+    public static TheoryData<Error, string> LaunchFailures() => new()
+    {
+        {
+            DomainErrors.GameLaunch.LauncherNotFound(ViewModelBuilder.SavedGameFolder),
+            "Nie znaleziono pliku LotroLauncher.exe w folderze gry. Sprawdź folder gry w „Ustawieniach”."
+        },
+        { DomainErrors.GameLaunch.LaunchFailed("The system cannot execute the specified program."), "Nie udało się uruchomić launchera gry. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu." },
+        { DomainErrors.GameLaunch.GameAlreadyRunning, "Gra albo jej launcher już działa. Zamknij je i spróbuj ponownie." },
+        { DomainErrors.GameLaunch.RepatchFailed("CannotOpen"), "Nie udało się nałożyć spolszczenia. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu." }
+    };
+
+    [Theory]
+    [MemberData(nameof(LaunchFailures))]
+    public async Task PlayAsync_ALaunchError_ShowsThePolishTextForItsCodeAndResetsTheBar(Error error, string expectedStatus)
     {
         // Arrange
         ViewModelBuilder builder = SavedGameUsingTheDownload();
         builder.LaunchHandler.Handle(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<GameLaunchingResponse>(DomainErrors.GameLaunch.LauncherNotFound(ViewModelBuilder.SavedGameFolder)));
+            .Returns(Result.Failure<GameLaunchingResponse>(error));
 
         // Act
         RunResult run = await PlayAsync(builder);
 
         // Assert
-        run.Status.ShouldBe("Nie znaleziono pliku LotroLauncher.exe w folderze gry. Sprawdź folder gry w „Ustawieniach”.");
+        run.Status.ShouldBe(expectedStatus);
         run.Percent.ShouldBe(0);
+        run.GateBusy.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task PlayAsync_DownloadFailedButAnEarlierOneExists_LaunchesWithItAndSaysSo()
+    {
+        // Arrange
+        ViewModelBuilder builder = SavedGameUsingTheDownload();
+        builder.SyncHandler.Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(new TranslationFileSyncResponse(TranslationFileSyncOutcome.OfflineUsedCache, "timeout")));
+
+        // Act
+        RunResult run = await PlayAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe("Uruchomiono launcher gry. Nie udało się pobrać nowego spolszczenia, więc użyto pobranego wcześniej.");
     }
 
     [Fact]

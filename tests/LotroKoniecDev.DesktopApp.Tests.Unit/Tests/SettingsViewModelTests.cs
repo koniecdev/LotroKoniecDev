@@ -387,10 +387,10 @@ public sealed class SettingsViewModelTests
         // Act
         bool saved = viewModel.Save();
 
-        // Assert
+        // Assert: the button stays enabled, so a click shows this reason instead of doing nothing.
         saved.ShouldBeFalse();
         viewModel.ErrorText.ShouldBe("Trwa inna operacja. Zapisz, gdy się skończy.");
-        viewModel.SaveCommand.CanExecute(null).ShouldBeFalse();
+        viewModel.SaveCommand.CanExecute(null).ShouldBeTrue();
         _builder.SettingsFile.Contents.ShouldBeNull();
     }
 
@@ -410,22 +410,6 @@ public sealed class SettingsViewModelTests
         saved.ShouldBeTrue();
         gateStates.ShouldBe([true]);
         _builder.Gate.IsBusy.ShouldBeFalse();
-    }
-
-    [Fact]
-    public void SaveCommand_WhenTheGateIsFreedAgain_IsEnabledAgain()
-    {
-        // Arrange
-        SettingsViewModel viewModel = _builder.Settings();
-        _builder.Gate.TryEnter();
-        List<bool> canSave = [viewModel.SaveCommand.CanExecute(null)];
-        viewModel.SaveCommand.CanExecuteChanged += (_, _) => canSave.Add(viewModel.SaveCommand.CanExecute(null));
-
-        // Act
-        _builder.Gate.Exit();
-
-        // Assert
-        canSave.ShouldBe([false, true]);
     }
 
     private SettingsViewModel Editing(string gameFolder, string translationFile, bool autoPatch, string serverAddress)

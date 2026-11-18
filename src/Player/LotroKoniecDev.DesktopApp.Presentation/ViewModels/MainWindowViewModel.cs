@@ -1,9 +1,6 @@
 namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 
-/// <summary>
-/// The state the main window shows. The two version lines stay unknown until a later ticket reads the
-/// real values.
-/// </summary>
+/// <summary>The state the main window shows. No code reads the two versions, so both lines show „—”.</summary>
 public sealed class MainWindowViewModel
 {
     public const string UnknownValue = "—";

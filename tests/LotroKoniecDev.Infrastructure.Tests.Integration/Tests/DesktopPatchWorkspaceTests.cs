@@ -20,10 +20,18 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
 
     public void Dispose()
     {
-        if (Directory.Exists(_root))
+        if (!Directory.Exists(_root))
         {
-            Directory.Delete(_root, recursive: true);
+            return;
         }
+
+        // Windows refuses to delete a read-only file, and some tests make one on purpose.
+        foreach (string file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(file, FileAttributes.Normal);
+        }
+
+        Directory.Delete(_root, recursive: true);
     }
 
     [Fact]
@@ -131,6 +139,61 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
     }
 
     [Fact]
+    public void UseTranslationFile_AReadOnlyFile_GivesAWorkingCopyTheNextRunCanReplace()
+    {
+        // Arrange: the player's file may carry the Read-only flag (a file from a CD, a hand-set flag).
+        DesktopPatchWorkspace sut = new(DataFolder);
+        string readOnlyFile = WritePlayersFile("polish.txt", "first");
+        File.SetAttributes(readOnlyFile, FileAttributes.ReadOnly);
+        string plainFile = WritePlayersFile("second.txt", "second");
+
+        // Act
+        Result first = sut.UseTranslationFile(readOnlyFile);
+        Result second = sut.UseTranslationFile(plainFile);
+
+        // Assert
+        first.IsSuccess.ShouldBeTrue();
+        second.IsSuccess.ShouldBeTrue();
+        File.ReadAllText(sut.WorkingTranslationFilePath).ShouldBe("second");
+        File.GetAttributes(sut.WorkingTranslationFilePath).HasFlag(FileAttributes.ReadOnly).ShouldBeFalse();
+        Directory.GetFiles(DataFolder).ShouldBe([sut.WorkingTranslationFilePath]);
+    }
+
+    [Fact]
+    public void UseTranslationFile_AWorkingCopyMarkedReadOnly_IsStillReplaced()
+    {
+        // Arrange
+        DesktopPatchWorkspace sut = new(DataFolder);
+        Directory.CreateDirectory(DataFolder);
+        File.WriteAllText(sut.WorkingTranslationFilePath, "old copy");
+        File.SetAttributes(sut.WorkingTranslationFilePath, FileAttributes.ReadOnly);
+
+        // Act
+        Result result = sut.UseTranslationFile(WritePlayersFile("polish.txt", "new copy"));
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        File.ReadAllText(sut.WorkingTranslationFilePath).ShouldBe("new copy");
+    }
+
+    [Fact]
+    public void UseTranslationFile_TheWorkingCopyCannotBeReplaced_NamesTheWorkingCopyAndLeavesNoTempFile()
+    {
+        // Arrange: a folder where the working copy should be cannot be replaced by a file.
+        DesktopPatchWorkspace sut = new(DataFolder);
+        Directory.CreateDirectory(sut.WorkingTranslationFilePath);
+
+        // Act
+        Result result = sut.UseTranslationFile(WritePlayersFile("polish.txt", "content"));
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.FileSystemErrorCode);
+        result.Error.Message.ShouldContain(sut.WorkingTranslationFilePath);
+        Directory.GetFiles(DataFolder).ShouldBeEmpty();
+    }
+
+    [Fact]
     public void ResetPatchStateIfGameFileChanged_NoMarkerYet_DeletesTheStoredVersionAndRecordsTheGameFile()
     {
         // Arrange: a version file with no marker was saved for a game file nobody recorded.
@@ -212,6 +275,23 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
         // Assert
         result.IsSuccess.ShouldBeTrue();
         File.ReadAllText(sut.WorkingTranslationFilePath + ".ledger").ShouldBe("ledger");
+    }
+
+    [Fact]
+    public void ResetPatchStateIfGameFileChanged_TheStoredVersionCannotBeDeleted_FailsAndRecordsNothing()
+    {
+        // Arrange: a folder where the version file should be cannot be deleted as a file.
+        DesktopPatchWorkspace sut = new(DataFolder);
+        Directory.CreateDirectory(sut.GameVersionFilePath);
+
+        // Act
+        Result result = sut.ResetPatchStateIfGameFileChanged(GameFile("LOTRO"));
+
+        // Assert: with no marker written, the next run tries the delete again.
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe(DomainErrors.DesktopPatchWorkspace.FileSystemErrorCode);
+        result.Error.Message.ShouldContain(sut.GameVersionFilePath);
+        File.Exists(MarkerPath).ShouldBeFalse();
     }
 
     [Fact]

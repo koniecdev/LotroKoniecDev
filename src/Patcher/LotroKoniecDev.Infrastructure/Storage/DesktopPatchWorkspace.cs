@@ -32,6 +32,11 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
 
     public string GameVersionFilePath { get; }
 
+    /// <remarks>
+    /// The bytes are copied through streams, so the copy never takes the source's attributes: a
+    /// read-only source made through <c>File.Copy</c> would leave a read-only working copy that every
+    /// later run fails to replace.
+    /// </remarks>
     public Result UseTranslationFile(string sourcePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
@@ -40,9 +45,9 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
         try
         {
             Directory.CreateDirectory(_dataFolder);
-            File.Copy(sourcePath, tempPath);
-            File.Move(tempPath, WorkingTranslationFilePath, overwrite: true);
-            return Result.Success();
+            using FileStream source = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using FileStream target = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            source.CopyTo(target);
         }
         catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException && !File.Exists(sourcePath))
         {
@@ -53,6 +58,18 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
         {
             DeleteQuietly(tempPath);
             return Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(sourcePath, ex.Message));
+        }
+
+        try
+        {
+            ClearReadOnly(WorkingTranslationFilePath);
+            File.Move(tempPath, WorkingTranslationFilePath, overwrite: true);
+            return Result.Success();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            DeleteQuietly(tempPath);
+            return Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(WorkingTranslationFilePath, ex.Message));
         }
     }
 
@@ -119,10 +136,20 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
 
     private string TempPath() => Path.Combine(_dataFolder, $"{Guid.NewGuid():N}.tmp");
 
+    /// <summary>An administrator may have set the flag by hand; it would stop every later replace.</summary>
+    private static void ClearReadOnly(string path)
+    {
+        if (File.Exists(path) && File.GetAttributes(path).HasFlag(FileAttributes.ReadOnly))
+        {
+            File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+        }
+    }
+
     private static void DeleteQuietly(string path)
     {
         try
         {
+            ClearReadOnly(path);
             File.Delete(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

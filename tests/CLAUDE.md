@@ -230,7 +230,9 @@ reflection** checks the conventions its predicate DSL cannot express ("sealed un
 inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
-`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. The three patcher
+`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. A patcher `net10.0` project
+also joins `ProductionAssemblies.Patcher`, or the isolation and platform rules skip it, and nothing
+fails to tell you. The three patcher
 `net10.0-windows` assemblies (Infrastructure.Windows, Cli and the desktop app's exe) are left out
 because a `net10.0` project cannot reference them. They sit at the top of the layering, so rules
 about them are stated as forbidden namespaces on the assemblies below.

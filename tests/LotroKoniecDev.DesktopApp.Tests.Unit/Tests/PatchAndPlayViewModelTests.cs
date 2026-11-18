@@ -268,13 +268,16 @@ public sealed class PatchAndPlayViewModelTests
             "a program pobierze spolszczenie od nowa.");
     }
 
-    [Fact]
-    public async Task PatchAsync_DownloadFailedButAnEarlierOneExists_PatchesItAndSaysSo()
+    [Theory]
+    [InlineData(TranslationFileSyncOutcome.OfflineUsedCache)]
+    [InlineData(TranslationFileSyncOutcome.IntegrityCheckFailedUsedCache)]
+    [InlineData(TranslationFileSyncOutcome.EndpointUnresolvedUsedCache)]
+    public async Task PatchAsync_DownloadFailedButAnEarlierOneExists_PatchesItAndSaysSo(TranslationFileSyncOutcome outcome)
     {
         // Arrange
         ViewModelBuilder builder = SavedGameUsingTheDownload();
         builder.SyncHandler.Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new TranslationFileSyncResponse(TranslationFileSyncOutcome.OfflineUsedCache, "timeout")));
+            .Returns(Result.Success(new TranslationFileSyncResponse(outcome, "the server could not be used")));
         builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
             .Returns(Result.Success(new PatchIfNeededResponse(true, true, 10, 0, 0, null)));
 
@@ -349,19 +352,42 @@ public sealed class PatchAndPlayViewModelTests
         await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
     }
 
-    [Fact]
-    public async Task PatchAsync_TheSavedFolderLostItsGameFile_SaysSoAndTouchesNothing()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Run_TheSavedFolderLostItsGameFile_SaysSoAndTouchesNothing(bool play)
     {
         // Arrange
         ViewModelBuilder builder = new();
         builder.SettingsFile.Contents = ViewModelBuilder.SettingsJson(gameFolder: ViewModelBuilder.SavedGameFolder);
 
         // Act
-        RunResult run = await PatchAsync(builder);
+        RunResult run = play ? await PlayAsync(builder) : await PatchAsync(builder);
 
         // Assert
         run.Status.ShouldBe("Nie znaleziono pliku gry w wybranym folderze. Sprawdź folder gry w „Ustawieniach”.");
+        run.Percent.ShouldBe(0);
         await builder.SyncHandler.DidNotReceive().Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>());
+        await builder.LaunchHandler.DidNotReceive().Handle(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>());
+        builder.Launcher.DidNotReceive().Launch(Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task PatchAsync_APortThrows_ShowsTheGeneralTextFreesTheGateAndPatchesNothing()
+    {
+        // Arrange: a hand-edited override path with a character no file system accepts throws in the copy.
+        ViewModelBuilder builder = SavedGameWithTheOverride();
+        builder.Workspace.UseTranslationFile(OverrideFile).Returns(_ => throw new ArgumentException("Null character in path."));
+
+        // Act
+        RunResult run = await PatchAsync(builder);
+
+        // Assert
+        run.Status.ShouldBe("Coś poszło nie tak. Szczegóły są w pliku data\\LotroPoPolsku.log w folderze programu.");
+        run.Percent.ShouldBe(0);
+        run.GateBusy.ShouldBeFalse();
+        run.CanStartAgain.ShouldBeTrue();
+        await builder.PatchHandler.DidNotReceive().Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -497,13 +523,16 @@ public sealed class PatchAndPlayViewModelTests
         run.GateBusy.ShouldBeFalse();
     }
 
-    [Fact]
-    public async Task PlayAsync_DownloadFailedButAnEarlierOneExists_LaunchesWithItAndSaysSo()
+    [Theory]
+    [InlineData(TranslationFileSyncOutcome.OfflineUsedCache)]
+    [InlineData(TranslationFileSyncOutcome.IntegrityCheckFailedUsedCache)]
+    [InlineData(TranslationFileSyncOutcome.EndpointUnresolvedUsedCache)]
+    public async Task PlayAsync_DownloadFailedButAnEarlierOneExists_LaunchesWithItAndSaysSo(TranslationFileSyncOutcome outcome)
     {
         // Arrange
         ViewModelBuilder builder = SavedGameUsingTheDownload();
         builder.SyncHandler.Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Success(new TranslationFileSyncResponse(TranslationFileSyncOutcome.OfflineUsedCache, "timeout")));
+            .Returns(Result.Success(new TranslationFileSyncResponse(outcome, "the server could not be used")));
 
         // Act
         RunResult run = await PlayAsync(builder);
@@ -528,6 +557,40 @@ public sealed class PatchAndPlayViewModelTests
         await builder.SyncHandler.DidNotReceive().Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>());
         builder.Workspace.DidNotReceive().UseTranslationFile(Arg.Any<string>());
         await builder.LaunchHandler.DidNotReceive().Handle(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task PlayAsync_AutoPatchOffWhileTheLauncherStarts_SaysSoWithAMovingBar()
+    {
+        // Arrange
+        ViewModelBuilder builder = SavedGame(autoPatch: false);
+        using ManualResetEventSlim release = new();
+        builder.Launcher.Launch(ViewModelBuilder.SavedDatFilePath).Returns(_ =>
+        {
+            release.Wait(TimeSpan.FromSeconds(10));
+            return Result.Success();
+        });
+
+        (string Status, bool Indeterminate, string StatusAfter) play = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                PatchAndPlayViewModel viewModel = Create(builder);
+
+                // Act
+                Task run = viewModel.PlayAsync();
+                Dispatcher.UIThread.RunJobs();
+                (string Status, bool Indeterminate) during = (viewModel.StatusText, builder.Progress.IsIndeterminate);
+
+                release.Set();
+                await run;
+                return (during.Status, during.Indeterminate, viewModel.StatusText);
+            },
+            CancellationToken.None);
+
+        // Assert
+        play.Status.ShouldBe("Uruchamiam grę…");
+        play.Indeterminate.ShouldBeTrue();
+        play.StatusAfter.ShouldBe("Uruchomiono launcher gry.");
     }
 
     [Fact]

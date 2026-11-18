@@ -154,6 +154,57 @@ public sealed class PatchIfNeededServiceTests
         _wipeDetector.DidNotReceive().Detect(Arg.Any<string>(), Arg.Any<string>());
     }
 
+    [Fact]
+    public void PatchIfNeeded_TheStoredVersionCannotBeRead_ReturnsThatErrorAndPatchesNothing()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(TranslationHash));
+        Error readError = DomainErrors.GameUpdateCheck.VersionFileError(VersionFilePath, "locked");
+        _versionStore.ReadStoredVersion(VersionFilePath).Returns(Result.Failure<StoredVersionInfo?>(readError));
+
+        Result<PatchIfNeededResponse> result = _sut.PatchIfNeeded(DatFilePath, VersionFilePath, TranslationFilePath, _progress);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(readError);
+        _patchingService.DidNotReceive().ApplyTranslations(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<IProgress<OperationProgress>?>());
+    }
+
+    [Fact]
+    public void PatchIfNeeded_TheGameFileVersionCannotBeReadAfterThePatch_ReturnsThatErrorAndSavesNothing()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(NewTranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath).Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, _progress)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 90, 10, [])));
+        Error vnumError = new("DatFile.CannotOpen", "CannotOpen failed", ErrorType.IoError);
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Failure<DatVersionInfo>(vnumError));
+
+        Result<PatchIfNeededResponse> result = _sut.PatchIfNeeded(DatFilePath, VersionFilePath, TranslationFilePath, _progress);
+
+        // With no saved hash the next run patches the whole file again, so nothing is skipped by mistake.
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(vnumError);
+        _versionStore.DidNotReceive().SaveVersion(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<int>(), Arg.Any<string?>());
+    }
+
+    [Fact]
+    public void PatchIfNeeded_TheVersionCannotBeSaved_ReturnsThatError()
+    {
+        _fileHasher.ComputeHash(TranslationFilePath).Returns(Result.Success(NewTranslationHash));
+        _versionStore.ReadStoredVersion(VersionFilePath).Returns(Result.Success<StoredVersionInfo?>(StoredWithHash));
+        _patchingService.ApplyTranslations(TranslationFilePath, DatFilePath, _progress)
+            .Returns(Result.Success(new PatchSummaryResponse(100, 90, 10, [])));
+        _datVersionReader.ReadVersion(DatFilePath).Returns(Result.Success(CurrentVnum));
+        Error saveError = DomainErrors.GameUpdateCheck.VersionFileError(VersionFilePath, "disk full");
+        _versionStore.SaveVersion(VersionFilePath, "40.2", CurrentVnum.VnumDatFile, CurrentVnum.VnumGameData, NewTranslationHash)
+            .Returns(Result.Failure(saveError));
+
+        Result<PatchIfNeededResponse> result = _sut.PatchIfNeeded(DatFilePath, VersionFilePath, TranslationFilePath, _progress);
+
+        result.IsFailure.ShouldBeTrue();
+        result.Error.ShouldBe(saveError);
+    }
+
     public PatchIfNeededServiceTests()
     {
         _sut = new PatchIfNeededService(

@@ -9,6 +9,7 @@ using Avalonia.VisualTree;
 using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Features.AppUpdating;
+using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.DesktopApp.Presentation.ViewModels;
@@ -1015,6 +1016,108 @@ public sealed class MainWindowTests
     }
 
     [Fact]
+    public async Task ClickGraj_WhileTheLaunchRuns_ShowsItsStepWithAMovingBarAndEndsWithTheLaunchOutcome()
+    {
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        TaskCompletionSource<Result<GameLaunchingResponse>> launch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        builder.LaunchHandler.Handle(Arg.Any<GameLaunchingCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Result<GameLaunchingResponse>>(launch.Task));
+
+        PlayRunSnapshot run = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = builder.MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    Button patchButton = window.FindControl<Button>("PatchButton").ShouldNotBeNull();
+                    Button playButton = window.FindControl<Button>("PlayButton").ShouldNotBeNull();
+                    ProgressBar bar = window.FindControl<ProgressBar>("PatchProgressBar").ShouldNotBeNull();
+                    TextBlock percent = window.FindControl<TextBlock>("ProgressText").ShouldNotBeNull();
+                    TextBlock status = window.FindControl<TextBlock>("StatusText").ShouldNotBeNull();
+
+                    playButton.Command.ShouldNotBeNull().Execute(playButton.CommandParameter);
+                    await WaitUntil(() => builder.LaunchHandler.ReceivedCalls().Any());
+                    Dispatcher.UIThread.RunJobs();
+                    string? statusDuring = status.Text;
+                    bool indeterminateDuring = bar.IsIndeterminate;
+                    bool percentVisibleDuring = percent.IsVisible;
+                    bool patchEnabledDuring = patchButton.IsEffectivelyEnabled;
+                    bool playEnabledDuring = playButton.IsEffectivelyEnabled;
+
+                    // An answer only the launch gives: a Patch run would show the patch handler's outcome.
+                    launch.SetResult(Result.Success(new GameLaunchingResponse(null, false, 0, TranslationsApplied: true, AppliedCount: 10)));
+                    await WaitUntil(() => !viewModel.PatchAndPlay.IsRunning);
+                    Dispatcher.UIThread.RunJobs();
+
+                    return new PlayRunSnapshot(
+                        statusDuring,
+                        indeterminateDuring,
+                        percentVisibleDuring,
+                        patchEnabledDuring,
+                        playEnabledDuring,
+                        status.Text,
+                        bar.Value);
+                }
+                finally
+                {
+                    launch.TrySetResult(Result.Success(new GameLaunchingResponse(null, false, 0)));
+                    await WaitUntil(() => !builder.Gate.IsBusy);
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        run.StatusDuring.ShouldBe("Sprawdzam spolszczenie i uruchamiam grę…");
+        run.IndeterminateDuring.ShouldBeTrue();
+        run.PercentVisibleDuring.ShouldBeFalse();
+        run.PatchEnabledDuring.ShouldBeFalse();
+        run.PlayEnabledDuring.ShouldBeFalse();
+        run.StatusAfter.ShouldBe("Spolszczenie nałożone. Uruchomiono launcher gry.");
+        run.BarAfter.ShouldBe(100);
+    }
+
+    [Fact]
+    public async Task Show_WhenAnotherOperationTakesTheGateLater_GreysOutBothButtonsUntilItEnds()
+    {
+        (bool PatchDuring, bool PlayDuring, bool PatchAfter, bool PlayAfter) buttons = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+                MainWindowViewModel viewModel = builder.MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    Button patchButton = window.FindControl<Button>("PatchButton").ShouldNotBeNull();
+                    Button playButton = window.FindControl<Button>("PlayButton").ShouldNotBeNull();
+
+                    // An update takes the gate after the window is on screen.
+                    builder.Gate.TryEnter();
+                    Dispatcher.UIThread.RunJobs();
+                    (bool Patch, bool Play) during = (patchButton.IsEffectivelyEnabled, playButton.IsEffectivelyEnabled);
+
+                    builder.Gate.Exit();
+                    Dispatcher.UIThread.RunJobs();
+                    return (during.Patch, during.Play, patchButton.IsEffectivelyEnabled, playButton.IsEffectivelyEnabled);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        buttons.PatchDuring.ShouldBeFalse();
+        buttons.PlayDuring.ShouldBeFalse();
+        buttons.PatchAfter.ShouldBeTrue();
+        buttons.PlayAfter.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ClickNalozSpolszczenie_WhileTheDownloadRuns_MovesTheBarWithNoPercent()
     {
         ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
@@ -1205,6 +1308,15 @@ public sealed class MainWindowTests
         string? StatusDuring,
         bool IndeterminateAfter,
         bool PercentVisibleAfter);
+
+    private sealed record PlayRunSnapshot(
+        string? StatusDuring,
+        bool IndeterminateDuring,
+        bool PercentVisibleDuring,
+        bool PatchEnabledDuring,
+        bool PlayEnabledDuring,
+        string? StatusAfter,
+        double BarAfter);
 
     private sealed record CloseSnapshot(bool OpenAfterRefusedClose, string? Status, bool ClosedAfterTheRun);
 }

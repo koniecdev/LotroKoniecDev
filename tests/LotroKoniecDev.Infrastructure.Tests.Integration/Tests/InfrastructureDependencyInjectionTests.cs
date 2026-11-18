@@ -64,6 +64,7 @@ public sealed class InfrastructureDependencyInjectionTests
 
         services.AddScoped(_ => Substitute.For<IDatFileHandler>());
         services.AddScoped(_ => Substitute.For<IDatVersionReader>());
+        services.AddSingleton(_ => Substitute.For<IDatFileLocator>());
         services.AddSingleton(_ => Substitute.For<IGameLauncher>());
         services.AddSingleton(_ => Substitute.For<IInstallerFileOpener>());
         services.AddScoped(_ => Substitute.For<IProgress<OperationProgress>>());

@@ -18,9 +18,9 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 /// </summary>
 public sealed class PatchIfNeededServiceTests
 {
-    private const string DatFilePath = @"C:\LOTRO\client_local_English.dat";
-    private const string VersionFilePath = @"C:\temp\version.txt";
-    private const string TranslationFilePath = @"C:\translations\polish.txt";
+    private const string DatFilePath = "client_local_English.dat";
+    private const string VersionFilePath = "version.txt";
+    private const string TranslationFilePath = "polish.txt";
     private const string TranslationHash = "abc123def456";
     private const string NewTranslationHash = "xyz789";
 

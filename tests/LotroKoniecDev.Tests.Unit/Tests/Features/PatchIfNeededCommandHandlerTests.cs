@@ -8,9 +8,9 @@ namespace LotroKoniecDev.Tests.Unit.Tests.Features;
 
 public sealed class PatchIfNeededCommandHandlerTests
 {
-    private const string DatFilePath = @"C:\LOTRO\client_local_English.dat";
-    private const string VersionFilePath = @"C:\data\last_known_game_version.txt";
-    private const string TranslationFilePath = @"C:\data\polish.txt";
+    private const string DatFilePath = "client_local_English.dat";
+    private const string VersionFilePath = "last_known_game_version.txt";
+    private const string TranslationFilePath = "polish.txt";
 
     private readonly IPatchIfNeededService _service = Substitute.For<IPatchIfNeededService>();
     private readonly IProgress<OperationProgress> _progress = Substitute.For<IProgress<OperationProgress>>();

@@ -333,7 +333,7 @@ public sealed class DesktopPatchWorkspaceTests : IDisposable
     }
 
     [Fact]
-    public void ResetPatchStateIfGameFileChanged_AnotherGameFile_KeepsTheLedgerAndTheSnapshot()
+    public void ResetPatchStateIfGameFileChanged_AnotherGameFile_KeepsTheLedger()
     {
         // Arrange: the ledger admits only text this patcher wrote, so it can stay (ADR-0047 §4).
         DesktopPatchWorkspace sut = new(DataFolder);

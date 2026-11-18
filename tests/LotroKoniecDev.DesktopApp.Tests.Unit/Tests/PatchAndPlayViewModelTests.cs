@@ -1,4 +1,5 @@
 using Avalonia.Threading;
+using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
 using LotroKoniecDev.Application.Features.TranslationFileSyncing;
@@ -66,9 +67,11 @@ public sealed class PatchAndPlayViewModelTests
     [MemberData(nameof(PatchOutcomesThatWroteNothing))]
     public async Task PatchAsync_AnOutcomeThatWroteNothing_ShowsItsPolishTextAndEndsTheBarAtZero(PatchIfNeededResponse response, string expectedStatus)
     {
-        // Arrange: every row skipped (not approved, no source digest, English moved) or a failed repair.
+        // Arrange: every row skipped (not approved, no source digest, English moved) or a failed repair,
+        // after the patcher had already moved the bar.
         ViewModelBuilder builder = SavedGameUsingTheDownload();
-        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>()).Returns(Result.Success(response));
+        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => ReportThenAnswer(builder, Result.Success(response)));
 
         // Act
         RunResult run = await PatchAsync(builder);
@@ -303,10 +306,11 @@ public sealed class PatchAndPlayViewModelTests
     [MemberData(nameof(PatchFailures))]
     public async Task PatchAsync_APatchError_ShowsThePolishTextForItsCodeAndResetsTheBar(Error error, string expectedStatus)
     {
-        // Arrange
+        // Arrange: the failure comes after the patcher moved the bar (a version file that cannot be
+        // saved fails after the whole patch), so the 0 at the end is the reset, not the start.
         ViewModelBuilder builder = SavedGameUsingTheDownload();
         builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
-            .Returns(Result.Failure<PatchIfNeededResponse>(error));
+            .Returns(_ => ReportThenAnswer(builder, Result.Failure<PatchIfNeededResponse>(error)));
 
         // Act
         RunResult run = await PatchAsync(builder);
@@ -717,6 +721,14 @@ public sealed class PatchAndPlayViewModelTests
     {
         builder.Store.Load();
         return builder.PatchAndPlay(builder.GameFolder());
+    }
+
+    /// <summary>The patcher reports every 1000 rows from its own thread; this stands in for one report.</summary>
+    private static ValueTask<Result<PatchIfNeededResponse>> ReportThenAnswer(
+        ViewModelBuilder builder, Result<PatchIfNeededResponse> answer)
+    {
+        builder.Progress.Report(new OperationProgress(600, 1000));
+        return new ValueTask<Result<PatchIfNeededResponse>>(answer);
     }
 
     private Task<RunResult> PatchAsync(ViewModelBuilder builder) => RunAsync(builder, viewModel => viewModel.PatchAsync());

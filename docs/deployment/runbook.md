@@ -21,7 +21,7 @@
 - [Consistency rules that bite](#consistency-rules-that-bite) — issuer / redirect / authority / CORS
 - [Bringing the stack up](#bringing-the-stack-up) — dev, prod-parity, (re)provisioning a box, and the one-time network cutover
 - [Continuous deployment (CD over ssh)](#continuous-deployment-cd-over-ssh) — build once → automatic staging → gated prod promotion
-- [Releases](#releases) — cutting a version (a git tag + a GitHub Release), and a commit whose image failed its checks or cannot be read
+- [Releases](#releases) — cutting a version (a git tag + a GitHub Release), cutting a desktop app release (a workflow run), and a commit whose image failed its checks or cannot be read
 - [Database migrations](#database-migrations) — strategy, running them, and recovering from a bad migration (Neon PITR + the MIGR-04 auto-snapshot)
 - [Database backups](#database-backups) — the Neon plan, the nightly encrypted dump to R2, and how to get damaged rows back (ADR-0071)
 - [Message broker (RabbitMQ)](#message-broker-rabbitmq) — the in-stack broker, the dead-letter parking lots, replay and rotation traps
@@ -1257,11 +1257,68 @@ live since 2026-11-15 (ADR-0071), so v0.1.0 needs only a prod commit that has AD
    git push origin v0.1.0
    ```
 
-4. **Publish the release** with short notes on what changed for translators and players:
+4. **Publish the release** with short notes on what changed for translators and players. `--latest`
+   keeps GitHub's "Latest" on the server's releases; desktop releases never take it (below):
 
    ```bash
-   gh release create v0.1.0 --verify-tag --title "v0.1.0" --notes-file <notes file>
+   gh release create v0.1.0 --verify-tag --latest --title "v0.1.0" --notes-file <notes file>
    ```
+
+### Cutting a desktop release
+
+The desktop app has its own numbers, `desktop-vX.Y.Z`, separate from the server's (ADR-0070,
+2026-11-16 amendment; spec 0016). A desktop release is made by a workflow, never by hand:
+
+1. **Check `main`.** The workflow builds the tip of `main`. Look at the last `CI` run on `main` in the
+   Actions tab: when a code change is still red or running, wait. The workflow does not check this
+   itself, because `ci.yml` skips docs-only commits.
+2. **Run it.** Actions → "Desktop release" → "Run workflow", branch `main`, version `X.Y.Z` (for the
+   first one, `0.1.0`), and optional release notes. Or from a terminal:
+
+   ```bash
+   gh workflow run desktop-release.yml --ref main -f version=0.1.0 -f notes="Pierwsze wydanie aplikacji."
+   ```
+
+   Before it builds anything, it refuses a branch other than `main`, a version that is not three
+   plain numbers, 0.0.0, a version whose tag exists, and a version not above the highest
+   `desktop-v` tag.
+3. **What it does:** on a Windows runner it builds, with a .NET 10 SDK, the exe stamped with the
+   version and the Inno Setup installer, installs it silently, installs it again over the running
+   app, uninstalls it, and checks each step. Only then does it create the tag `desktop-vX.Y.Z` on
+   that commit and publish the release with `LotroPoPolsku-Setup-X.Y.Z.exe` and its `.sha256`. The
+   release is not marked Latest. Every installed app sees it at its next start.
+4. **When it fails** before the release, nothing was published and the version number is still free:
+   fix, merge, run again. The failed run keeps the Inno logs and the app's log as an artifact. A
+   release job that fails or is cancelled after it made the tag deletes that tag itself, unless the
+   release already went public: then the release and its tag stay, because apps may already have
+   taken the file, and the fix is the next version. When the job could not ask GitHub about the
+   release, it keeps the tag and says so in a warning. If that happened, if the step that makes the
+   tag failed after GitHub had already made it (the clean-up runs only for a tag the job knows it
+   made), or a run was killed so hard that it could not clean up, check by hand. Only when `gh release view desktop-vX.Y.Z` finds no
+   release and `git ls-remote --tags origin desktop-vX.Y.Z` still lists the tag, delete the tag
+   before you run the version again: `git push origin --delete refs/tags/desktop-vX.Y.Z`. A draft
+   that a killed run left behind counts as no release: `gh release view` shows it with
+   `isDraft: true`. Delete it first with `gh release delete desktop-vX.Y.Z --yes`, then the tag.
+5. **Prefer "Run workflow" to "Re-run jobs".** The release job checks the version again before it
+   makes the tag, so a re-run of an old release run refuses a version that is no longer the next
+   one. A re-run still publishes the installer that old run built, so run the workflow again when
+   `main` has changed since.
+
+A published release that turns out broken: installed apps offer it until a higher one exists, so the
+fix is the next version. To take a release down (a legal request, LEGAL-09), delete it with its tag:
+`gh release delete desktop-vX.Y.Z --cleanup-tag --yes`. Releases in this repo are not immutable, so
+this works.
+
+The first real update (from `desktop-v0.1.0` to `desktop-v0.1.1`) is the first proof of the whole
+update path against GitHub. Do not announce `desktop-v0.1.0` to players before these steps passed
+on a real Windows machine, with the app started from its shortcut (so without admin rights, until
+#42):
+
+1. With 0.1.0 installed, publish 0.1.1 and start 0.1.0. The panel offers 0.1.1.
+2. Click "Tak", then "No" on the Windows admin prompt. The app stays open, says "nie zgodzono się na
+   uruchomienie instalatora", and "Tak" works again.
+3. Click "Tak" again, then "Yes". The app closes, the install shows only its progress, 0.1.1
+   starts, and `%AppData%\LotroPoPolsku\update-install.log` exists.
 
 ### An image that failed its checks
 

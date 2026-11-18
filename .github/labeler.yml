@@ -5,6 +5,7 @@ needs-windows-check:
           - src/Patcher/LotroKoniecDev.Cli/**
           - src/Patcher/LotroKoniecDev.Infrastructure/**
           - src/Player/LotroKoniecDev.DesktopApp/**
+          - installer/**
           - tests/LotroKoniecDev.Tests.Infrastructure/**
           - tests/LotroKoniecDev.Tests.E2E/**
           - tests/Shared/WindowsOnlyTestRun.targets

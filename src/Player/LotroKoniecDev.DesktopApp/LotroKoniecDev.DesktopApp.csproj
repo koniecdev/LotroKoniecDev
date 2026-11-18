@@ -18,6 +18,17 @@
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     </PropertyGroup>
 
+    <!-- 0.0.0 is a developer build, which never checks for updates. The release workflow publishes
+         with -p:Version=X.Y.Z, and the app reads the stamp back as text and parses it with the same
+         parser as the release tags (spec 0016). -->
+    <PropertyGroup>
+        <Version>0.0.0</Version>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <AssemblyMetadata Include="DesktopVersion" Value="$(Version)" />
+    </ItemGroup>
+
     <ItemGroup>
         <PackageReference Include="Avalonia.Desktop" />
         <PackageReference Include="Avalonia.Fonts.Inter" />

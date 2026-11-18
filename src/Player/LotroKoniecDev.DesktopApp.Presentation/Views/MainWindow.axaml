@@ -78,6 +78,20 @@
                        Text="{Binding Progress.Percent, StringFormat='{}{0}%'}" VerticalAlignment="Center" />
         </Grid>
 
+        <!-- The update offer (spec 0016). Hidden until the check at start finds a newer version. -->
+        <StackPanel Name="UpdatePanel" Spacing="8" IsVisible="{Binding AppUpdate.IsPromptVisible}">
+            <TextBlock Name="UpdatePromptText" Text="{Binding AppUpdate.PromptText}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="16">
+                <Button Grid.Column="0" Name="AcceptUpdateButton" Content="Tak"
+                        Command="{Binding AppUpdate.AcceptCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+                <Button Grid.Column="1" Name="DeclineUpdateButton" Content="Nie"
+                        Command="{Binding AppUpdate.DeclineCommand}"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center" />
+            </Grid>
+        </StackPanel>
+        <TextBlock Name="UpdateStatusText" Text="{Binding AppUpdate.StatusText}"
+                   IsVisible="{Binding AppUpdate.IsStatusVisible}" TextWrapping="Wrap" />
         <Button Name="SettingsButton" Content="Ustawienia" Click="OnSettingsClick" HorizontalAlignment="Right" />
     </StackPanel>
 </Window>

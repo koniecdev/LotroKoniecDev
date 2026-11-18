@@ -1,5 +1,8 @@
 using System.Text.Json;
+using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Application.Abstractions.Messaging;
+using LotroKoniecDev.Application.Features.AppUpdating;
 using LotroKoniecDev.DesktopApp.Presentation;
 using LotroKoniecDev.DesktopApp.Presentation.Settings;
 using LotroKoniecDev.DesktopApp.Presentation.ViewModels;
@@ -13,9 +16,10 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace LotroKoniecDev.DesktopApp.Tests.Unit.Shared;
 
 /// <summary>
-/// The view models over in-memory settings, files and dialogs. <see cref="WithASavedGame"/> is the
-/// default for window tests: a saved folder that holds the game, so an opened window shows no
-/// first-run panel and starts no search.
+/// The view models over in-memory settings, files and dialogs, with their handlers stubbed.
+/// <see cref="WithASavedGame"/> is the default for window tests: a saved folder that holds the game, so
+/// an opened window shows no first-run panel and starts no search. By default the update check answers
+/// "developer build", so an opened window shows no update panel either.
 /// </summary>
 internal sealed class ViewModelBuilder
 {
@@ -78,7 +82,37 @@ internal sealed class ViewModelBuilder
     public SettingsViewModel Settings() =>
         new(Store, Picker, NullLogger<SettingsViewModel>.Instance);
 
-    public MainWindowViewModel MainWindow() => new(new ProgressBarViewModel(), GameFolder(), Settings());
+    public MainWindowViewModel MainWindow(AppUpdateViewModel? appUpdate = null) =>
+        new(new ProgressBarViewModel(), GameFolder(), Settings(), appUpdate ?? AppUpdate(DevelopmentBuildCheck()));
+
+    public static AppUpdateViewModel AppUpdate(
+        IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> checkHandler,
+        ICommandHandler<InstallAppUpdateCommand, Result>? installHandler = null,
+        OperationGate? gate = null,
+        string installedVersion = "0.1.0",
+        IAppShutdown? appShutdown = null,
+        IProgress<OperationProgress>? progress = null) =>
+        new(
+            checkHandler,
+            installHandler ?? Substitute.For<ICommandHandler<InstallAppUpdateCommand, Result>>(),
+            gate ?? new OperationGate(),
+            new InstalledAppVersion(installedVersion),
+            appShutdown ?? Substitute.For<IAppShutdown>(),
+            progress ?? new ProgressBarViewModel(),
+            NullLogger<AppUpdateViewModel>.Instance);
+
+    public static IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> CheckAnswering(
+        AppUpdateCheckResponse response)
+    {
+        IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> handler =
+            Substitute.For<IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>>>();
+        handler.Handle(Arg.Any<CheckForAppUpdateQuery>(), Arg.Any<CancellationToken>())
+            .Returns(Result.Success(response));
+        return handler;
+    }
+
+    public static IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>> DevelopmentBuildCheck() =>
+        CheckAnswering(AppUpdateCheckResponse.DevelopmentBuild());
 
     public static ViewModelBuilder WithASavedGame()
     {

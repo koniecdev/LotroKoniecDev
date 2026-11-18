@@ -218,6 +218,12 @@ expect 'code=false guards=true images=false' 'the automatic rollback'           
 expect 'code=false guards=true images=false' 'the automatic rollback self-test'           'scripts/tests/rollback-to-previous-tag.tests.sh'
 expect 'code=false guards=true images=false' 'the CD gate'                                'scripts/ci/cd-gate.sh'
 expect 'code=false guards=true images=false' 'the CD gate self-test'                      'scripts/tests/cd-gate.tests.sh'
+expect 'code=false guards=true images=false' 'the desktop release check'                  'scripts/ci/desktop-release-check.sh'
+expect 'code=false guards=true images=false' 'the desktop release check self-test'        'scripts/tests/desktop-release-check.tests.sh'
+expect 'code=false guards=true images=false' 'the desktop release clean-up'                'scripts/ci/desktop-release-cleanup.sh'
+expect 'code=false guards=true images=false' 'the desktop release clean-up self-test'      'scripts/tests/desktop-release-cleanup.tests.sh'
+expect 'code=true guards=true images=false'   'the desktop installer script (unknown path)' 'installer/LotroPoPolsku.iss'
+expect 'code=false guards=false images=false' 'the desktop release workflow'               '.github/workflows/desktop-release.yml'
 
 echo
 echo '── read by an integration test: the .NET gate runs too (#1163) ──────────────────────────────'

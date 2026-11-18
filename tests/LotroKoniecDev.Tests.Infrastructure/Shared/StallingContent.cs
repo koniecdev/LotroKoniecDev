@@ -19,6 +19,13 @@ internal sealed class StallingContent : HttpContent
     protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
         => SerializeToStreamAsync(stream, context, CancellationToken.None);
 
+    /// <summary>A reader that streams the body (ReadAsStreamAsync) gets the same stall.</summary>
+    protected override async Task<Stream> CreateContentReadStreamAsync(CancellationToken cancellationToken)
+    {
+        await Task.Delay(StallFallback, cancellationToken);
+        return Stream.Null;
+    }
+
     protected override bool TryComputeLength(out long length)
     {
         length = 0;

@@ -132,6 +132,12 @@ jobs:
       - name: CD gate self-test
         run: ./scripts/tests/cd-gate.tests.sh
 
+      - name: Desktop release check self-test
+        run: ./scripts/tests/desktop-release-check.tests.sh
+
+      - name: Desktop release clean-up self-test
+        run: ./scripts/tests/desktop-release-cleanup.tests.sh
+
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 

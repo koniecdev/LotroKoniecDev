@@ -51,4 +51,14 @@ internal static class EventIds
     // Translation File Syncing (5200–5299)
     public const int TranslationFileEndpointFallbackToCache = 5200;
     public const int TranslationFileEndpointHintNotPersisted = 5201;
+
+    // App Updating (5300–5399)
+    public const int AppUpdateAvailable = 5300;
+    public const int AppUpdateCheckFailed = 5301;
+    public const int AppUpdateHostRefused = 5302;
+    public const int AppUpdateDownloadHostRefused = 5303;
+    public const int AppUpdateHashMismatch = 5304;
+    public const int AppUpdateInstallerStarted = 5305;
+    public const int AppUpdateInstallerNotStarted = 5306;
+    public const int AppUpdateChecksumFileInvalid = 5307;
 }

@@ -28,7 +28,7 @@ public sealed class SplashScreenTests
                     () =>
                     {
                         viewModelsCreated++;
-                        return new MainWindowViewModel(new ProgressBarViewModel());
+                        return ViewModelBuilder.WithASavedGame().MainWindow();
                     },
                     TimeSpan.FromHours(1));
 
@@ -48,7 +48,7 @@ public sealed class SplashScreenTests
     [Fact]
     public async Task Show_OnceTheDurationEnds_OpensTheMainWindowBeforeClosingTheSplash()
     {
-        MainWindowViewModel viewModel = new(new ProgressBarViewModel());
+        MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow();
 
         (object? MainWindowDataContext, bool MainWindowOpenWhenSplashClosed, bool SplashOpen) state = await _fixture.Session.Dispatch(
             async () =>
@@ -89,7 +89,7 @@ public sealed class SplashScreenTests
     public void Show_WithoutALifetime_Throws()
     {
         Should.Throw<ArgumentNullException>(
-            () => SplashScreen.Show(null!, () => new MainWindowViewModel(new ProgressBarViewModel()), TimeSpan.Zero));
+            () => SplashScreen.Show(null!, () => ViewModelBuilder.WithASavedGame().MainWindow(), TimeSpan.Zero));
     }
 
     [Fact]

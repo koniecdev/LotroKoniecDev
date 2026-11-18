@@ -2,6 +2,9 @@ namespace LotroKoniecDev.Primitives.Constants;
 
 public static class DatFileConstants
 {
+    /// <summary>The game file that holds the English texts. A game folder is valid only when it has it.</summary>
+    public const string DatFileName = "client_local_English.dat";
+
     /// <summary>A text file in the DAT archive has 0x25 as the high byte of its file id.</summary>
     public const int TextFileMarker = 0x25;
 

@@ -96,9 +96,7 @@ internal sealed partial class TranslationFileEndpointResolver : ITranslationFile
                 href, "it is not an absolute URI."));
         }
 
-        // The same rule as for the configured base URL: over plain http anyone on the path can change
-        // the file (#391), so only loopback, with no network hop, may skip TLS.
-        if (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback))
+        if (!TranslationServerAddress.HasAllowedScheme(uri))
         {
             return Result.Failure<Uri>(DomainErrors.TranslationFileSync.EndpointRejected(
                 href, "only https is allowed (plain http only for localhost)."));

@@ -145,6 +145,61 @@ planted launcher or library.
 - ADR-0067 §7 item 5, the `code-reviewer` agent's list of what stays a finding, and the "Sort review
   findings" row in `CLAUDE.md` point here.
 
+## Amendment (2026-11-17) — the desktop app (#43)
+
+**Ticket:** #43 (M4-03). Owner rulings: #1292 (2026-11-16, an allow-list) and #43 (2026-11-16).
+
+1. **The rule lives in Domain.** `DatFileLocation.NeedsConfirmation` is true unless the folder came
+   from the SSG default, Steam or the registry, so a source added later asks by default (#1292). The
+   app uses it now. The CLI's `DatPathResolver` moves to it in #1292.
+2. **How the app asks.** On a first run with no usable saved folder, the app searches in the
+   background:
+   - One known install is saved with no question.
+   - One folder from any other source gets a Tak/Nie question that says nothing checks the launcher.
+   - Several installs are shown as a list, with that warning on every entry that needs
+     confirmation. A click on an entry is the confirmation.
+   - Nothing found, or „Nie”, leads to the folder dialog.
+
+   A folder the player picks in the dialog or types in the settings counts like `-d`: the player
+   chose it. A search result is ignored once the player opens the folder dialog or the settings
+   window, so a late result never chooses for a player who is already choosing.
+3. **The saved folder is a new location source (§4).** The app keeps the game folder in
+   `%AppData%\LotroPoPolsku\config.json` and uses it on later starts with no question: the player
+   chose it or confirmed it, or it came from the allow-list. A saved folder that lost its game file
+   is replaced only after the player says so: a Tak/Nie that names both folders, a pick from the
+   list, the folder dialog or a save in the settings window. Until then the file keeps the old
+   folder. A single bad value in the file drops only that value. When the app could not read the
+   file, it is not a JSON object, or a value the app reads holds an escape that is not text, the app
+   starts from the defaults. Its first save then moves the old file aside, and a file that could
+   not be read may only be locked for now, so the app asks before it saves a known install found
+   then, even one from the allow-list. A translation file the settings name that is gone at start
+   stays in the settings, because its drive may only be unplugged.
+4. **The risk, and who closes it.** Any program that runs as the player can change that file, and
+   so point the app at a folder of its choice. Today nothing reaches the launcher or the DAT with it:
+   Patch and Play stay disabled until #42. The app also writes the file as administrator in some
+   runs: right after each install or update (#45's installer starts it with `runascurrentuser`),
+   and on every start once #42 adds `requireAdministrator`. The player can write to the folder the
+   file sits in, so this is the same class as the installer's log on #42's list of same-user paths.
+   A file the load could not use is moved aside before the next save, to a new random name next to
+   it, never over an existing file; the temporary file of a save has a random name too. So nothing
+   can be placed in advance at a name the settings code writes, apart from `config.json` itself. The
+   folder itself is the player's too: a program that runs as the player can swap it for a junction
+   that points somewhere else. #1456 reviews that with the rest of this item.
+   The app's log, `LotroPoPolsku.log` (#41), is one more fixed name in that folder, open until #42.
+   **Before Patch or Play uses the saved folder, #42 closes this read path (for example, settings
+   that an elevated app reads from a folder only administrators can write), or the owner accepts it
+   in an amendment to this ADR.**
+5. **The notice.** The main window always shows the LEGAL-12 risk note and the app's own launcher
+   notice, in the CLI's order. From #42 on, the app runs as administrator (owner decision 4
+   on #43), so the launcher it starts already has those rights. Its text therefore leaves out the
+   CLI's clause that the launcher asks for admin rights itself. `NOTICE` now describes both
+   programs. So §3's "both
+   are also in the `NOTICE` file" and the Implementation Notes' "the same text in `NOTICE`" no
+   longer hold word for word: `NOTICE` carries what both texts say, not either text exactly.
+6. **Proton.** Whether the search finds a Steam install under Proton is unproven. The Steam path is
+   read inside the Wine prefix, and the drive scan may walk the Linux file tree. Nothing here
+   promises the folder dialog as the outcome.
+
 ## References
 
 - #392: AUDIT-SEC-02, the attack and the two guards

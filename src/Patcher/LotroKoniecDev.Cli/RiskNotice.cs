@@ -1,3 +1,5 @@
+using LotroKoniecDev.Primitives.Constants;
+
 namespace LotroKoniecDev.Cli;
 
 /// <summary>
@@ -6,8 +8,5 @@ namespace LotroKoniecDev.Cli;
 /// </summary>
 internal static class RiskNotice
 {
-    public const string Text =
-        "Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje takich modyfikacji, " +
-        "choć przez ponad dekadę działania analogicznych projektów (rosyjskiego i hiszpańskiego) " +
-        "nie odnotowano za nie banów. Korzystasz na własną odpowiedzialność.";
+    public const string Text = PlayerNoticeConstants.Risk;
 }

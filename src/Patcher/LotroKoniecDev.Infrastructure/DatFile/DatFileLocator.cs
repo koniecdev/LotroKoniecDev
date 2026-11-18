@@ -2,6 +2,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
+using LotroKoniecDev.Primitives.Constants;
 using LotroKoniecDev.Primitives.Enums;
 using Microsoft.Win32;
 
@@ -9,22 +10,20 @@ namespace LotroKoniecDev.Infrastructure.DatFile;
 
 public sealed class DatFileLocator : IDatFileLocator
 {
-    private const string DatFileName = "client_local_English.dat";
-
     private static readonly string SsgPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
         "StandingStoneGames",
         "The Lord of the Rings Online",
-        DatFileName);
+        DatFileConstants.DatFileName);
 
     private static readonly string SteamPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
         "Steam", "steamapps", "common",
         "The Lord of the Rings Online",
-        DatFileName);
+        DatFileConstants.DatFileName);
 
     private static readonly string LocalFallbackPath =
-        Path.GetFullPath(Path.Combine("data", DatFileName));
+        Path.GetFullPath(Path.Combine("data", DatFileConstants.DatFileName));
 
     private static readonly string[] RegistryKeys =
     [
@@ -100,7 +99,7 @@ public sealed class DatFileLocator : IDatFileLocator
                         continue;
                     }
 
-                    string datPath = Path.Combine(installPath, DatFileName);
+                    string datPath = Path.Combine(installPath, DatFileConstants.DatFileName);
                     TryAddIfExists(locations, datPath, DatFileSource.Registry,
                         $"Registry ({Path.GetFileName(installPath)})");
                 }
@@ -127,7 +126,7 @@ public sealed class DatFileLocator : IDatFileLocator
             {
                 IEnumerable<string> files = Directory.EnumerateFiles(
                     drive.RootDirectory.FullName,
-                    DatFileName,
+                    DatFileConstants.DatFileName,
                     new EnumerationOptions
                     {
                         RecurseSubdirectories = true,

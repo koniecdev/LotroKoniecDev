@@ -26,7 +26,7 @@ Full project inventory (16 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
-| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41): the view models (incl. the progress bar the patcher handlers report to), the main window layout and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43): the view models (incl. the progress bar the patcher handlers report to, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -193,8 +193,8 @@ message.
 - `Tests/Extensions/`: the `Result` extensions and the `LoadSubFile` guards against corrupt data.
 - `Tests/Features/`: the handlers and services (export, patch, launch with the Tier 0 wipe repair,
   preflight, TMS file sync, endpoint resolution, integrity, version baseline, update check).
-- `Tests/Models/`: `Fragment`, `SubFile`, `Translation`, the source digest and the iteration
-  snapshot.
+- `Tests/Models/`: `Fragment`, `SubFile`, `Translation`, the source digest, the iteration
+  snapshot and which game folders need the player's confirmation (`DatFileLocation`, ADR-0069).
 - `Tests/Parsers/`: the translation file parser, `TranslationLineCarver` and
   `TranslationLineEscaper`.
 
@@ -241,9 +241,10 @@ adapters' integrity, response-size and timeout checks over an in-memory stub
 `HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
 `*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in
 `Tests.Unit`.
-Two desktop app suites sit here too, because only this Windows suite can load the x86 exe:
-`DesktopAppDependencyInjectionTests` builds its composition root with the real adapters, and
-`DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`.
+Three desktop app suites sit here too, because only this Windows suite can load the x86 exe:
+`DesktopAppDependencyInjectionTests` builds its composition root with the real adapters,
+`DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, and `DesktopSettingsFileTests`
+saves and reads `config.json` and checks files on the real disk.
 
 The project targets `net10.0-windows` with an x86 `PlatformTarget`. It builds everywhere and
 **runs on Windows only**, where it needs the x86 .NET runtime (without it the run aborts and

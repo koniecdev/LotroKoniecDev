@@ -137,7 +137,9 @@ When a newer version is out, the app offers it at start and installs it after on
   silent update, which closes the app itself. A mutex the app may not open counts as a running
   copy. A name another kind of object holds never stops the app; the app logs it as a Warning.
   Every copy runs as admin (#1464), so an
-  uninstaller run by any admin account sees the mutex. A second copy that only shows its "already
+  uninstaller run by any admin account normally sees the mutex. Unlike the app, Inno Setup's
+  `CheckForMutexes` counts a mutex it may not open as no mutex, so in that case the uninstaller
+  goes on and leaves the running exe behind. A second copy that only shows its "already
   running" message holds no mutex by design. If the first copy has ended while that message is
   open, the uninstaller does not see that copy: it removes the rest and leaves that exe behind,
   and the player deletes it by hand.
@@ -304,8 +306,9 @@ never calls them.
       publish folder sits next to the exe; the player, Users, Authenticated Users, Everyone and
       INTERACTIVE have no write right on `{app}` or `{app}\data`, whose owner is Administrators,
       SYSTEM or TrustedInstaller; no copy shows the "already running" message.
-- [ ] After install 2, a second start shows the "already running" message and ends with exit code 0
-      once it is closed, and the first copy keeps running.
+- [ ] After install 2, a second start from another folder shows the "already running" message,
+      does not keep that folder as its working folder, and ends with exit code 0 once the message
+      is closed; the first copy keeps running.
 - [ ] Only then the tag `desktop-vX.Y.Z` names the dispatched commit and a published release, not
       Latest, carries the installer and a `.sha256` that `sha256sum -c` accepts.
 - [ ] No workflow starts on a tag, a release or a created ref; `commit-image.tests.sh` is unchanged

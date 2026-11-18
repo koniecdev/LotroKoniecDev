@@ -243,8 +243,9 @@ the amendment of 2026-11-17.
    - The .NET runtime reads variables from the player's own environment (`HKCU\Environment`), which
      the player changes without admin rights. The CLR profiler variables
      (`CORECLR_ENABLE_PROFILING`, `CORECLR_PROFILER_PATH`) load a DLL into the elevated app, and the
-     EventPipe and crash dump variables make it write to a path the player picks. No project
-     setting turns them off. UAC on the same desktop is not a security boundary, so this amendment
+     EventPipe and crash dump variables make it write to a path the player picks. The player's own
+     `PATH` is one more variable of this kind: Windows searches it for a library it finds nowhere
+     else. No project setting turns these off. UAC on the same desktop is not a security boundary, so this amendment
      closes the file paths of item 4, not every way from a player's program to admin rights.
    - A PC whose policy makes the creator, not Administrators, the owner of what an administrator
      creates, or that runs Windows Administrator Protection. There `data\` may belong to the player.

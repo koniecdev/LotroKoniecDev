@@ -35,6 +35,7 @@ public sealed class BoundedContextIsolationTests
         ProductionAssemblies.PatcherPrimitives,
         ProductionAssemblies.PatcherDomain,
         ProductionAssemblies.PatcherApplication,
+        ProductionAssemblies.PatcherInfrastructure,
         ProductionAssemblies.DesktopAppPresentation,
     ];
 

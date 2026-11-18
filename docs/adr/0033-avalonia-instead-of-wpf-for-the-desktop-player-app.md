@@ -178,6 +178,51 @@ The English labels #41 put in the main window (Status, Game version, Patch versi
 stay until #42, which wires those buttons and replaces the labels (owner decision 1 on #42). #42 also
 adds `requireAdministrator` to the manifest and records it in this ADR.
 
+## Amendment (2026-11-18) — the patcher Infrastructure is two projects
+
+**Ticket:** #1321 (M4-07).
+
+The 2026-10-21 amendment split the app along the platform line. This one does the same one layer
+down. A project has one target, so one Windows file made the whole patcher Infrastructure
+`net10.0-windows`/x86: its network and storage adapters built only for Windows, their tests ran only
+on Windows, and the Linux CI never ran them.
+
+- **`LotroKoniecDev.Infrastructure`** is plain `net10.0` AnyCPU: the network clients, the storage
+  adapters, the diagnostics and the app-update workspace. `AddInfrastructureServices()` registers
+  them.
+- **`LotroKoniecDev.Infrastructure.Windows`** is `net10.0-windows`, x86. It holds the six native
+  DLLs (`datexport.dll`, the msvc runtimes, `zlib1T.dll`) and the Windows adapters: `DatExportNative`,
+  `DatFileHandler`, `DatFileLocator`, `GameLauncher` and `InstallerFileOpener`.
+  `AddWindowsInfrastructureServices()` registers its five ports: `IDatFileHandler`,
+  `IDatVersionReader`, `IDatFileLocator`, `IGameLauncher` and `IInstallerFileOpener`. A Linux host
+  (#1322) registers only the cross-platform part and puts stand-ins in place of those five.
+
+The Windows project does not reference the cross-platform one, and a `net10.0` project cannot
+reference a `net10.0-windows` one. So each host on Windows (the CLI and the desktop exe) references
+both and calls both registration methods.
+
+**The placement rule.** A class goes to the Windows project when it calls a Windows-only .NET API or
+a Windows DLL, or when it starts a Windows program. Everything else stays cross-platform. That
+includes `GameProcessDetector`: it looks for the game's Windows process names through
+`Process.GetProcessesByName`, which runs on every OS, and where no such process runs it answers "not
+running". It also includes a class whose promise holds everywhere while one edge case reads a
+Windows error code (`WriteAccessChecker`, `AppUpdateWorkspace`). The test of that edge case stays in
+the Windows-only suite.
+
+**What enforces it.** CA1416 fails the build on a Windows-only .NET API in a `net10.0` project, and
+NU1201 stops a `net10.0` project from referencing the Windows one. `PatcherPlatformTests` in the
+architecture suite now covers the P/Invoke half of the 2026-10-21 review rule: no patcher `net10.0`
+assembly may declare a P/Invoke (into any library, not only a Windows DLL) or use `NativeLibrary`.
+A hard-coded Windows path still compiles anywhere, so that half stays a review rule.
+
+**Tests follow the same line.** `LotroKoniecDev.Infrastructure.Tests.Integration` (`net10.0`, in the
+Linux gate) tests the cross-platform adapters, and it builds the Application and Infrastructure
+registrations with stand-ins for the five Windows ports. `Tests.Infrastructure` keeps the Windows
+adapters' tests, the tests that need Windows file semantics (an ACL, a sharing violation, a folder
+Windows will not delete while a file in it is open) and the desktop exe's tests.
+
+§4 is unchanged: the player app is still a Windows exe, and `datexport.dll` still needs one.
+
 ## References
 
 - `docs/knowledge-base/russian-project.md` + `docs/RUSSIAN_PROJECT_RESEARCH.md` §3, §9.1 —

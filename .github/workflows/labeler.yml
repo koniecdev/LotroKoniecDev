@@ -1,6 +1,7 @@
 name: Label pull requests
 
-# Why this exists (#1250): CI runs on Linux, so it never runs the patcher's Windows-only code.
+# Why this exists (#1250): no CI job runs the patcher's E2E suite, which needs the game file, or the
+# Windows steps a pull request lists. windows-tests.yml runs only the two adapter suites (#1450).
 # This workflow adds `needs-windows-check` to a pull request that changes that code, and
 # /merge-train skips the pull request until someone tries it on Windows and removes the label
 # (docs/labels.md). The folders are in .github/labeler.yml.

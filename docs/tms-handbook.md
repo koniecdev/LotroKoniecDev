@@ -1241,7 +1241,7 @@ away in real production too.
 
 ## Part 11 — CI/CD and production
 
-### 11.1 The pipelines (GitHub Actions, 15 workflows)
+### 11.1 The pipelines (GitHub Actions, 17 workflows)
 
 | Workflow | When | What it guards |
 |---|---|---|
@@ -1259,7 +1259,9 @@ away in real production too.
 | `codeql` | PRs + weekly schedule | static security analysis; no PR merges with an open alert |
 | `gitleaks` | PRs/pushes | secret scanning |
 | `actionlint` | every PR | lints `.github/workflows/` so workflow-only PRs cannot merge broken |
-| `labeler` | PR opened/reopened | adds `needs-windows-check` when a PR changes Windows-only patcher code, which CI cannot run (#1250) |
+| `labeler` | PR opened/reopened | adds `needs-windows-check` when a PR changes Windows-only patcher code, which no CI job can try with the game file (#1250) |
+| `windows-tests` | PRs and pushes to main that change code | the Windows-only patcher tests, and the cross-platform adapter tests in an x86 process, on a Windows runner; not a required check (#1450) |
+| `desktop-release` | manual + PRs touching what goes into the installer | builds the desktop app and its installer on Windows, installs, re-installs and uninstalls it; a manual run on main then tags and publishes the release (spec 0016) |
 
 ### 11.2 How a release reaches production
 

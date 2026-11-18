@@ -4,6 +4,7 @@ using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Extensions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
@@ -54,6 +55,7 @@ public sealed class InfrastructureDependencyInjectionTests
 
     /// <remarks>
     /// The stand-ins keep the lifetimes of the real registrations, so a scope clash shows up here too.
+    /// They are added only where nothing is registered, so a real cross-platform adapter always wins.
     /// </remarks>
     private static ServiceProvider BuildServiceProviderWithWindowsStandIns()
     {
@@ -62,12 +64,12 @@ public sealed class InfrastructureDependencyInjectionTests
         services.AddApplicationServices();
         services.AddInfrastructureServices();
 
-        services.AddScoped(_ => Substitute.For<IDatFileHandler>());
-        services.AddScoped(_ => Substitute.For<IDatVersionReader>());
-        services.AddSingleton(_ => Substitute.For<IDatFileLocator>());
-        services.AddSingleton(_ => Substitute.For<IGameLauncher>());
-        services.AddSingleton(_ => Substitute.For<IInstallerFileOpener>());
-        services.AddScoped(_ => Substitute.For<IProgress<OperationProgress>>());
+        services.TryAddScoped(_ => Substitute.For<IDatFileHandler>());
+        services.TryAddScoped(_ => Substitute.For<IDatVersionReader>());
+        services.TryAddSingleton(_ => Substitute.For<IDatFileLocator>());
+        services.TryAddSingleton(_ => Substitute.For<IGameLauncher>());
+        services.TryAddSingleton(_ => Substitute.For<IInstallerFileOpener>());
+        services.TryAddScoped(_ => Substitute.For<IProgress<OperationProgress>>());
 
         return services.BuildServiceProvider(new ServiceProviderOptions
         {

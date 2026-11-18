@@ -41,6 +41,23 @@ public sealed class SuiteSelfTests
     }
 
     [Fact]
+    public void PatcherSet_DerivedFromTheSearchSet_HoldsEveryPatcherLayer()
+    {
+        Assembly[] patcherLayers =
+        [
+            ProductionAssemblies.PatcherPrimitives,
+            ProductionAssemblies.PatcherDomain,
+            ProductionAssemblies.PatcherApplication,
+            ProductionAssemblies.PatcherInfrastructure,
+            ProductionAssemblies.DesktopAppPresentation,
+        ];
+
+        patcherLayers.ShouldBeSubsetOf(
+            ProductionAssemblies.Patcher,
+            "a patcher assembly the derived set drops escapes the isolation and platform rules");
+    }
+
+    [Fact]
     public void TypeScan_EveryProductionAssembly_ContributesAtLeastOneType()
     {
         List<string> emptyAssemblies = ProductionAssemblies.All

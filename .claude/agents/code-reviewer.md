@@ -122,8 +122,9 @@ Check every modified/new file against these layer rules:
 |-------|--------------|-------------------|
 | Domain | Primitives only | Application, Infrastructure, any NuGet except Primitives |
 | Application | Domain, Primitives | Infrastructure, CLI |
-| Infrastructure | Application, Domain, Primitives | CLI |
-| CLI | Application, Infrastructure | - |
+| Infrastructure (cross-platform, `net10.0`) | Application, Domain, Primitives, Hateoas.Abstractions | CLI, DesktopApp, Infrastructure.Windows, P/Invoke |
+| Infrastructure.Windows (`net10.0-windows`, x86) | Application, Domain, Primitives | CLI, DesktopApp, Infrastructure |
+| CLI | Application, Infrastructure, Infrastructure.Windows | - |
 | Primitives | nothing | anything |
 
 For each new `using` or `<PackageReference>`:

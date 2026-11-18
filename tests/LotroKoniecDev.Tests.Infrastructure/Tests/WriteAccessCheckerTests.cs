@@ -32,11 +32,6 @@ public sealed class WriteAccessCheckerTests : IDisposable
         // test's own result.
         try
         {
-            foreach (string file in Directory.GetFiles(_directory))
-            {
-                File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
-            }
-
             Directory.Delete(_directory, recursive: true);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)

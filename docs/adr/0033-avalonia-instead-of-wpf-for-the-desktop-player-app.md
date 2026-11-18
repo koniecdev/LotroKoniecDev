@@ -197,9 +197,10 @@ on Windows, and the Linux CI never ran them.
   `IDatVersionReader`, `IDatFileLocator`, `IGameLauncher` and `IInstallerFileOpener`. A Linux host
   (#1322) registers only the cross-platform part and puts stand-ins in place of those five.
 
-The Windows project does not reference the cross-platform one, and a `net10.0` project cannot
-reference a `net10.0-windows` one. So each host on Windows (the CLI and the desktop exe) references
-both and calls both registration methods.
+A `net10.0` project cannot reference a `net10.0-windows` one, and the Windows registration does not
+call the cross-platform one either. So each host on Windows (the CLI and the desktop exe) references
+both projects and calls both registration methods, and a Linux host calls one: the list of what a
+host registers is written in the host. A host that forgets a call fails `ValidateOnBuild` at start.
 
 **The placement rule.** A class goes to the Windows project when it calls a Windows-only .NET API or
 a Windows DLL, or when it starts a Windows program. Everything else stays cross-platform. That

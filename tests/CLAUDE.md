@@ -63,8 +63,9 @@ mutation score drops below it. It is a calibrated starting point; adjust it in t
 
 ## Framework & Libraries
 
-- **xUnit** (`Fact`, `Theory`, `InlineData`), **Shouldly** (`.ShouldBe()`, …) and **NSubstitute**
-  (`Substitute.For<IInterface>()`): the test framework, assertions and mocks in every suite.
+- **xUnit** (`Fact`, `Theory`, `InlineData`) and **Shouldly** (`.ShouldBe()`, …): the test framework
+  and assertions in every suite. **NSubstitute** (`Substitute.For<IInterface>()`): the mocks, in
+  every suite that stubs a boundary.
 - **NaughtyStrings**: the Big List of Naughty Strings, for hostile-input theories (see below).
 - **NetArchTest.Rules**: architecture tests only (`LotroKoniecDev.Architecture.Tests.Unit`).
 - **Verify.Xunit**: snapshot tests for API response contracts and rendered SSR markup (see below).
@@ -230,9 +231,10 @@ reflection** checks the conventions its predicate DSL cannot express ("sealed un
 inherits it", a validator's generic argument).
 
 Adding a production project? Add the `ProjectReference` **and** the entry in
-`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. A patcher `net10.0` project
-also joins `ProductionAssemblies.Patcher`, or the isolation and platform rules skip it, and nothing
-fails to tell you. The three patcher
+`Shared/ProductionAssemblies.All`; `SuiteSelfTests` fails until you do. `ProductionAssemblies.Patcher`
+(the patcher side, which the isolation and platform rules read) is derived from `All`, so a patcher
+project joins it with no extra step. A new helper under `src/Utilities/` with a new name prefix joins
+`OutsideThePatcher`; until it does, the patcher's stricter rules apply to it too. The three patcher
 `net10.0-windows` assemblies (Infrastructure.Windows, Cli and the desktop app's exe) are left out
 because a `net10.0` project cannot reference them. They sit at the top of the layering, so rules
 about them are stated as forbidden namespaces on the assemblies below.

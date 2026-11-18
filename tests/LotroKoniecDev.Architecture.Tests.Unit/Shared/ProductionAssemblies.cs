@@ -14,6 +14,18 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Shared;
 /// </remarks>
 internal static class ProductionAssemblies
 {
+    /// <summary>The other side of the repo: the TMS, the sign-in server, the website and the shared helpers.</summary>
+    private static readonly string[] OutsideThePatcher =
+    [
+        Namespaces.SharedKernel,
+        Namespaces.TranslationSystem,
+        Namespaces.AuthSystem,
+        Namespaces.Frontend,
+        Namespaces.Hateoas,
+        Namespaces.Logging,
+        Namespaces.Options,
+    ];
+
     internal static Assembly PatcherPrimitives { get; } = Load(Namespaces.PatcherPrimitives);
 
     internal static Assembly PatcherDomain { get; } = Load(Namespaces.PatcherDomain);
@@ -64,20 +76,6 @@ internal static class ProductionAssemblies
     internal static Assembly Options { get; } = Load(Namespaces.Options);
 
     /// <summary>
-    /// The patcher side's <c>net10.0</c> assemblies. The desktop player app is the patcher's second
-    /// shell, so its UI sits on this side too. A new patcher project joins this list as well as
-    /// <see cref="All"/>, or the isolation and platform rules miss it.
-    /// </summary>
-    internal static IReadOnlyList<Assembly> Patcher { get; } =
-    [
-        PatcherPrimitives,
-        PatcherDomain,
-        PatcherApplication,
-        PatcherInfrastructure,
-        DesktopAppPresentation,
-    ];
-
-    /// <summary>
     /// What the repo-wide rules search. A new production project must join it, or it escapes every rule;
     /// <c>SuiteSelfTests</c> fails until it does.
     /// </summary>
@@ -109,5 +107,16 @@ internal static class ProductionAssemblies
         Options,
     ];
 
+    /// <summary>
+    /// The patcher side's <c>net10.0</c> assemblies: everything in <see cref="All"/> outside the other
+    /// side of the repo. The desktop player app is the patcher's second shell, so its UI sits here too.
+    /// It is derived, so a new patcher project joins it by joining <see cref="All"/>.
+    /// </summary>
+    internal static IReadOnlyList<Assembly> Patcher { get; } =
+        All.Where(assembly => !IsOutsideThePatcher(assembly)).ToList();
+
     private static Assembly Load(string assemblyName) => Assembly.Load(new AssemblyName(assemblyName));
+
+    private static bool IsOutsideThePatcher(Assembly assembly) =>
+        OutsideThePatcher.Any(prefix => assembly.GetName().Name!.StartsWith(prefix, StringComparison.Ordinal));
 }

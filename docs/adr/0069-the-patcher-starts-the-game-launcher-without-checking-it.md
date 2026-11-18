@@ -4,7 +4,7 @@
 **Date:** 2026-10-30
 **Decision-makers:** Solo maintainer (owner decision recorded in #1290, 2026-10-30)
 **Amends:** [ADR-0067](0067-who-checks-what-each-of-our-parts-checks-only-what-it-owns.md) §7 item 5
-**Related:** Patcher (`Infrastructure/GameLaunching/GameLauncher.cs`, `Cli/DatPathResolver.cs`,
+**Related:** Patcher (`Infrastructure.Windows/GameLaunching/GameLauncher.cs`, `Cli/DatPathResolver.cs`,
 `Cli/LauncherNotice.cs`, `Cli/Commands/LaunchCommand.cs`); spec 0011 LEGAL-12; tickets #392
 (AUDIT-SEC-02), #1290, #1292, #1298, #43; the Update 50 measurement
 (`docs/knowledge-base/update-50/RESULTS.md`, PR #1291)

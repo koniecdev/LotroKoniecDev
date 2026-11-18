@@ -1,5 +1,6 @@
 using System.Text;
 using LotroKoniecDev.Application.Abstractions;
+using LotroKoniecDev.Domain.Core.BuildingBlocks;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
@@ -51,25 +52,28 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
         {
             // An unplugged drive, a missing folder and a network share that does not answer each fail
             // with their own error, and each means the same to the player: the file is gone.
-            return Result.Failure(File.Exists(sourcePath)
-                ? DomainErrors.DesktopPatchWorkspace.SourceUnreadable(sourcePath, ex.Message)
-                : DomainErrors.DesktopPatchWorkspace.SourceNotFound(sourcePath));
+            return Result.Failure(SourceFailure(sourcePath, ex));
         }
 
         string tempPath = TempPath();
+        Result copied;
         using (source)
         {
             try
             {
                 Directory.CreateDirectory(_dataFolder);
-                using FileStream target = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
-                source.CopyTo(target);
+                copied = CopyToNewFile(source, sourcePath, tempPath);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                DeleteQuietly(tempPath);
-                return Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(tempPath, ex.Message));
+                copied = Result.Failure(DomainErrors.DesktopPatchWorkspace.FileSystemError(tempPath, ex.Message));
             }
+        }
+
+        if (copied.IsFailure)
+        {
+            DeleteQuietly(tempPath);
+            return copied;
         }
 
         try
@@ -147,6 +151,41 @@ public sealed class DesktopPatchWorkspace : IDesktopPatchWorkspace
     }
 
     private string TempPath() => Path.Combine(_dataFolder, $"{Guid.NewGuid():N}.tmp");
+
+    /// <summary>
+    /// A read that fails after the open (a range another program locked, a drive lost during the copy)
+    /// is the player's file again, not the data folder, so it gets the same answer as a failed open.
+    /// A failed write throws and is the data folder's error.
+    /// </summary>
+    private static Result CopyToNewFile(FileStream source, string sourcePath, string targetPath)
+    {
+        using FileStream target = new(targetPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        byte[] buffer = new byte[81920];
+        while (true)
+        {
+            int read;
+            try
+            {
+                read = source.Read(buffer, 0, buffer.Length);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Result.Failure(SourceFailure(sourcePath, ex));
+            }
+
+            if (read == 0)
+            {
+                return Result.Success();
+            }
+
+            target.Write(buffer, 0, read);
+        }
+    }
+
+    private static Error SourceFailure(string sourcePath, Exception exception) =>
+        File.Exists(sourcePath)
+            ? DomainErrors.DesktopPatchWorkspace.SourceUnreadable(sourcePath, exception.Message)
+            : DomainErrors.DesktopPatchWorkspace.SourceNotFound(sourcePath);
 
     /// <summary>An administrator may have set the flag by hand; it would stop every later replace.</summary>
     private static void ClearReadOnly(string path)

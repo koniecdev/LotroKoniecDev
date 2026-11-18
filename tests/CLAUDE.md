@@ -267,7 +267,9 @@ delete while a file in it is open) stays in `Tests.Infrastructure`, in a class w
 Tests of the patcher's Windows adapters (`LotroKoniecDev.Infrastructure.Windows`): the game
 launcher, the `datexport.dll` interop and the desktop update's held installer (#45), plus the
 cases of the cross-platform adapters that need Windows file semantics: the write check's ACL and
-held-file refusals (#1248) and the update folder clean-up while an installer holds its file.
+held-file refusals (#1248), the update folder clean-up while an installer holds its file, and a
+read of the player's translation file that fails after the open (a range another program locked,
+#42).
 Desktop app suites sit here too, because only this Windows suite can load the x86 exe:
 `DesktopAppDependencyInjectionTests` builds its composition root with the real adapters,
 `DesktopAppManifestTests` reads the built `LotroPoPolsku.exe`, `DesktopSettingsFileTests`

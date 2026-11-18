@@ -258,11 +258,16 @@ jobs:
           Assert-NoRefusedCopy 'after install 2'
           $runningIds = (Get-App).Id
 
-          # A second start shows the message and ends; the first copy keeps running.
-          $secondCopy = Start-Process -FilePath $appExe -PassThru
+          # A second start shows the message and ends; the first copy keeps running. It starts in a
+          # folder of its own: the app moves to its install folder first, and Windows keeps a
+          # process's working folder open, so that folder can be removed only if the app left it.
+          $startFolder = Join-Path $env:RUNNER_TEMP 'start-folder'
+          New-Item -ItemType Directory -Force -Path $startFolder | Out-Null
+          $secondCopy = Start-Process -FilePath $appExe -WorkingDirectory $startFolder -PassThru
           $null = $secondCopy.Handle
           try {
             Wait-Until { (Get-Process -Id $secondCopy.Id -ErrorAction SilentlyContinue).MainWindowTitle -eq $refusalCaption } 30 "the second copy to show the 'already running' message"
+            try { Remove-Item -LiteralPath $startFolder -ErrorAction Stop } catch { throw "The app kept the working folder it was started in: $_" }
             if (@(Get-Process -Id $runningIds -ErrorAction SilentlyContinue).Count -ne $runningIds.Count) { throw 'The first copy ended when a second copy started.' }
             $secondCopy.Refresh()
             $null = $secondCopy.CloseMainWindow()

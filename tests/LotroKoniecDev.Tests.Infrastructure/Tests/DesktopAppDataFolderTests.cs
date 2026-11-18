@@ -16,12 +16,17 @@ public sealed class DesktopAppDataFolderTests : IDisposable
 
     private readonly string _updatesFolder = Path.Combine(ExeFolder, "updates");
     private readonly bool _updatesFolderExisted;
+    private string? _downloadFolder;
 
     public void Dispose()
     {
         if (!_updatesFolderExisted && Directory.Exists(_updatesFolder))
         {
             Directory.Delete(_updatesFolder, recursive: true);
+        }
+        else if (_downloadFolder is not null && Directory.Exists(_downloadFolder))
+        {
+            Directory.Delete(_downloadFolder, recursive: true);
         }
     }
 
@@ -54,6 +59,7 @@ public sealed class DesktopAppDataFolderTests : IDisposable
 
         // Act
         Result<string> downloadFolder = sut.CreateDownloadFolder();
+        _downloadFolder = downloadFolder.IsSuccess ? downloadFolder.Value : null;
         Result<string> installerLog = sut.PrepareInstallerLogPath();
 
         // Assert

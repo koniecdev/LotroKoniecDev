@@ -29,7 +29,7 @@ public sealed class RunningCopyClaim : IDisposable
     /// <summary>
     /// A refused claim has already closed both handles, so a second copy that waits on its message
     /// never keeps the name alive after the first copy ends. A claim Windows refused on both names
-    /// starts anyway: a name another program holds must not lock the player out.
+    /// starts anyway: a name that another kind of object holds must not lock the player out.
     /// </summary>
     public static RunningCopyClaim Create(IRunningMutexOpener opener)
     {

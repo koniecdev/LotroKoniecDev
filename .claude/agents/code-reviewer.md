@@ -47,8 +47,11 @@ results. With no brief, use `HEAD` and the commands below, and skip the comparis
      Windows-only patcher suites print "not run": that is expected (the `windows-tests` workflow
      runs `Tests.Infrastructure` on every PR that changes code, and `needs-windows-check` covers
      both), not a finding.
-   - every guard script `/ticket` step 7 lists under "The guard scripts CI runs", with no
-     argument (each `scripts/check-*.sh` and `scripts/claude/verify-copy.sh`).
+   - every guard script `/ticket` step 7 lists under "The guard scripts CI runs" (each
+     `scripts/check-*.sh` and `scripts/claude/verify-copy.sh`), in one call of
+     `scripts/run-script-checks.sh` with their paths and no other argument. On Windows it runs them
+     in a Linux container and needs Docker; its exit 2 is a red gate. A self-test from
+     `scripts/tests/` that you run goes through it too.
 3. **A test project that is red in the full run:** run it again alone
    (`dotnet test <project>`), at most twice. Several worktrees may run
    container suites at the same time, and a container can fail to start under that load. Still red
@@ -317,7 +320,7 @@ Checklist:
 The first line of the report is `Model: <the exact model id your system prompt names>`. A fallback
 can run this file on another model (`/ticket` step 7), and this line shows which one wrote the
 report. Then start with the gates table from Phase 0, one row per command, plus one row per test
-project:
+project and one per guard, from the result line the runner printed for it:
 
 | Gate | Command | Result on `<SHA>` | Author's result | Finding # |
 |------|---------|-------------------|-----------------|-----------|

@@ -394,10 +394,18 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   worktree remove --force` it; an E2E proof also leaves Docker images tagged with the folder name,
   so remove them as `tests/LotroKoniecDev.Frontend.E2E.Tests/README.md` shows. A change no test can
   pin (pure presentation) goes under **Doubts** with the page or step to check by hand.
-- **The guard scripts CI runs, every time** — they are bash greps and take seconds:
-  `scripts/check-ssr-purity.sh`, `scripts/check-client-hypermedia.sh`,
-  `scripts/check-dockerfile-restore-graph.sh`, `scripts/check-migration-safety.sh`, and the
-  backlog-loop copy check `scripts/claude/verify-copy.sh`.
+- **The guard scripts CI runs, every time** — they are bash greps and take seconds. Run them in
+  one call of the runner, which prints a result line for each:
+
+  ```bash
+  scripts/run-script-checks.sh scripts/check-ssr-purity.sh scripts/check-client-hypermedia.sh scripts/check-dockerfile-restore-graph.sh scripts/check-migration-safety.sh scripts/claude/verify-copy.sh
+  ```
+
+  The last one is the backlog-loop copy check. On Linux and macOS the runner runs them directly;
+  on Windows it runs them in a Linux container, because Git Bash is many times slower and fails
+  some self-tests that pass in CI (#1473). So on Windows it needs Docker, and its exit 2 (no
+  Docker, no image) is a red gate, never a skip. A self-test from `scripts/tests/` goes through
+  the same runner.
 - **Review gate — every diff goes to the `code-reviewer` agent, small ones too** (#1318).
   `git diff --shortstat origin/main...HEAD` sizes it for the report. The base is always
   `origin/main`: a local `main` can be behind it (in a worktree it is never pulled), and a stale
@@ -415,10 +423,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       ticket or `/buddy` names: these are the session's own calls, and the reviewer checks them;
     - the wiki clone's absolute path (beside the main checkout), so it can check them against the wiki;
     - the gates you already ran on that commit: each command as you ran it
-      (`dotnet build LotroKoniecDev.slnx`, `dotnet test`, each guard script listed above) and its
-      result, with the result line of each test project pasted as `dotnet test` printed it, not retyped. A
-      gate red on that commit, or a test project or guard missing from your results, comes back
-      as Critical;
+      (`dotnet build LotroKoniecDev.slnx`, `dotnet test`, the guard call above with the result
+      line it printed for each guard) and its result, with the result line of each test project
+      pasted as `dotnet test` printed it, not retyped. A gate red on that commit, or a test
+      project or guard missing from your results, comes back as Critical;
     - "read-only: Phase 0's gate run is the one thing you run in this folder; any other probe runs
       in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested

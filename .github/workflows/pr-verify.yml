@@ -261,9 +261,9 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/n1-compat.tests.sh
 
-      # The runner sessions use to run these checks on a PC (#1473): directly on Linux and macOS, in
-      # a Linux container on Windows. Its Windows leg never runs on a hosted runner, so this is its
-      # only proof.
+      # On their PCs, sessions run the checks above through scripts/run-script-checks.sh (#1473). It
+      # runs them directly on Linux and macOS, and in a Linux container on Windows. No hosted runner
+      # takes the Windows path, so this self-test is its only proof.
       - name: Script-check runner self-test
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/run-script-checks.tests.sh

@@ -110,6 +110,8 @@ read_pin() {
 
 # CI's runner has jq and an en_US.UTF-8 locale; the SDK image has neither. Without them one
 # self-test goes red and another skips a case. The last two commands fail the build instead.
+# CI also runs in a UTF-8 locale, and a guard that forgets `export LC_ALL=C` fails only there
+# (#1162); without LANG the container would run in the POSIX locale and pass it.
 print_recipe() {
     printf 'FROM %s\nLABEL %s=true\n' "$1" "$IMAGE_LABEL"
     cat << 'RECIPE'
@@ -120,6 +122,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && jq --version \
     && locale -a | grep -qx 'en_US.utf8'
+ENV LANG=C.UTF-8
 RECIPE
 }
 

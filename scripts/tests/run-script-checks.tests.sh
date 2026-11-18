@@ -356,11 +356,11 @@ expect_call 'docker(MSYS_NO_PATHCONV=1) [info] [--format] [{{.OSType}}]'
 expect_call "docker(MSYS_NO_PATHCONV=1) [build] [--load] [--tag]"
 [ "$(head -1 "$BUILD_STDIN")" = "FROM $FAKE_PIN" ] || fail "the recipe does not start with FROM $FAKE_PIN"
 for needed in 'LABEL lotrokoniecdev.script-checks=true' 'install -y --no-install-recommends jq locales' \
-    'en_US.UTF-8 UTF-8' 'locale-gen' "grep -qx 'en_US.utf8'"; do
+    'en_US.UTF-8 UTF-8' 'locale-gen' "grep -qx 'en_US.utf8'" 'ENV LANG=C.UTF-8'; do
     grep -qF -- "$needed" "$BUILD_STDIN" || fail "the recipe lacks: $needed"
 done
 ! grep -qF 'stub build log line' "$OUT" "$ERR" || fail 'a good build printed its log'
-pass 'FROM the pin, plus jq and the en_US.UTF-8 locale, quiet when it works'
+pass 'FROM the pin, plus jq, the en_US.UTF-8 locale and a UTF-8 LANG, quiet when it works'
 
 CASE='windows: the tag comes from the recipe'
 expected_tag="lotrokoniecdev-script-checks:$(git hash-object --stdin < "$BUILD_STDIN" | cut -c1-16)"

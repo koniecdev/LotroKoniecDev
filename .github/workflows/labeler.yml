@@ -2,9 +2,9 @@ name: Label pull requests
 
 # Why this exists (#1250): no CI job runs the patcher's E2E suite, which needs the game file, or the
 # Windows steps a pull request lists. windows-tests.yml runs only the two adapter suites (#1450).
-# This workflow adds `needs-windows-check` to a pull request that changes that code, and
-# /merge-train skips the pull request until someone tries it on Windows and removes the label
-# (docs/labels.md). The folders are in .github/labeler.yml.
+# This workflow adds `needs-windows-check` to a pull request that changes Windows-only patcher
+# code, and /merge-train skips the pull request until someone tries it on Windows and removes the
+# label (docs/labels.md). The folders are in .github/labeler.yml.
 #
 # It runs only when a pull request opens or reopens. A push does not run it. Otherwise the train's
 # own rebase would put the label back after someone removed it.

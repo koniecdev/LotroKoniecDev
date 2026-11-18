@@ -286,8 +286,8 @@ with `0x800700C1`: set `DOTNET_ROOT_X86` to the x86 install.
 every PR and every push to `main` that the change classifier calls code, or that changes that
 workflow. It is not a required check, but `/merge-train` skips a PR whose run failed. The runner
 process has admin rights, so the installer start tests that need them run there, and the one that
-needs a refused prompt skips. That job leaves `Tests.E2E` out: without the game file every E2E test skips, so the `needs-windows-check`
-hand check (`docs/labels.md`) still covers it.
+needs a refused prompt skips. That job leaves `Tests.E2E` out: without the game file every E2E
+test skips, so the `needs-windows-check` hand check (`docs/labels.md`) still covers it.
 
 ## E2E Tests (LotroKoniecDev.Tests.E2E)
 
@@ -387,8 +387,10 @@ with its own DbContext must adopt the seam (a new script file name and the same 
   `scripts/ci/classify-changes.sh` matches it (a script under `scripts/`, a root compose file),
   add it to `CODE_INPUTS` there in the same change, with a case in its self-test. Otherwise a PR
   that changes only that file skips the test, and the failure shows up later in someone else's run
-  (#1163). Do not point a test at a file that `paths-ignore` in `.github/workflows/ci.yml` skips
-  (`docs/`, `.claude/`, the inert Markdown): main never re-runs the test after a change to it
+  (#1163). The `windows-tests` workflow reads the same `code` verdict, so this holds for a
+  `Tests.Infrastructure` test too. Do not point a test at a file that `paths-ignore` in
+  `.github/workflows/ci.yml` skips (`docs/`, `.claude/`, the inert Markdown): main never re-runs
+  the test after a change to it
 - Every test database starts from `PostgresImage.Name` (`tests/Shared/PostgresImage.cs`, linked
   into every suite that starts PostgreSQL), never from its own image tag (#1002)
 - A test that needs a host outside Development and Testing (because Testing turns the rule off)

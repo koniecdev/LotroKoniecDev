@@ -104,6 +104,12 @@ jobs:
         with:
           dotnet-version: '10.0.1xx'
 
+      - name: Check that dotnet on PATH is the x64 install
+        run: |
+          $info = dotnet --info
+          if ($LASTEXITCODE -ne 0) { throw "dotnet --info failed with $LASTEXITCODE." }
+          if (-not ($info -match '^\s*Architecture:\s+x64\s*$')) { throw "The dotnet on PATH is not the x64 install." }
+
       - name: Build with a .NET 10 SDK
         run: |
           # The image also ships a newer SDK, and with no global.json the newest one builds. The repo
@@ -119,9 +125,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "dotnet --version failed with $LASTEXITCODE." }
           Write-Host "SDK $sdk"
           if (-not $sdk.StartsWith('10.')) { throw "Expected a .NET 10 SDK, found $sdk." }
-          $info = dotnet --info
-          if ($LASTEXITCODE -ne 0) { throw "dotnet --info failed with $LASTEXITCODE." }
-          if (-not ($info -match '^\s*Architecture:\s+x64\s*$')) { throw "The dotnet on PATH is not the x64 install." }
 
       # One step per suite: a pwsh step reports only the exit code of its last command.
       - name: Run the Windows adapter tests

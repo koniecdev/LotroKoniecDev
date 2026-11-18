@@ -50,10 +50,9 @@ public sealed class WriteAccessCheckerTests : IDisposable
         CreateDatFile();
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // /inheritance:r keeps explicit grants. On the hosted runner a temp file grants Administrators
-        // full control and the process is elevated (#1450), so only a deny for this account stops the
-        // write. Deny WD and AD, never "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
-        // blocks reads too (#629). The precondition checks below catch both traps.
+        // An elevated process writes through an explicit Administrators grant, which /inheritance:r
+        // keeps (#1450), so the write needs a deny. Deny WD and AD, never "(W)": that also denies
+        // SYNCHRONIZE and blocks reads (#629). The precondition checks below catch both traps.
         int aclExitCode = await RunIcaclsAsync(
             $"\"{DatFilePath}\" /inheritance:r /grant:r \"{account}:(RX)\" /deny \"{account}:(WD,AD)\"");
         aclExitCode.ShouldBe(0, "the test could not set up its own ACL");

@@ -180,8 +180,9 @@ bullets. Two sources of completion state, one live and one ticked by hand, drift
 it when the PR changes a path that `.github/labeler.yml` lists. The check is the full `dotnet test`
 on Windows with the game file, which runs the E2E suite that no CI job runs, plus the steps the PR
 lists under **Before merge, on Windows**. The `windows-tests` workflow runs the two adapter suites on
-a Windows runner without the game file (#1450); its green run does not replace this check. Copy the game's `client_local_English.dat` into `tests/LotroKoniecDev.Tests.E2E/TestData/`
-first (see `tests/LotroKoniecDev.Tests.E2E/README.md`); without it every E2E test skips, and the
+a Windows runner without the game file (#1450); its green run does not replace this check. Copy the
+game's `client_local_English.dat` into `tests/LotroKoniecDev.Tests.E2E/TestData/` first (see
+`tests/LotroKoniecDev.Tests.E2E/README.md`); without it every E2E test skips, and the
 check is not done. The PR comment gives the E2E pass count, not just "green". A session that runs
 on Windows does the check itself and puts those counts in its report; the owner removes the label
 when they read the PR.

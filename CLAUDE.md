@@ -300,9 +300,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   The desktop app (#41) is the same case: `DesktopAppDependencyInjection` validates the same way and
   resolves its view models from one app-wide scope. `DesktopAppDependencyInjectionTests` checks that
   graph, but only in the Windows-only `Tests.Infrastructure` suite, which only the non-required
-  `windows-tests` workflow runs in CI (#1450). The
-  cross-platform part of both graphs (Application plus `AddInfrastructureServices`, with stand-ins
-  for the five Windows ports) is checked on Linux by `InfrastructureDependencyInjectionTests`.
+  `windows-tests` workflow runs in CI (#1450). The cross-platform part of both graphs (Application
+  plus `AddInfrastructureServices`, with stand-ins for the five Windows ports) is checked on Linux by
+  `InfrastructureDependencyInjectionTests`.
 - **CQRS read/write split, day 1 (ADR-0002 amendment).** Query handlers read POCO `ReadModels`
   through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
   repositories + `IUnitOfWork`. The write model never serves list/search queries; every new

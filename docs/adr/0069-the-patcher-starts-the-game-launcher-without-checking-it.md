@@ -247,6 +247,10 @@ the amendment of 2026-11-17.
      `PATH` is one more variable of this kind: Windows searches it for a library it finds nowhere
      else. No project setting turns these off. UAC on the same desktop is not a security boundary, so this amendment
      closes the file paths of item 4, not every way from a player's program to admin rights.
+   - The app starts the installer, and from #42 the game launcher, through the Windows shell. The
+     shell reads how to start a program from the player's own registry (`HKCU\Software\Classes`),
+     which the player changes without admin rights. Public UAC-bypass write-ups use this path. Not
+     tested here, because it means changing the owner's registry.
    - A PC whose policy makes the creator, not Administrators, the owner of what an administrator
      creates, or that runs Windows Administrator Protection. There `data\` may belong to the player.
      Not proven either way, and no code of ours covers it.

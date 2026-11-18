@@ -242,8 +242,8 @@ When a newer version is out, the app offers it at start and installs it after on
   so a "No" left the player with no app running. With `runas` the prompt comes from the app's own
   start, and a "No" comes back to the app as Win32 error 1223. An installer that already has admin
   rights does not start itself again. Every copy runs as admin since #1464, so it gets no prompt,
-  and the "No" path is not reached on Windows. The code keeps the `runas` start and its "No": they
-  cost nothing and their unit tests stay.
+  and the "No" path is not reached on Windows. The code keeps the `runas` start and its "No", and their unit tests stay.
+  The shell start itself is one of the open paths in ADR-0069 item 6.
 - **What the held handle covers:** Windows creates the installer process, with admin rights, from
   the held file, so the program that starts is the file that was hashed, and no other program can
   write, delete or rename the file until then. Inno Setup then reads the same file again by path to

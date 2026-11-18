@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using LotroKoniecDev.DesktopApp;
 using LotroKoniecDev.DesktopApp.Presentation;
 
@@ -56,6 +58,28 @@ public sealed class DesktopAppRunningMutexTests
         RunningMutexAttempt attempt = sut.Open(name);
 
         // Assert
+        attempt.State.ShouldBe(RunningMutexState.Refused);
+        attempt.Handle.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Open_ANameWhoseAccessListRefusesUs_IsRefusedInsteadOfThrowing()
+    {
+        // Arrange: another program's mutex under the name, with an access list that lets nobody open it.
+        string name = $"LotroPoPolsku_Test_{Guid.NewGuid():N}";
+        MutexSecurity security = new();
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new MutexAccessRule(
+            new SecurityIdentifier(WellKnownSidType.WorldSid, domainSid: null),
+            MutexRights.FullControl,
+            AccessControlType.Deny));
+        using Mutex holder = MutexAcl.Create(initiallyOwned: false, name, out _, security);
+        WindowsRunningMutexOpener sut = new();
+
+        // Act
+        RunningMutexAttempt attempt = sut.Open(name);
+
+        // Assert: a throw here would end the app before its logger exists, with no trace.
         attempt.State.ShouldBe(RunningMutexState.Refused);
         attempt.Handle.ShouldBeNull();
     }

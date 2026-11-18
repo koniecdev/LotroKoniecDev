@@ -160,6 +160,7 @@ public sealed class DesktopReleasePolicyTests
     }
 
     [Theory]
+    [InlineData(@"C:\Program Files (x86)\LotroPoPolsku\updates\update-install.log")]
     [InlineData(@"C:\Users\Anna\AppData\Roaming\LotroPoPolsku\update-install.log")]
     [InlineData(@"C:\Users\Zażółć Gęślą\AppData\Roaming\LotroPoPolsku\update-install.log")]
     public void InstallerArguments_AnyLogPath_IsThePinnedStringWithThePathInQuotes(string logPath)

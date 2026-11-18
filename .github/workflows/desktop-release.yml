@@ -149,6 +149,11 @@ jobs:
           $marker = Join-Path $dataDir 'smoke-marker.txt'
           # AlreadyRunningMessage.Caption, written with escapes so the script stays ASCII.
           $refusalCaption = "LOTRO po Polsku ju`u{017C} dzia`u{0142}a"
+          # A startup hook in the player's own environment must load nothing into the elevated app
+          # (StartupHookSupport=false in Release). Setup hands this step's environment to the app it
+          # starts, and a build that honours the hook ends at start on a file that does not exist,
+          # so every "app still alive" check below also checks the switch.
+          $env:DOTNET_STARTUP_HOOKS = Join-Path $env:RUNNER_TEMP 'no-such-startup-hook.dll'
 
           # Start-Process -Wait would also wait for the app the installer starts. Reading Handle right
           # away keeps the exit code readable after the process ends.
@@ -210,6 +215,10 @@ jobs:
           # The app reads the same $(Version) as its DesktopVersion stamp; a release must carry its number.
           $fileVersion = (Get-Item $appExe).VersionInfo.FileVersion
           if ($fileVersion -ne "$env:APP_VERSION.0") { throw "The installed exe is version $fileVersion, not $env:APP_VERSION." }
+          # The runner approves elevation silently, so only the manifest text shows that the app asks
+          # for admin rights. A plain bool, so a failure does not print the binary.
+          $exeText = [System.Text.Encoding]::Latin1.GetString([System.IO.File]::ReadAllBytes($appExe))
+          if (-not $exeText.Contains('<requestedExecutionLevel level="requireAdministrator"')) { throw 'The installed exe does not ask for admin rights at start.' }
 
           # The app starts its composition root with ValidateOnBuild, so a broken DI graph ends it.
           Wait-Until { (Get-App).Count -gt 0 } 60 'the app to start after install 1'

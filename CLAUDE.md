@@ -628,6 +628,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     scan, they can hide one (`void ÜDown(` ended the scan of `Up()`), so keep `[[:space:]]` there
     unless nothing valid can stand in that place. macOS grep and sed act differently, so prove a
     guard change on Linux with `LANG=C.UTF-8`.
+  - On a PC, run a guard or a self-test through `scripts/run-script-checks.sh <paths>` (#1473). It
+    runs them directly on Linux and macOS, and in a Linux container on Windows: Git Bash is many
+    times slower there, and it fails self-tests that pass in CI (it cannot make a symbolic link).
   - In every bash script under `scripts/` (the engine copy `scripts/claude/` is fixed in the
     engine), check text that is already in a variable with a here-string, never by piping it into
     `grep -q`: `grep -qF -- "$1" <<< "$LAST_OUTPUT"`, not `printf '%s' "$LAST_OUTPUT" | grep -qF --

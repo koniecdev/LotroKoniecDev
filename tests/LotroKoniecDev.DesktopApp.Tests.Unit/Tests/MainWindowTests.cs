@@ -6,8 +6,11 @@ using Avalonia.LogicalTree;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using LotroKoniecDev.Application;
 using LotroKoniecDev.Application.Abstractions.Messaging;
 using LotroKoniecDev.Application.Features.AppUpdating;
+using LotroKoniecDev.Application.Features.Patching;
+using LotroKoniecDev.Application.Features.TranslationFileSyncing;
 using LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 using LotroKoniecDev.DesktopApp.Presentation.Views;
 using LotroKoniecDev.DesktopApp.Tests.Unit.Shared;
@@ -19,8 +22,8 @@ namespace LotroKoniecDev.DesktopApp.Tests.Unit.Tests;
 
 /// <summary>
 /// The layout #41 asks for: a title, three status lines, the Patch and Play buttons and a progress bar
-/// with its percent. #43 adds the first-run panel, the two notices and the settings button, and #45 the
-/// update panel.
+/// with its percent. #43 adds the first-run panel, the two notices and the settings button, #45 the
+/// update panel, and #42 the Polish labels and a working Patch and Play.
 /// </summary>
 /// <remarks>
 /// Every window closes in a <c>finally</c>: the session is shared, so a failed check must not leave a
@@ -59,8 +62,8 @@ public sealed class MainWindowTests
 
         shown.Title.ShouldBe("LOTRO po Polsku");
         shown.Texts.ShouldContain("Status:");
-        shown.Texts.ShouldContain("Game version:");
-        shown.Texts.ShouldContain("Patch version:");
+        shown.Texts.ShouldContain("Wersja gry:");
+        shown.Texts.ShouldContain("Wersja tłumaczenia:");
     }
 
     [Fact]
@@ -84,24 +87,27 @@ public sealed class MainWindowTests
             },
             CancellationToken.None);
 
-        shown.Status.ShouldBe("Ready to play");
+        shown.Status.ShouldBe("Gotowe.");
         shown.GameVersion.ShouldBe(MainWindowViewModel.UnknownValue);
         shown.PatchVersion.ShouldBe(MainWindowViewModel.UnknownValue);
     }
 
     [Theory]
-    [InlineData("PatchButton", "Patch")]
-    [InlineData("PlayButton", "Play")]
-    public async Task Show_BeforeTheButtonsAreWired_ShowsThemDisabled(string buttonName, string expectedLabel)
+    [InlineData("PatchButton", "Nałóż spolszczenie")]
+    [InlineData("PlayButton", "Graj")]
+    public async Task Show_WithASavedGame_ShowsTheButtonsInPolishAndEnabled(string buttonName, string expectedLabel)
     {
         (object? Content, bool? IsEnabled) button = await _fixture.Session.Dispatch(
-            () =>
+            async () =>
             {
-                MainWindow window = ShowWith(CreateViewModel());
+                MainWindowViewModel viewModel = CreateViewModel();
+                MainWindow window = ShowWith(viewModel);
                 try
                 {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
                     Button? found = window.FindControl<Button>(buttonName);
-                    return (found?.Content, found?.IsEnabled);
+                    return (found?.Content, found?.IsEffectivelyEnabled);
                 }
                 finally
                 {
@@ -110,9 +116,35 @@ public sealed class MainWindowTests
             },
             CancellationToken.None);
 
-        // #42 wires them; until then a click must not look like it did something.
+        // "Graj" is the wiki's word for the one click a player makes (Wersje systemu).
         button.Content.ShouldBe(expectedLabel);
-        button.IsEnabled.ShouldBe(false);
+        button.IsEnabled.ShouldBe(true);
+    }
+
+    [Theory]
+    [InlineData("PatchButton")]
+    [InlineData("PlayButton")]
+    public async Task Show_WithNoGameFolderYet_DisablesTheButton(string buttonName)
+    {
+        bool? isEnabled = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = new ViewModelBuilder().MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    return window.FindControl<Button>(buttonName)?.IsEffectivelyEnabled;
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        isEnabled.ShouldBe(false);
     }
 
     [Theory]
@@ -915,6 +947,161 @@ public sealed class MainWindowTests
         (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(LaptopWorkArea.Bottom);
     }
 
+    [Fact]
+    public async Task ClickNalozSpolszczenie_WhileThePatchRuns_DisablesBothButtonsAndMovesTheBarToHundred()
+    {
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        TaskCompletionSource<Result<PatchIfNeededResponse>> patch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Result<PatchIfNeededResponse>>(patch.Task));
+
+        PatchRunSnapshot run = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = builder.MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    Button patchButton = window.FindControl<Button>("PatchButton").ShouldNotBeNull();
+                    Button playButton = window.FindControl<Button>("PlayButton").ShouldNotBeNull();
+                    ProgressBar bar = window.FindControl<ProgressBar>("PatchProgressBar").ShouldNotBeNull();
+                    TextBlock status = window.FindControl<TextBlock>("StatusText").ShouldNotBeNull();
+
+                    patchButton.Command.ShouldNotBeNull().Execute(patchButton.CommandParameter);
+                    await WaitUntil(() => viewModel.PatchAndPlay.StatusText == "Nakładam spolszczenie…");
+
+                    // The patcher reports every 1000 rows; this stands in for one report.
+                    builder.Progress.Report(new OperationProgress(600, 1000));
+                    Dispatcher.UIThread.RunJobs();
+                    bool patchEnabledDuring = patchButton.IsEffectivelyEnabled;
+                    bool playEnabledDuring = playButton.IsEffectivelyEnabled;
+                    string? statusDuring = status.Text;
+                    double barDuring = bar.Value;
+
+                    patch.SetResult(Result.Success(new PatchIfNeededResponse(true, true, 900, 100, 0, null)));
+                    await WaitUntil(() => !viewModel.PatchAndPlay.IsRunning);
+                    Dispatcher.UIThread.RunJobs();
+
+                    return new PatchRunSnapshot(
+                        patchEnabledDuring, playEnabledDuring, statusDuring, barDuring, bar.Value, status.Text, patchButton.IsEffectivelyEnabled);
+                }
+                finally
+                {
+                    patch.TrySetResult(Result.Success(new PatchIfNeededResponse(false, false, 0, 0, 0, null)));
+                    await WaitUntil(() => !builder.Gate.IsBusy);
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        run.PatchEnabledDuring.ShouldBeFalse();
+        run.PlayEnabledDuring.ShouldBeFalse();
+        run.StatusDuring.ShouldBe("Nakładam spolszczenie…");
+        run.BarDuring.ShouldBe(60);
+        run.BarAfter.ShouldBe(100);
+        run.StatusAfter.ShouldBe("Spolszczenie nałożone.");
+        run.EnabledAfter.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ClickNalozSpolszczenie_WhileTheDownloadRuns_MovesTheBarWithNoPercent()
+    {
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        TaskCompletionSource<Result<TranslationFileSyncResponse>> download = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        builder.SyncHandler.Handle(Arg.Any<SyncTranslationFileCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Result<TranslationFileSyncResponse>>(download.Task));
+
+        DownloadSnapshot run = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = builder.MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    Button patchButton = window.FindControl<Button>("PatchButton").ShouldNotBeNull();
+                    ProgressBar bar = window.FindControl<ProgressBar>("PatchProgressBar").ShouldNotBeNull();
+                    TextBlock percent = window.FindControl<TextBlock>("ProgressText").ShouldNotBeNull();
+
+                    patchButton.Command.ShouldNotBeNull().Execute(patchButton.CommandParameter);
+                    await WaitUntil(() => bar.IsIndeterminate);
+                    bool indeterminateDuring = bar.IsIndeterminate;
+                    bool percentVisibleDuring = percent.IsVisible;
+                    string? statusDuring = window.FindControl<TextBlock>("StatusText")?.Text;
+
+                    download.SetResult(Result.Success(new TranslationFileSyncResponse(TranslationFileSyncOutcome.Updated, null)));
+                    await WaitUntil(() => !viewModel.PatchAndPlay.IsRunning);
+                    Dispatcher.UIThread.RunJobs();
+
+                    return new DownloadSnapshot(indeterminateDuring, percentVisibleDuring, statusDuring, bar.IsIndeterminate, percent.IsVisible);
+                }
+                finally
+                {
+                    download.TrySetResult(Result.Success(new TranslationFileSyncResponse(TranslationFileSyncOutcome.UpToDate, null)));
+                    await WaitUntil(() => !builder.Gate.IsBusy);
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        run.IndeterminateDuring.ShouldBeTrue();
+        run.PercentVisibleDuring.ShouldBeFalse();
+        run.StatusDuring.ShouldBe("Przygotowuję plik spolszczenia…");
+        run.IndeterminateAfter.ShouldBeFalse();
+        run.PercentVisibleAfter.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Close_WhileThePatchRuns_IsRefusedWithAPolishLineAndWorksAfterIt()
+    {
+        ViewModelBuilder builder = ViewModelBuilder.WithASavedGame();
+        TaskCompletionSource<Result<PatchIfNeededResponse>> patch = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        builder.PatchHandler.Handle(Arg.Any<PatchIfNeededCommand>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<Result<PatchIfNeededResponse>>(patch.Task));
+
+        CloseSnapshot close = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = builder.MainWindow();
+                MainWindow window = ShowWith(viewModel);
+                bool closed = false;
+                window.Closed += (_, _) => closed = true;
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    Dispatcher.UIThread.RunJobs();
+                    _ = viewModel.PatchAndPlay.PatchAsync();
+                    await WaitUntil(() => viewModel.PatchAndPlay.StatusText == "Nakładam spolszczenie…");
+
+                    window.Close();
+                    Dispatcher.UIThread.RunJobs();
+                    bool openAfterRefusedClose = !closed;
+                    string? status = window.FindControl<TextBlock>("StatusText")?.Text;
+
+                    patch.SetResult(Result.Success(new PatchIfNeededResponse(false, false, 0, 0, 0, null)));
+                    await WaitUntil(() => !viewModel.PatchAndPlay.IsRunning);
+                    window.Close();
+                    Dispatcher.UIThread.RunJobs();
+
+                    return new CloseSnapshot(openAfterRefusedClose, status, closed);
+                }
+                finally
+                {
+                    patch.TrySetResult(Result.Success(new PatchIfNeededResponse(false, false, 0, 0, 0, null)));
+                    await WaitUntil(() => !builder.Gate.IsBusy);
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        close.OpenAfterRefusedClose.ShouldBeTrue();
+        close.Status.ShouldBe("Poczekaj, aż ta operacja się skończy. Potem zamknij okno.");
+        close.ClosedAfterTheRun.ShouldBeTrue();
+    }
+
     public MainWindowTests(HeadlessSessionFixture fixture)
     {
         _fixture = fixture;
@@ -992,4 +1179,22 @@ public sealed class MainWindowTests
             Dispatcher.UIThread.RunJobs();
         }
     }
+
+    private sealed record PatchRunSnapshot(
+        bool PatchEnabledDuring,
+        bool PlayEnabledDuring,
+        string? StatusDuring,
+        double BarDuring,
+        double BarAfter,
+        string? StatusAfter,
+        bool EnabledAfter);
+
+    private sealed record DownloadSnapshot(
+        bool IndeterminateDuring,
+        bool PercentVisibleDuring,
+        string? StatusDuring,
+        bool IndeterminateAfter,
+        bool PercentVisibleAfter);
+
+    private sealed record CloseSnapshot(bool OpenAfterRefusedClose, string? Status, bool ClosedAfterTheRun);
 }

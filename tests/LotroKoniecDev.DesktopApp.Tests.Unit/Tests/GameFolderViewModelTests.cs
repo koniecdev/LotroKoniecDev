@@ -674,6 +674,57 @@ public sealed class GameFolderViewModelTests
         viewModel.IsPanelVisible.ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task StartAsync_WithOneKnownInstallDuringAnUpdate_AsksInsteadOfSavingOnItsOwn()
+    {
+        // Arrange: an update holds the busy gate, so the save waits for the player's "Tak" (#42).
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(KnownFolder, DatFileSource.Steam)).GameFolder();
+        _builder.Gate.TryEnter();
+
+        // Act
+        await viewModel.StartAsync();
+
+        // Assert
+        viewModel.IsQuestionVisible.ShouldBeTrue();
+        viewModel.PromptText.ShouldNotBeNull().ShouldStartWith($"Znaleziono grę w folderze {KnownFolder}");
+        _builder.Store.Current.GameFolder.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Confirm_WhileAnotherOperationHoldsTheGate_KeepsThePanelSavesNothingAndSaysWhy()
+    {
+        // Arrange
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(ScannedFolder, DatFileSource.DiskScan)).GameFolder();
+        await viewModel.StartAsync();
+        _builder.Gate.TryEnter();
+
+        // Act
+        viewModel.Confirm();
+
+        // Assert
+        viewModel.IsPanelVisible.ShouldBeTrue();
+        viewModel.StatusText.ShouldBe("Trwa inna operacja. Wybierz folder, gdy się skończy.");
+        _builder.Store.Current.GameFolder.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Confirm_WhenTheGateIsFree_TakesItOnlyForTheSave()
+    {
+        // Arrange
+        GameFolderViewModel viewModel = _builder.Locating(ViewModelBuilder.Location(ScannedFolder, DatFileSource.DiskScan)).GameFolder();
+        await viewModel.StartAsync();
+        List<bool> gateStates = [];
+        _builder.Store.Saved += (_, _) => gateStates.Add(_builder.Gate.IsBusy);
+
+        // Act
+        viewModel.Confirm();
+
+        // Assert
+        gateStates.ShouldBe([true]);
+        _builder.Gate.IsBusy.ShouldBeFalse();
+        _builder.Store.Current.GameFolder.ShouldBe(ScannedFolder);
+    }
+
     private void StallSearch(ManualResetEventSlim release, params DatFileLocation[] locations)
     {
         foreach (DatFileLocation location in locations)

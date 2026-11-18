@@ -8,6 +8,9 @@ namespace LotroKoniecDev.DesktopApp;
 
 public sealed class Program
 {
+    /// <summary>One file with no rotation keeps every line of a bug report in one place, so each line carries its date (#42).</summary>
+    internal const string LogOutputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}";
+
     /// <summary>
     /// Debug on purpose, like the CLI's patcher.log: it is the trail players attach to a bug report, and
     /// it never leaves their machine unless they send it (#397).
@@ -44,7 +47,7 @@ public sealed class Program
             .MinimumLevel.Debug()
             .WriteTo.File(
                 LogFilePath,
-                outputTemplate: "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+                outputTemplate: LogOutputTemplate)
             .CreateLogger();
 
         // Every copy runs as administrator, so no copy of ours can make Windows refuse a name: another
@@ -63,8 +66,8 @@ public sealed class Program
             using ServiceProvider serviceProvider = DesktopAppDependencyInjection.BuildServiceProvider();
 
             // One scope for the whole process, as in the CLI's TypeResolver. The view models are scoped,
-            // like the handlers they inject from #42 on, and ValidateScopes refuses to resolve a scoped
-            // service from the root provider.
+            // like the handlers they inject, and ValidateScopes refuses to resolve a scoped service from
+            // the root provider.
             using IServiceScope scope = serviceProvider.CreateScope();
 
             // Startup is raised once Avalonia is set up and just before the lifetime shows its main

@@ -69,6 +69,22 @@ public sealed class DesktopAppDataFolderTests : IDisposable
         installerLog.Value.ShouldBe(Path.Combine(_updatesFolder, "update-install.log"));
     }
 
+    [Fact]
+    public void BuildServiceProvider_ThePatchWorkspace_KeepsEveryTranslationCopyInTheDataFolderNextToTheExe()
+    {
+        // Arrange
+        using ServiceProvider serviceProvider = DesktopAppDependencyInjection.BuildServiceProvider();
+
+        // Act
+        IDesktopPatchWorkspace sut = serviceProvider.GetRequiredService<IDesktopPatchWorkspace>();
+
+        // Assert: the elevated app writes small files next to these, so none may sit in a folder the player chose (#42).
+        string dataFolder = Path.Combine(ExeFolder, "data");
+        sut.DownloadedTranslationFilePath.ShouldBe(Path.Combine(dataFolder, "download", "polish.txt"));
+        sut.WorkingTranslationFilePath.ShouldBe(Path.Combine(dataFolder, "polish.txt"));
+        sut.GameVersionFilePath.ShouldBe(Path.Combine(dataFolder, "last_known_game_version.txt"));
+    }
+
     public DesktopAppDataFolderTests()
     {
         _updatesFolderExisted = Directory.Exists(_updatesFolder);

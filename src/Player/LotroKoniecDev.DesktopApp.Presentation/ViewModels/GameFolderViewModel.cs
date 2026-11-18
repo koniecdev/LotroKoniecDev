@@ -24,6 +24,7 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
     private readonly IDatFileLocator _locator;
     private readonly DesktopSettingsStore _store;
     private readonly IPathPicker _picker;
+    private readonly OperationGate _gate;
     private readonly ILogger<GameFolderViewModel> _logger;
     private Task? _start;
     private IReadOnlyList<string> _loadNotes = [];
@@ -136,11 +137,13 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         IDatFileLocator locator,
         DesktopSettingsStore store,
         IPathPicker picker,
+        OperationGate gate,
         ILogger<GameFolderViewModel> logger)
     {
         _locator = locator;
         _store = store;
         _picker = picker;
+        _gate = gate;
         _logger = logger;
 
         ConfirmCommand = new DelegateCommand(Confirm, () => _offered is not null);
@@ -230,9 +233,10 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         }
 
         // After a file the load could not use (it may only be locked for now), the first save moves it
-        // aside, so the player says yes to that save.
+        // aside, so the player says yes to that save. While another operation holds the busy gate (an
+        // update), the save waits for the player's "Tak" too.
         DatFileLocation only = locations[0];
-        if (_lostFolder is null && !only.NeedsConfirmation && !_store.HasUnusableFile)
+        if (_lostFolder is null && !only.NeedsConfirmation && !_store.HasUnusableFile && !_gate.IsBusy)
         {
             UseOnItsOwn(FolderOf(only));
             return;
@@ -252,12 +256,26 @@ public sealed partial class GameFolderViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>A save takes the busy gate, like the settings window's (#42); a busy gate keeps the panel open.</summary>
     private void Use(string folder)
     {
-        bool saved = _store.Save(_store.Current with { GameFolder = folder });
-        _lostFolder = null;
-        HidePanel();
-        ShowStatus(saved ? null : GameFolderTexts.SaveFailed);
+        if (!_gate.TryEnter())
+        {
+            ShowStatus(GameFolderTexts.Busy);
+            return;
+        }
+
+        try
+        {
+            bool saved = _store.Save(_store.Current with { GameFolder = folder });
+            _lostFolder = null;
+            HidePanel();
+            ShowStatus(saved ? null : GameFolderTexts.SaveFailed);
+        }
+        finally
+        {
+            _gate.Exit();
+        }
     }
 
     /// <summary>The one save the player did not ask for: the load notes must outlive it.</summary>

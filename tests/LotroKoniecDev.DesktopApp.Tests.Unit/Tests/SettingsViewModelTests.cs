@@ -376,6 +376,58 @@ public sealed class SettingsViewModelTests
         viewModel.BrowseTranslationFileCommand.CanExecute(null).ShouldBeTrue();
     }
 
+    [Fact]
+    public void Save_WhileAnotherOperationHoldsTheGate_SavesNothingAndSaysWhy()
+    {
+        // Arrange: a patch is running, so the game folder must not change under it (#42).
+        _builder.Files.AddGame(GameFolder);
+        SettingsViewModel viewModel = Editing(GameFolder, string.Empty, true, string.Empty);
+        _builder.Gate.TryEnter();
+
+        // Act
+        bool saved = viewModel.Save();
+
+        // Assert
+        saved.ShouldBeFalse();
+        viewModel.ErrorText.ShouldBe("Trwa inna operacja. Zapisz, gdy się skończy.");
+        viewModel.SaveCommand.CanExecute(null).ShouldBeFalse();
+        _builder.SettingsFile.Contents.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Save_WhenTheGateIsFree_TakesItOnlyForTheSave()
+    {
+        // Arrange
+        _builder.Files.AddGame(GameFolder);
+        SettingsViewModel viewModel = Editing(GameFolder, string.Empty, true, string.Empty);
+        List<bool> gateStates = [];
+        _builder.Store.Saved += (_, _) => gateStates.Add(_builder.Gate.IsBusy);
+
+        // Act
+        bool saved = viewModel.Save();
+
+        // Assert
+        saved.ShouldBeTrue();
+        gateStates.ShouldBe([true]);
+        _builder.Gate.IsBusy.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void SaveCommand_WhenTheGateIsFreedAgain_IsEnabledAgain()
+    {
+        // Arrange
+        SettingsViewModel viewModel = _builder.Settings();
+        _builder.Gate.TryEnter();
+        List<bool> canSave = [viewModel.SaveCommand.CanExecute(null)];
+        viewModel.SaveCommand.CanExecuteChanged += (_, _) => canSave.Add(viewModel.SaveCommand.CanExecute(null));
+
+        // Act
+        _builder.Gate.Exit();
+
+        // Assert
+        canSave.ShouldBe([false, true]);
+    }
+
     private SettingsViewModel Editing(string gameFolder, string translationFile, bool autoPatch, string serverAddress)
     {
         SettingsViewModel viewModel = _builder.Settings();

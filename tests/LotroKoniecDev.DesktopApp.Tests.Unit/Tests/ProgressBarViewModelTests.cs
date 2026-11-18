@@ -135,6 +135,53 @@ public sealed class ProgressBarViewModelTests
         raised.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task SetIndeterminate_OnAndThenOff_MovesTheBarWithNoPercentAndBack()
+    {
+        (bool On, bool Off) state = await _fixture.Session.Dispatch(
+            () =>
+            {
+                // Arrange
+                ProgressBarViewModel progress = new();
+
+                // Act
+                progress.SetIndeterminate(true);
+                Dispatcher.UIThread.RunJobs();
+                bool on = progress.IsIndeterminate;
+                progress.SetIndeterminate(false);
+                Dispatcher.UIThread.RunJobs();
+
+                return (on, progress.IsIndeterminate);
+            },
+            CancellationToken.None);
+
+        // Assert
+        state.On.ShouldBeTrue();
+        state.Off.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Report_AfterAnEarlierReportFromABackgroundThread_LandsLast()
+    {
+        int percent = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                // Arrange: a patch report still queued when the run ends must not overwrite its 100.
+                ProgressBarViewModel progress = new();
+                await Task.Run(() => progress.Report(new OperationProgress(97, 100)));
+
+                // Act
+                progress.Report(new OperationProgress(1, 1));
+                Dispatcher.UIThread.RunJobs();
+
+                return progress.Percent;
+            },
+            CancellationToken.None);
+
+        // Assert
+        percent.ShouldBe(100);
+    }
+
     public ProgressBarViewModelTests(HeadlessSessionFixture fixture)
     {
         _fixture = fixture;

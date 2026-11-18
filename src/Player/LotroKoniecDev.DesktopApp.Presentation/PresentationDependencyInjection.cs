@@ -8,10 +8,10 @@ namespace LotroKoniecDev.DesktopApp.Presentation;
 public static class PresentationDependencyInjection
 {
     /// <remarks>
-    /// Scoped, like the patcher handlers the view models inject from #42 on. The exe resolves them from
-    /// one scope that lives as long as the app, as the CLI does. The exe also registers the
-    /// <see cref="ISettingsFile"/> and <see cref="IFileProbe"/> adapters and the
-    /// <see cref="InstalledAppVersion"/> it was built with.
+    /// Scoped, like the patcher handlers the view models inject. The exe resolves them from one scope
+    /// that lives as long as the app, as the CLI does. The exe also registers the
+    /// <see cref="ISettingsFile"/> and <see cref="IFileProbe"/> adapters, the
+    /// <see cref="InstalledAppVersion"/> it was built with and the patch workspace in its data folder.
     /// </remarks>
     public static IServiceCollection AddPresentationServices(this IServiceCollection services)
     {
@@ -31,6 +31,7 @@ public static class PresentationDependencyInjection
 
         services.AddSingleton<IAppShutdown, ClassicDesktopAppShutdown>();
         services.AddScoped<AppUpdateViewModel>();
+        services.AddScoped<PatchAndPlayViewModel>();
         services.AddScoped<MainWindowViewModel>();
 
         return services;

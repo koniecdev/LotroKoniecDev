@@ -42,6 +42,8 @@ internal static class SettingsTexts
 
     public const string PickerFailed = "Nie udało się otworzyć okna wyboru.";
 
+    public const string Busy = "Trwa inna operacja. Zapisz, gdy się skończy.";
+
     public static string TranslationFileMissing(string path) =>
         $"Nie ma pliku tłumaczenia {path}. Program zostawia go w ustawieniach: podłącz dysk z tym plikiem albo zmień go w ustawieniach.";
 

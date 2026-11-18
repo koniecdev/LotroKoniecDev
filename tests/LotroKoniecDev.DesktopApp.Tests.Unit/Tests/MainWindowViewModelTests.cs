@@ -9,13 +9,13 @@ namespace LotroKoniecDev.DesktopApp.Tests.Unit.Tests;
 public sealed class MainWindowViewModelTests
 {
     [Fact]
-    public void Constructor_BeforeAnythingIsChecked_ShowsTheStaticStatusAndUnknownVersions()
+    public void Constructor_BeforeAnythingRuns_ShowsThePolishReadyStatusAndUnknownVersions()
     {
         // Act
         MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow();
 
-        // Assert: the values stay static until #42 reads the real ones.
-        viewModel.Status.ShouldBe("Ready to play");
+        // Assert: nothing reads the two versions yet, so they stay unknown.
+        viewModel.PatchAndPlay.StatusText.ShouldBe("Gotowe.");
         viewModel.GameVersion.ShouldBe(MainWindowViewModel.UnknownValue);
         viewModel.PatchVersion.ShouldBe(MainWindowViewModel.UnknownValue);
     }

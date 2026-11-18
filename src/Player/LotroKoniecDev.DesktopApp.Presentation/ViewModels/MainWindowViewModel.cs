@@ -1,14 +1,12 @@
 namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 
 /// <summary>
-/// The state the main window shows. The status texts are static until #42 wires the Patch and Play
-/// buttons; the progress bar, the first-run panel, the settings and the update panel are already wired.
+/// The state the main window shows. The two version lines stay unknown until a later ticket reads the
+/// real values.
 /// </summary>
 public sealed class MainWindowViewModel
 {
     public const string UnknownValue = "—";
-
-    public string Status { get; } = "Ready to play";
 
     public string GameVersion { get; } = UnknownValue;
 
@@ -26,6 +24,8 @@ public sealed class MainWindowViewModel
 
     public AppUpdateViewModel AppUpdate { get; }
 
+    public PatchAndPlayViewModel PatchAndPlay { get; }
+
     /// <summary>The player is choosing now, so a disk scan that is still running must not choose for them.</summary>
     public SettingsViewModel OpenSettings()
     {
@@ -38,11 +38,13 @@ public sealed class MainWindowViewModel
         ProgressBarViewModel progress,
         GameFolderViewModel gameFolder,
         SettingsViewModel settings,
-        AppUpdateViewModel appUpdate)
+        AppUpdateViewModel appUpdate,
+        PatchAndPlayViewModel patchAndPlay)
     {
         Progress = progress;
         GameFolder = gameFolder;
         Settings = settings;
         AppUpdate = appUpdate;
+        PatchAndPlay = patchAndPlay;
     }
 }

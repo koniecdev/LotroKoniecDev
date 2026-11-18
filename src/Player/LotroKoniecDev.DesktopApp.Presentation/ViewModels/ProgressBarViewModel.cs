@@ -7,12 +7,12 @@ namespace LotroKoniecDev.DesktopApp.Presentation.ViewModels;
 /// <summary>
 /// The main window's progress bar, and the progress port the patcher handlers inject, as
 /// <c>ConsoleProgressReporter</c> is the CLI's. One object plays both parts, so the main window and the
-/// handlers share it without depending on each other. From #42 on, the main window's view model injects
-/// those handlers.
+/// handlers share it without depending on each other.
 /// </summary>
 /// <remarks>
 /// The handlers report from whatever thread they run on, and Avalonia only lets the UI thread change a
-/// bound property, so every report is posted to the UI thread.
+/// bound property, so every change is posted to the UI thread. Posts of one priority run in order, so
+/// a percent or a switch sent after a report always lands after it.
 /// </remarks>
 public sealed class ProgressBarViewModel : IProgress<OperationProgress>, INotifyPropertyChanged
 {
@@ -33,6 +33,22 @@ public sealed class ProgressBarViewModel : IProgress<OperationProgress>, INotify
         }
     }
 
+    /// <summary>A bar that moves with no percent, for a step that sends no reports (a download, a launch).</summary>
+    public bool IsIndeterminate
+    {
+        get;
+        internal set
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsIndeterminate)));
+        }
+    }
+
     public void Report(OperationProgress value)
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -40,6 +56,9 @@ public sealed class ProgressBarViewModel : IProgress<OperationProgress>, INotify
         int percent = ToPercent(value);
         Dispatcher.UIThread.Post(() => Percent = percent);
     }
+
+    public void SetIndeterminate(bool isIndeterminate) =>
+        Dispatcher.UIThread.Post(() => IsIndeterminate = isIndeterminate);
 
     /// <summary>
     /// A report with nothing left to do counts as done, the same rule as

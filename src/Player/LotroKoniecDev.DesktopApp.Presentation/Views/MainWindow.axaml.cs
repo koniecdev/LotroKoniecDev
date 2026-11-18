@@ -49,6 +49,25 @@ public sealed partial class MainWindow : Window
         Dispatcher.UIThread.Post(FitIntoWorkArea);
     }
 
+    /// <summary>
+    /// The player's close waits for a Patch or Play run: the end of the app disposes the game file's
+    /// handler, which closes its native handles under a write still in progress. No code of ours closes
+    /// this window, and the update's shutdown is not a window close, so it is never refused.
+    /// </summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        if (e.CloseReason == WindowCloseReason.WindowClosing
+            && DataContext is MainWindowViewModel viewModel
+            && viewModel.PatchAndPlay.RefuseClose())
+        {
+            e.Cancel = true;
+        }
+
+        base.OnClosing(e);
+    }
+
     private void OnSettingsClick(object? sender, RoutedEventArgs e)
     {
         if (DataContext is MainWindowViewModel viewModel)

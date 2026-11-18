@@ -1,8 +1,10 @@
 using System.Reflection;
+using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.DesktopApp.Presentation;
 using LotroKoniecDev.DesktopApp.Presentation.Settings;
 using LotroKoniecDev.Infrastructure;
+using LotroKoniecDev.Infrastructure.Storage;
 using LotroKoniecDev.Infrastructure.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -19,9 +21,10 @@ internal static class DesktopAppDependencyInjection
     internal const string VersionMetadataKey = "DesktopVersion";
 
     /// <summary>
-    /// The settings and the log. The app runs as administrator, so it keeps its files under its own
-    /// folder: installed under Program Files, only administrators can change them (ADR-0069 amendment of
-    /// 2026-11-18). A developer build uses its own bin folder by the same rule.
+    /// The settings, the log, and Patch and Play's copies of the translation file with their small
+    /// files. The app runs as administrator, so it keeps its files under its own folder: installed under
+    /// Program Files, only administrators can change them (ADR-0069 amendment of 2026-11-18). A
+    /// developer build uses its own bin folder by the same rule.
     /// </summary>
     internal static readonly string DataFolder = Path.Combine(AppContext.BaseDirectory, "data");
 
@@ -42,6 +45,7 @@ internal static class DesktopAppDependencyInjection
         services.AddSingleton<ISettingsFile>(new SettingsFile(SettingsFilePath));
         services.AddSingleton<IFileProbe, FileProbe>();
         services.AddSingleton(new InstalledAppVersion(ReadStampedVersion()));
+        services.AddSingleton<IDesktopPatchWorkspace>(new DesktopPatchWorkspace(DataFolder));
 
         // DI validation runs in every environment (#572). A handler that cannot be built stops the app
         // before any window opens, and Program writes the reason to the log file.

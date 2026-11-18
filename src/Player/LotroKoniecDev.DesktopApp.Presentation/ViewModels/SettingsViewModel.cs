@@ -16,6 +16,7 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
 {
     private readonly DesktopSettingsStore _store;
     private readonly IPathPicker _picker;
+    private readonly OperationGate _gate;
     private readonly ILogger<SettingsViewModel> _logger;
     private bool _isPicking;
 
@@ -85,7 +86,50 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
     }
 
     /// <returns><c>true</c> when the settings were saved and the window may close.</returns>
+    /// <remarks>A save takes the busy gate, so it never changes the game folder under a patch (#42).</remarks>
     public bool Save()
+    {
+        if (!_gate.TryEnter())
+        {
+            ShowError(SettingsTexts.Busy);
+            return false;
+        }
+
+        try
+        {
+            return SaveChecked();
+        }
+        finally
+        {
+            _gate.Exit();
+        }
+    }
+
+    public void Cancel() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    public Task BrowseGameFolderAsync() => BrowseAsync(_picker.PickGameFolderAsync, path => GameFolder = path);
+
+    public Task BrowseTranslationFileAsync() => BrowseAsync(_picker.PickTranslationFileAsync, path => TranslationFile = path);
+
+    public SettingsViewModel(
+        DesktopSettingsStore store,
+        IPathPicker picker,
+        OperationGate gate,
+        ILogger<SettingsViewModel> logger)
+    {
+        _store = store;
+        _picker = picker;
+        _gate = gate;
+        _logger = logger;
+
+        BrowseGameFolderCommand = new DelegateCommand(() => _ = BrowseGameFolderAsync(), () => !_isPicking);
+        BrowseTranslationFileCommand = new DelegateCommand(() => _ = BrowseTranslationFileAsync(), () => !_isPicking);
+        SaveCommand = new DelegateCommand(() => Save(), () => !_isPicking && !_gate.IsBusy);
+        CancelCommand = new DelegateCommand(Cancel, () => true);
+        _gate.PropertyChanged += (_, _) => SaveCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool SaveChecked()
     {
         string folder = WithoutQuotes(GameFolder);
         string translationFile = WithoutQuotes(TranslationFile);
@@ -127,24 +171,6 @@ public sealed partial class SettingsViewModel : INotifyPropertyChanged
         ShowError(null);
         CloseRequested?.Invoke(this, EventArgs.Empty);
         return true;
-    }
-
-    public void Cancel() => CloseRequested?.Invoke(this, EventArgs.Empty);
-
-    public Task BrowseGameFolderAsync() => BrowseAsync(_picker.PickGameFolderAsync, path => GameFolder = path);
-
-    public Task BrowseTranslationFileAsync() => BrowseAsync(_picker.PickTranslationFileAsync, path => TranslationFile = path);
-
-    public SettingsViewModel(DesktopSettingsStore store, IPathPicker picker, ILogger<SettingsViewModel> logger)
-    {
-        _store = store;
-        _picker = picker;
-        _logger = logger;
-
-        BrowseGameFolderCommand = new DelegateCommand(() => _ = BrowseGameFolderAsync(), () => !_isPicking);
-        BrowseTranslationFileCommand = new DelegateCommand(() => _ = BrowseTranslationFileAsync(), () => !_isPicking);
-        SaveCommand = new DelegateCommand(() => Save(), () => !_isPicking);
-        CancelCommand = new DelegateCommand(Cancel, () => true);
     }
 
     /// <summary>A cancelled dialog leaves the field as it was.</summary>

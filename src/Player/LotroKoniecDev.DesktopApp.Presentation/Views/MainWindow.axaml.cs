@@ -40,8 +40,8 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// The window grows after it is placed (a found game, an update offer), and Windows keeps its top
-    /// where it was, so every resize moves it back into the work area (#1463). On Windows a resize arrives
-    /// inside the layout pass, so the move waits for the pass to end.
+    /// where it was, so every resize moves it back into the work area (#1463). The move is posted: on
+    /// Windows a resize arrives inside the layout pass, and a restore reports its size before its state.
     /// </summary>
     protected override void OnResized(WindowResizedEventArgs e)
     {

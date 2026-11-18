@@ -802,7 +802,7 @@ public sealed class MainWindowTests
     public async Task Grow_WhileMinimized_LeavesTheWindowWhereItIs()
     {
         TaskCompletionSource<Result<AppUpdateCheckResponse>> check = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        int top = await _fixture.Session.Dispatch(
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
             async () =>
             {
                 MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow(
@@ -818,7 +818,7 @@ public sealed class MainWindowTests
                     check.SetResult(Result.Success(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate)));
                     await WaitUntil(() => viewModel.AppUpdate.IsPromptVisible);
                     Dispatcher.UIThread.RunJobs();
-                    return window.Position.Y;
+                    return (window.Position.Y, window.ClientSize.Height);
                 }
                 finally
                 {
@@ -827,8 +827,46 @@ public sealed class MainWindowTests
             },
             CancellationToken.None);
 
-        // The grown window now reaches below the work area. It is fitted when it is restored, not before.
-        top.ShouldBe(150);
+        // The grown window reaches below the work area. It is fitted when it is restored, not before.
+        (150 + shown.Height).ShouldBeGreaterThan(LaptopWorkArea.Bottom);
+        shown.Top.ShouldBe(150);
+    }
+
+    [Fact]
+    public async Task Restore_AfterAGrowthWhileMinimized_MovesTheWindowBackIntoTheWorkArea()
+    {
+        TaskCompletionSource<Result<AppUpdateCheckResponse>> check = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        (int Top, double Height) shown = await _fixture.Session.Dispatch(
+            async () =>
+            {
+                MainWindowViewModel viewModel = ViewModelBuilder.WithASavedGame().MainWindow(
+                    ViewModelBuilder.AppUpdate(ViewModelBuilder.CheckAnsweringWhen(check.Task)));
+                MainWindow window = ShowWith(viewModel, () => LaptopWorkArea);
+                try
+                {
+                    await viewModel.GameFolder.StartAsync();
+                    window.Position = new PixelPoint(window.Position.X, 150);
+                    window.WindowState = WindowState.Minimized;
+                    Dispatcher.UIThread.RunJobs();
+
+                    // Windows reports a restore as a resize first, and as the new state right after it.
+                    window.Resized += (_, _) => Dispatcher.UIThread.Post(() => window.WindowState = WindowState.Normal);
+                    check.SetResult(Result.Success(AppUpdateCheckResponse.UpdateAvailable(OfferedUpdate)));
+                    await WaitUntil(() => viewModel.AppUpdate.IsPromptVisible);
+                    Dispatcher.UIThread.RunJobs();
+                    return (window.Position.Y, window.ClientSize.Height);
+                }
+                finally
+                {
+                    window.Close();
+                }
+            },
+            CancellationToken.None);
+
+        // At its old top of 150 the grown window would reach below the work area.
+        (150 + shown.Height).ShouldBeGreaterThan(LaptopWorkArea.Bottom);
+        shown.Top.ShouldBeGreaterThanOrEqualTo(LaptopWorkArea.Y);
+        (shown.Top + shown.Height).ShouldBeLessThanOrEqualTo(LaptopWorkArea.Bottom);
     }
 
     public MainWindowTests(HeadlessSessionFixture fixture)
@@ -870,7 +908,7 @@ public sealed class MainWindowTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    /// <summary>A missing scroller throws here, which fails the test.</summary>
+    /// <summary>A missing scroller fails the test at its first use.</summary>
     private static ScrollViewer Scroller(MainWindow window) => window.FindControl<ScrollViewer>("WindowScroller")!;
 
     /// <summary>On the headless platform the scaling is 1 and there is no title bar, so window units are screen pixels.</summary>

@@ -120,7 +120,6 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && jq --version \
     && locale -a | grep -qx 'en_US.utf8'
-ENV LANG=C.UTF-8
 RECIPE
 }
 
@@ -134,16 +133,17 @@ ensure_image() {
     IMAGE_TAG="$IMAGE_REPOSITORY:${hash:0:16}"
 
     if ! MSYS_NO_PATHCONV=1 docker image inspect "$IMAGE_TAG" > /dev/null 2>&1; then
+        # Old check images go by age, not as "every other tag": a second checkout on an older pin
+        # may still use its image, and Docker never removes an image a container uses. This runs
+        # before the build, because a build from cached layers can keep an old creation time.
+        MSYS_NO_PATHCONV=1 docker image prune --all --force \
+            --filter "label=$IMAGE_LABEL" --filter "until=$OLD_IMAGE_AGE" > /dev/null 2>&1 || true
         printf 'Building the check image %s. Only the first run does this, and it needs network.\n' \
             "$IMAGE_TAG" >&2
         if ! build_log="$(MSYS_NO_PATHCONV=1 docker build --load --tag "$IMAGE_TAG" - 2>&1 <<< "$recipe")"; then
             printf '%s\n' "$build_log" >&2
             die "could not build the check image $IMAGE_TAG (the build log is above)"
         fi
-        # By age, not by "every other tag": a second checkout on an older pin may still use its
-        # image. Docker never removes an image a container uses.
-        MSYS_NO_PATHCONV=1 docker image prune --all --force \
-            --filter "label=$IMAGE_LABEL" --filter "until=$OLD_IMAGE_AGE" > /dev/null 2>&1 || true
     fi
 }
 
@@ -185,17 +185,19 @@ run_in_container() {
         # read. Mount the shared .git and put a file that points into it over /repo/.git. Exported
         # GIT_DIR would reach the self-tests' own scratch repos instead (#1160).
         if [ -f "$REPO_ROOT/.git" ]; then
+            local inside
             git_dir="$(git rev-parse --path-format=absolute --git-dir)" \
                 || die "git could not find the git folder of $REPO_ROOT"
             common_dir="$(git rev-parse --path-format=absolute --git-common-dir)" \
                 || die "git could not find the shared git folder of $REPO_ROOT"
             case "$git_dir" in
-                "$common_dir"/*) ;;
+                "$common_dir") inside='' ;;
+                "$common_dir"/*) inside="/${git_dir#"$common_dir"/}" ;;
                 *) die "the git folder $git_dir is not inside $common_dir" ;;
             esac
             GITFILE="$(mktemp)"
             trap 'rm -f "$GITFILE"' EXIT
-            printf 'gitdir: /git/%s\n' "${git_dir#"$common_dir"/}" > "$GITFILE"
+            printf 'gitdir: /git%s\n' "$inside" > "$GITFILE"
             git_mount="$(windows_path "$common_dir")"
             gitfile_mount="$(windows_path "$GITFILE")"
             mounts+=(-v "$git_mount:/git:ro" -v "$gitfile_mount:/repo/.git:ro")
@@ -211,11 +213,13 @@ run_in_container() {
         fi
     fi
 
-    if [ -n "$not_executable" ] && [ "${#to_run[@]}" -gt 0 ]; then
-        printf '%s' "$not_executable"
-    fi
     if [ "$status" -gt "$highest" ]; then
         highest=$status
+    fi
+    # The container's own summary does not know about the scripts it never got.
+    if [ -n "$not_executable" ] && [ "${#to_run[@]}" -gt 0 ]; then
+        printf '%s== highest exit %d, with the scripts git does not mark executable\n' \
+            "$not_executable" "$highest"
     fi
     return "$highest"
 }

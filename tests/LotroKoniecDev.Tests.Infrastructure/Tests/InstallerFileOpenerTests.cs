@@ -3,7 +3,7 @@ using System.Diagnostics;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
-using LotroKoniecDev.Infrastructure.AppUpdating;
+using LotroKoniecDev.Infrastructure.Windows.AppUpdating;
 
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 

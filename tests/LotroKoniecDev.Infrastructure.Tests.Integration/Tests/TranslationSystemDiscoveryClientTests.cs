@@ -7,9 +7,9 @@ using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.Infrastructure.Network;
-using LotroKoniecDev.Tests.Infrastructure.Shared;
+using LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The CLI's discovery adapter over an in-memory stub handler, with no network. It pins what the

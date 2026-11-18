@@ -6,7 +6,7 @@ using LotroKoniecDev.Application.Features.AppUpdating;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Infrastructure.AppUpdating;
+namespace LotroKoniecDev.Infrastructure.Windows.AppUpdating;
 
 /// <summary>
 /// Opens the downloaded installer read-only, sharing read access only and not delete, so no other

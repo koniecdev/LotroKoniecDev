@@ -1,7 +1,7 @@
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Storage;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The two small files next to the translation file, against the real filesystem: the ETag the

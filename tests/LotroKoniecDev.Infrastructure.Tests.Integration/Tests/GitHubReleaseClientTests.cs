@@ -6,9 +6,9 @@ using LotroKoniecDev.Application.Features.AppUpdating;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Network;
-using LotroKoniecDev.Tests.Infrastructure.Shared;
+using LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The GitHub client over an in-memory stub handler, with no network (spec 0016). The stub sets the

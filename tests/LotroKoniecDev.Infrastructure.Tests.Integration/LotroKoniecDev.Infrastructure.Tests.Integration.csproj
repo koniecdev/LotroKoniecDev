@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <!-- The cross-platform patcher adapters against real files and stub HTTP handlers. Plain net10.0,
+         so it runs in the Linux PR gate; the Windows-only tests stay in Tests.Infrastructure
+         (ADR-0033, 2026-11-18 amendment). -->
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>LotroKoniecDev.Infrastructure.Tests.Integration</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk"/>
+        <PackageReference Include="NSubstitute"/>
+        <PackageReference Include="Shouldly" />
+        <PackageReference Include="xunit"/>
+        <PackageReference Include="xunit.runner.visualstudio">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <Using Include="Xunit"/>
+        <Using Include="Shouldly"/>
+        <Using Include="NSubstitute"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj"/>
+    </ItemGroup>
+
+</Project>

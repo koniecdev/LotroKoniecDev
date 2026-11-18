@@ -1,4 +1,4 @@
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// A download target on a disk that fills up: a write, the flush or the close fails as a full disk

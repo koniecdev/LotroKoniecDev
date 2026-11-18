@@ -2,7 +2,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Storage;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The write ledger of ADR-0047 §4 against real files. Its entries are the only way a newer

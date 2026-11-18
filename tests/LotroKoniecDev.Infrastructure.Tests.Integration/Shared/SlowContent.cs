@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// Declares no length and sends its bytes only after a delay, as a slow line does. Both ways of

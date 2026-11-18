@@ -37,6 +37,7 @@
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure.Windows\LotroKoniecDev.Infrastructure.Windows.csproj"/>
         <ProjectReference Include="..\..\src\Player\LotroKoniecDev.DesktopApp\LotroKoniecDev.DesktopApp.csproj"/>
     </ItemGroup>
 

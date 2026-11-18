@@ -1,4 +1,4 @@
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// An in-memory <see cref="HttpMessageHandler"/> that returns one prepared response, with no network.

@@ -6,8 +6,9 @@ using LotroKoniecDev.Primitives.Enums;
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
 /// <summary>
-/// The file check behind the patch's refusal messages (#1248), against real files. Each way a file
-/// can refuse a write must come back as its own kind, and the check must never change the file.
+/// The refusals of the file check (#1248) that need Windows file semantics: an ACL set with
+/// <c>icacls</c>, and the sharing violation of a file another handle holds. The other cases run on
+/// any OS in <c>Infrastructure.Tests.Integration</c> (ADR-0033, 2026-11-18 amendment).
 /// </summary>
 public sealed class WriteAccessCheckerTests : IDisposable
 {
@@ -42,47 +43,6 @@ public sealed class WriteAccessCheckerTests : IDisposable
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
         }
-    }
-
-    [Fact]
-    public void CheckFile_WritableFile_ShouldReportNoRefusal()
-    {
-        // Arrange
-        CreateDatFile();
-
-        // Act
-        DatFileWriteCheck check = _sut.CheckFile(DatFilePath);
-
-        // Assert
-        check.Refusal.ShouldBe(DatFileWriteRefusal.None);
-    }
-
-    [Fact]
-    public void CheckFile_WritableFile_ShouldLeaveItsBytesAndLastWriteTimeUnchanged()
-    {
-        // Arrange: the check runs on the player's live DAT.
-        CreateDatFile();
-
-        // Act
-        _sut.CheckFile(DatFilePath);
-
-        // Assert
-        File.ReadAllBytes(DatFilePath).ShouldBe(FileContent);
-        File.GetLastWriteTimeUtc(DatFilePath).ShouldBe(FixedLastWriteTimeUtc);
-    }
-
-    [Fact]
-    public void CheckFile_ReadOnlyFile_ShouldReportReadOnly()
-    {
-        // Arrange
-        CreateDatFile();
-        File.SetAttributes(DatFilePath, File.GetAttributes(DatFilePath) | FileAttributes.ReadOnly);
-
-        // Act
-        DatFileWriteCheck check = _sut.CheckFile(DatFilePath);
-
-        // Assert
-        check.Refusal.ShouldBe(DatFileWriteRefusal.ReadOnly);
     }
 
     /// <summary>
@@ -134,43 +94,6 @@ public sealed class WriteAccessCheckerTests : IDisposable
 
         // Assert
         check.Refusal.ShouldBe(DatFileWriteRefusal.InUse);
-        check.OsReason.ShouldNotBeNullOrWhiteSpace();
-    }
-
-    [Fact]
-    public void CheckFile_MissingFile_ShouldReportNotFound()
-    {
-        // Arrange: the file was deleted after the CLI checked that it exists.
-        Directory.CreateDirectory(_directory);
-
-        // Act
-        DatFileWriteCheck check = _sut.CheckFile(DatFilePath);
-
-        // Assert
-        check.Refusal.ShouldBe(DatFileWriteRefusal.NotFound);
-    }
-
-    [Fact]
-    public void CheckFile_MissingFolder_ShouldReportNotFound()
-    {
-        // Act
-        DatFileWriteCheck check = _sut.CheckFile(DatFilePath);
-
-        // Assert
-        check.Refusal.ShouldBe(DatFileWriteRefusal.NotFound);
-    }
-
-    [Fact]
-    public void CheckFile_PathTheSystemRejects_ShouldReportOtherWithTheSystemReasonInsteadOfThrowing()
-    {
-        // Arrange: a NUL character, which every path API rejects before it reaches the disk.
-        string badPath = Path.Combine(_directory, "client\0local.dat");
-
-        // Act
-        DatFileWriteCheck check = _sut.CheckFile(badPath);
-
-        // Assert
-        check.Refusal.ShouldBe(DatFileWriteRefusal.Other);
         check.OsReason.ShouldNotBeNullOrWhiteSpace();
     }
 

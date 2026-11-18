@@ -59,6 +59,7 @@
     <Project Path="src/Patcher/LotroKoniecDev.Domain/LotroKoniecDev.Domain.csproj" />
     <Project Path="src/Patcher/LotroKoniecDev.Application/LotroKoniecDev.Application.csproj" />
     <Project Path="src/Patcher/LotroKoniecDev.Infrastructure/LotroKoniecDev.Infrastructure.csproj" />
+    <Project Path="src/Patcher/LotroKoniecDev.Infrastructure.Windows/LotroKoniecDev.Infrastructure.Windows.csproj" />
     <Project Path="src/Patcher/LotroKoniecDev.Cli/LotroKoniecDev.Cli.csproj" />
   </Folder>
   <Folder Name="/src/Player/">
@@ -104,6 +105,7 @@
   </Folder>
   <Folder Name="/tests/Patcher/">
     <Project Path="tests/LotroKoniecDev.Tests.Unit/LotroKoniecDev.Tests.Unit.csproj" />
+    <Project Path="tests/LotroKoniecDev.Infrastructure.Tests.Integration/LotroKoniecDev.Infrastructure.Tests.Integration.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.Infrastructure/LotroKoniecDev.Tests.Infrastructure.csproj" />
     <Project Path="tests/LotroKoniecDev.Tests.E2E/LotroKoniecDev.Tests.E2E.csproj" />
   </Folder>

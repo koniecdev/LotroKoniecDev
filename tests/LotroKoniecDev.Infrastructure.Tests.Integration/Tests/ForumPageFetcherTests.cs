@@ -4,9 +4,9 @@ using System.Text;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Network;
-using LotroKoniecDev.Tests.Infrastructure.Shared;
+using LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The fetcher's response-size limit (#394), timeout and charset handling, over an in-memory stub

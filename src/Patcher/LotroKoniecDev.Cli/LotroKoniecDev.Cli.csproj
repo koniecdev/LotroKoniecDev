@@ -25,6 +25,7 @@
     <ItemGroup>
         <ProjectReference Include="..\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj" />
         <ProjectReference Include="..\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj" />
+        <ProjectReference Include="..\LotroKoniecDev.Infrastructure.Windows\LotroKoniecDev.Infrastructure.Windows.csproj" />
     </ItemGroup>
 
     <!-- LEGAL-12 (spec 0011): the player-facing risk NOTICE ships next to the published exe -->

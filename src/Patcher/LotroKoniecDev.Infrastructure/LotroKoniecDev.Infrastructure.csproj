@@ -1,11 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
+    <!-- Plain net10.0 on purpose: nothing here needs Windows, so it builds and is tested on Linux.
+         The native DLLs and the Windows adapters live in LotroKoniecDev.Infrastructure.Windows
+         (ADR-0033, 2026-11-18 amendment). -->
     <PropertyGroup>
-        <TargetFramework>net10.0-windows</TargetFramework>
-        <PlatformTarget>x86</PlatformTarget>
-    </PropertyGroup>
-
-    <PropertyGroup>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <TargetFramework>net10.0</TargetFramework>
+        <PlatformTarget>AnyCPU</PlatformTarget>
     </PropertyGroup>
 
     <ItemGroup>
@@ -14,7 +13,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <InternalsVisibleTo Include="LotroKoniecDev.Tests.Infrastructure" />
+        <InternalsVisibleTo Include="LotroKoniecDev.Infrastructure.Tests.Integration" />
     </ItemGroup>
 
     <ItemGroup>
@@ -24,27 +23,6 @@
              purpose: the TMS attaches discovery links only to a request that accepts it, so a
              re-typed copy drifting here would silently strip the CLI of every entry point (#611). -->
         <ProjectReference Include="..\..\Utilities\LotroKoniecDev.Hateoas.Abstractions\LotroKoniecDev.Hateoas.Abstractions.csproj"/>
-    </ItemGroup>
-
-    <ItemGroup>
-        <None Update="msvcp71.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <None Update="msvcp90.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <None Update="msvcr71.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <None Update="msvcr80.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <None Update="zlib1T.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <None Update="datexport.dll">
-            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
     </ItemGroup>
 
 </Project>

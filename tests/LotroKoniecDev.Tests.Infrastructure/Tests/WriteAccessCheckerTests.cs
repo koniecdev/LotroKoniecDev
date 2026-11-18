@@ -50,15 +50,19 @@ public sealed class WriteAccessCheckerTests : IDisposable
         CreateDatFile();
         string account = $"{Environment.UserDomainName}\\{Environment.UserName}";
 
-        // An elevated process writes through an explicit Administrators grant, which /inheritance:r
-        // keeps (#1450), so the write needs a deny. Deny WD and AD, never "(W)": that also denies
-        // SYNCHRONIZE and blocks reads (#629). The precondition checks below catch both traps.
-        int aclExitCode = await RunIcaclsAsync(
-            $"\"{DatFilePath}\" /inheritance:r /grant:r \"{account}:(RX)\" /deny \"{account}:(WD,AD)\"");
-        aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+        // A new temp file on the hosted runner has an explicit Administrators grant, which
+        // /inheritance:r keeps and an elevated process writes through (#1450). /reset makes every
+        // entry inherited first, so the ACL below ends as this account's read and execute only.
+        int resetExitCode = await RunIcaclsAsync($"\"{DatFilePath}\" /reset");
+        resetExitCode.ShouldBe(0, "the test could not reset its own ACL");
 
         try
         {
+            // Never write this as /deny "(W)": FILE_GENERIC_WRITE includes SYNCHRONIZE, so denying it
+            // blocks reads too (#629). The precondition checks below catch that trap.
+            int aclExitCode = await RunIcaclsAsync($"\"{DatFilePath}\" /inheritance:r /grant:r \"{account}:(RX)\"");
+            aclExitCode.ShouldBe(0, "the test could not set up its own ACL");
+
             CanOpen(DatFilePath, FileAccess.Read).ShouldBeTrue(
                 "precondition: the ACL must still allow reads, or this proves nothing");
             CanOpen(DatFilePath, FileAccess.Write).ShouldBeFalse(
@@ -74,7 +78,7 @@ public sealed class WriteAccessCheckerTests : IDisposable
         {
             // Best effort, so Dispose can delete the file. Never assert here: a failure would hide
             // what the test was reporting.
-            _ = await RunIcaclsAsync($"\"{DatFilePath}\" /remove:d \"{account}\" /inheritance:e /grant \"{account}:(F)\"");
+            _ = await RunIcaclsAsync($"\"{DatFilePath}\" /inheritance:e /grant \"{account}:(F)\"");
         }
     }
 

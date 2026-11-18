@@ -1,8 +1,8 @@
 name: Windows tests
 
 # Runs the patcher test suites that need Windows on a Windows runner (#1450). pr-verify and ci run on
-# Linux, where tests/Shared/WindowsOnlyTestRun.targets turns Tests.Infrastructure into a "not run"
-# line, so without this job a broken Windows test first shows on someone's PC.
+# Linux and pick test projects by name (*.Tests.Unit, *.Tests.Integration), so they never run
+# Tests.Infrastructure. Without this job a broken Windows test first shows on someone's PC.
 #
 # - Tests.Infrastructure: the Windows adapters and the desktop exe. Its PlatformTarget is x86.
 # - Infrastructure.Tests.Integration: Linux runs it as x64 in pr-verify. Here it runs once with
@@ -10,8 +10,8 @@ name: Windows tests
 # - Not Tests.E2E: every E2E test skips without the game file, which CI does not have. The
 #   needs-windows-check label stays the gate for that hand check (docs/labels.md).
 #
-# Not a required check, so a Windows runner problem never blocks a merge; /merge-train still skips a
-# PR whose run failed. The verdict comes from the repo's one classifier instead of a path list:
+# Not a required check, so GitHub never blocks a merge on it. /merge-train still skips a PR whose run
+# failed, so re-run the job after a runner or network problem. The verdict comes from the repo's one classifier instead of a path list:
 # any path it does not know counts as code, and a missing or failed verdict runs the tests. The
 # classifier calls this file inert, so the changes job checks it on its own. The push leg tests
 # main after each merge, because main does not require a PR to be up to date before it merges.

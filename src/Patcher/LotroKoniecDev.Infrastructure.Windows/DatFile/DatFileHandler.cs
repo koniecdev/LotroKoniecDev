@@ -5,7 +5,7 @@ using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Primitives.Enums;
 
-namespace LotroKoniecDev.Infrastructure.DatFile;
+namespace LotroKoniecDev.Infrastructure.Windows.DatFile;
 
 /// <summary>
 /// Managed access to LOTRO DAT files, on top of the native datexport.dll.

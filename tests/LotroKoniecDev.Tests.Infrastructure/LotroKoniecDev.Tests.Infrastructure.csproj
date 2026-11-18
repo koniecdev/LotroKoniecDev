@@ -17,7 +17,6 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk"/>
-        <PackageReference Include="NSubstitute"/>
         <PackageReference Include="Shouldly" />
         <PackageReference Include="xunit"/>
         <PackageReference Include="xunit.runner.visualstudio">
@@ -30,13 +29,13 @@
     <ItemGroup>
         <Using Include="Xunit"/>
         <Using Include="Shouldly"/>
-        <Using Include="NSubstitute"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Domain\LotroKoniecDev.Domain.csproj"/>
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Application\LotroKoniecDev.Application.csproj"/>
         <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure\LotroKoniecDev.Infrastructure.csproj"/>
+        <ProjectReference Include="..\..\src\Patcher\LotroKoniecDev.Infrastructure.Windows\LotroKoniecDev.Infrastructure.Windows.csproj"/>
         <ProjectReference Include="..\..\src\Player\LotroKoniecDev.DesktopApp\LotroKoniecDev.DesktopApp.csproj"/>
     </ItemGroup>
 

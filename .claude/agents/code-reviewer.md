@@ -122,8 +122,9 @@ Check every modified/new file against these layer rules:
 |-------|--------------|-------------------|
 | Domain | Primitives only | Application, Infrastructure, any NuGet except Primitives |
 | Application | Domain, Primitives | Infrastructure, CLI |
-| Infrastructure | Application, Domain, Primitives | CLI |
-| CLI | Application, Infrastructure | - |
+| Infrastructure (cross-platform, `net10.0`) | Application, Domain, Primitives, Hateoas.Abstractions | CLI, DesktopApp, Infrastructure.Windows, P/Invoke |
+| Infrastructure.Windows (`net10.0-windows`, x86) | Application, Domain, Primitives | CLI, DesktopApp, Infrastructure |
+| CLI | Application, Infrastructure, Infrastructure.Windows | - |
 | Primitives | nothing | anything |
 
 For each new `using` or `<PackageReference>`:
@@ -268,7 +269,7 @@ A unit test:
 - NEVER depends on execution order or shared mutable state between tests.
 - ALL assertions live directly in the test method body. NEVER hide assertions in helper methods, base classes, or extension methods. When a test fails, the developer must see what's asserted by reading the `[Fact]` method alone — no chasing through call stacks.
 
-If the SUT internally writes to a file (e.g., `StreamWriter`), the test can provide a temp path to avoid crashes, but the **assertion must NOT read that file back**. Instead, assert on the Result value or mock interactions. If you need to verify file content, that's an infrastructure-level test — it belongs in `Tests.Infrastructure`, not `Tests.Unit`.
+If the SUT internally writes to a file (e.g., `StreamWriter`), the test can provide a temp path to avoid crashes, but the **assertion must NOT read that file back**. Instead, assert on the Result value or mock interactions. If you need to verify file content, that's an infrastructure-level test — it belongs in `Infrastructure.Tests.Integration` (or `Tests.Infrastructure` when it needs Windows), not `Tests.Unit`.
 
 Platform purity: unit tests must pass on macOS and Windows — flag hardcoded `C:\`-style paths; expected paths are built with `Path.Combine`.
 

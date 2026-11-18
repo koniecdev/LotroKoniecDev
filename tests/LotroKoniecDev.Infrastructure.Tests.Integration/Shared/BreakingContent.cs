@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// A body that streams some bytes and then breaks off, as a dropped connection does in the middle of

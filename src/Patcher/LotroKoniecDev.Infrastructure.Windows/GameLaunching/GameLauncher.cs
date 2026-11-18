@@ -3,7 +3,7 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 
-namespace LotroKoniecDev.Infrastructure.GameLaunching;
+namespace LotroKoniecDev.Infrastructure.Windows.GameLaunching;
 
 /// <summary>
 /// Starts LotroLauncher.exe from the folder of the DAT, with no check of the file. SSG no longer

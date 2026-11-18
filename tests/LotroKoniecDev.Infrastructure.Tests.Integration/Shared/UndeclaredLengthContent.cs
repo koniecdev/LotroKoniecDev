@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// Sends the requested number of bytes without ever declaring a length, because

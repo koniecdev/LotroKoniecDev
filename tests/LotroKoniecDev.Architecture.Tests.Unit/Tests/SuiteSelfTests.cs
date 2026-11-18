@@ -22,6 +22,41 @@ public sealed class SuiteSelfTests
             "the Frontend does reference TranslationSystem.Contracts — a rule that misses it detects nothing at all");
     }
 
+    /// <summary>
+    /// The runtime's own library calls the OS through both kinds of P/Invoke on every OS: plain ones
+    /// and the <c>g____PInvoke</c> functions <c>[LibraryImport]</c> generates.
+    /// </summary>
+    [Fact]
+    public void PlatformInvokeScan_AgainstTheRuntimeLibrary_FindsBothKinds()
+    {
+        IReadOnlyList<string> platformInvokes = PlatformInvokeMethods.Of(typeof(object).Assembly);
+
+        platformInvokes.ShouldNotBeEmpty("a scan that finds nothing here would pass every P/Invoke rule");
+        platformInvokes.ShouldContain(
+            name => name.Contains("g____PInvoke", StringComparison.Ordinal),
+            "a scan that skips compiler-generated code misses every [LibraryImport] that marshals");
+        platformInvokes.ShouldContain(
+            name => !name.Contains("g____PInvoke", StringComparison.Ordinal),
+            "a scan that finds only generated functions misses every plain P/Invoke");
+    }
+
+    [Fact]
+    public void PatcherSet_DerivedFromTheSearchSet_HoldsEveryPatcherLayer()
+    {
+        Assembly[] patcherLayers =
+        [
+            ProductionAssemblies.PatcherPrimitives,
+            ProductionAssemblies.PatcherDomain,
+            ProductionAssemblies.PatcherApplication,
+            ProductionAssemblies.PatcherInfrastructure,
+            ProductionAssemblies.DesktopAppPresentation,
+        ];
+
+        patcherLayers.ShouldBeSubsetOf(
+            ProductionAssemblies.Patcher,
+            "a patcher assembly the derived set drops escapes the isolation and platform rules");
+    }
+
     [Fact]
     public void TypeScan_EveryProductionAssembly_ContributesAtLeastOneType()
     {

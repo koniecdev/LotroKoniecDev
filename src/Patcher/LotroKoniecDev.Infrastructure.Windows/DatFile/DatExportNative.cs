@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 // load with admin rights through the elevated .bat wrappers.
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.SafeDirectories)]
 
-namespace LotroKoniecDev.Infrastructure.DatFile;
+namespace LotroKoniecDev.Infrastructure.Windows.DatFile;
 
 internal static partial class DatExportNative
 {

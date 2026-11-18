@@ -48,7 +48,7 @@ wins**: align the ticket before coding.
 
 ```
 src/
-  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Cli}               ← PATCHER (stable)
+  Patcher/LotroKoniecDev.{Primitives,Domain,Application,Infrastructure,Infrastructure.Windows,Cli} ← PATCHER (stable)
   Player/LotroKoniecDev.DesktopApp{,.Presentation}                                       ← M4 desktop app: x86 exe + cross-platform Avalonia UI (ADR-0033)
   SharedKernel/LotroKoniecDev.SharedKernel                                                ← TMS-side building blocks
   TranslationSystem/LotroKoniecDev.TranslationSystem.{Primitives,Domain,ReadModels,ReadModels.EntityFramework,Projections,Persistence,Contracts,API}
@@ -79,9 +79,10 @@ Primitives**.
 | `LotroKoniecDev.Cli` | Spectre.Console commands; resolves paths, reports, maps `Error` → exit code |
 | `LotroKoniecDev.Application` | feature slices (`Features/<Area>/`): command/query records + slim handlers + services; `Abstractions/` ports incl. in-house `Messaging/` interfaces |
 | `LotroKoniecDev.Domain` | `Result`/`Maybe` monads, `Error` + `DomainErrors`, DAT models (`SubFile`, `Fragment`, `Translation`), `VarLenEncoder` |
-| `LotroKoniecDev.Infrastructure` | native interop (`datexport.dll`, x86 Windows), DAT handler, forum fetcher, launcher |
+| `LotroKoniecDev.Infrastructure` | cross-platform adapters (`net10.0`): forum fetcher, TMS download and discovery, local stores, write and game-process checks, app-update download |
+| `LotroKoniecDev.Infrastructure.Windows` | native interop (`datexport.dll`, x86 Windows), DAT handler, registry locator, game launcher, installer start (ADR-0033, 2026-11-18 amendment) |
 | `LotroKoniecDev.Primitives` | constants + enums, zero dependencies |
-| `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}` | patcher tests (Infrastructure and E2E run on Windows only) |
+| `tests/LotroKoniecDev.Tests.{Unit,Infrastructure,E2E}`, `tests/LotroKoniecDev.Infrastructure.Tests.Integration` | patcher tests (`Tests.Infrastructure` and `Tests.E2E` run on Windows only; the cross-platform adapters' tests run everywhere) |
 
 **Stable, not frozen** (ADR-0002 amendment, 2026-06-25): the bar for touching the patcher is high,
 but refactors, renames and restructuring are allowed when they earn their keep. **Any change must
@@ -298,7 +299,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `net10.0-windows/win-x86`), so changes to it need a Windows `export`/`patch`/`launch` smoke.
   The desktop app (#41) is the same case: `DesktopAppDependencyInjection` validates the same way and
   resolves its view models from one app-wide scope. `DesktopAppDependencyInjectionTests` checks that
-  graph, but only in the Windows-only `Tests.Infrastructure` suite, which CI does not run.
+  graph, but only in the Windows-only `Tests.Infrastructure` suite, which CI does not run. The
+  cross-platform part of both graphs (Application plus `AddInfrastructureServices`, with stand-ins
+  for the five Windows ports) is checked on Linux by `InfrastructureDependencyInjectionTests`.
 - **CQRS read/write split, day 1 (ADR-0002 amendment).** Query handlers read POCO `ReadModels`
   through `IApplicationReadDbContext`; command handlers load and mutate aggregates via
   repositories + `IUnitOfWork`. The write model never serves list/search queries; every new
@@ -593,9 +596,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     (`MediaTypes.HateoasJson`, and `LinkDto` in tests only), so the vendor media type cannot drift
     between the two ends. The CLI still re-types the link envelope rather than linking
     `TranslationSystem.Contracts`, with a parity test standing in for the compiler.
-    `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application and the desktop app's
-    Presentation only: Infrastructure, Cli and the desktop exe are `net10.0-windows`, so nothing
-    mechanically blocks the next reference added there.
+    `BoundedContextIsolationTests` covers patcher Primitives/Domain/Application/Infrastructure and
+    the desktop app's Presentation only: Infrastructure.Windows, Cli and the desktop exe are
+    `net10.0-windows`, so nothing mechanically blocks the next reference added there.
 - **A .NET major moves only in a PR of our own, never through Dependabot (#1444).** The repo stays
   on .NET 10, an LTS release. .NET 11 is a short-term release whose support ends in November 2028,
   the same month as .NET 10's, so moving buys no support time. The .NET 11 sdk and aspnet images
@@ -818,7 +821,8 @@ Per-suite details (inventory, libraries, snapshots, E2E, conventions): `tests/CL
   `Frontend.Tests.Integration` (the Frontend host in memory, no database; #915). Browser/E2E
   (Testcontainers + Playwright, ADR-0009; Docker-required, off the PR gate by name):
   `TranslationSystem.E2E.Tests`, `Frontend.E2E.Tests`. The patcher test projects (`Tests.Unit`,
-  `Tests.Infrastructure`, `Tests.E2E`) stay as they are.
+  `Tests.Infrastructure`, `Tests.E2E`) stay as they are; the patcher's cross-platform adapters are
+  tested in `Infrastructure.Tests.Integration` (real files, no Docker; ADR-0033).
 
 ## Workflow (the loop that compounds)
 

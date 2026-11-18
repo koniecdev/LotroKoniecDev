@@ -1,9 +1,7 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
 using LotroKoniecDev.Infrastructure.AppUpdating;
-using LotroKoniecDev.Infrastructure.DatFile;
 using LotroKoniecDev.Infrastructure.Diagnostics;
-using LotroKoniecDev.Infrastructure.GameLaunching;
 using LotroKoniecDev.Infrastructure.Network;
 using LotroKoniecDev.Infrastructure.Storage;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +9,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Infrastructure;
 
+/// <summary>
+/// Registers the adapters that run on any OS. A host on Windows also calls
+/// <c>AddWindowsInfrastructureServices()</c> for the five Windows ports (ADR-0033).
+/// </summary>
 public static class InfrastructureDependencyInjection
 {
     /// <summary>
@@ -24,11 +26,6 @@ public static class InfrastructureDependencyInjection
 
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
-        services.AddScoped<DatFileHandler>();
-        services.AddScoped<IDatFileHandler>(sp => sp.GetRequiredService<DatFileHandler>());
-        services.AddScoped<IDatVersionReader>(sp => sp.GetRequiredService<DatFileHandler>());
-        services.AddSingleton<IGameLauncher, GameLauncher>();
-        services.AddSingleton<IDatFileLocator, DatFileLocator>();
         services.AddSingleton<IGameProcessDetector, GameProcessDetector>();
         services.AddSingleton<IWriteAccessChecker, WriteAccessChecker>();
         services.AddSingleton<HttpClient>(_ => CreateHttpClient(followRedirects: true));
@@ -60,7 +57,6 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<IAppUpdateWorkspace>(_ => new AppUpdateWorkspace(
             Path.Combine(Path.GetTempPath(), AppDataFolderName, "updates"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppDataFolderName)));
-        services.AddSingleton<IInstallerFileOpener, InstallerFileOpener>();
 
         return services;
     }

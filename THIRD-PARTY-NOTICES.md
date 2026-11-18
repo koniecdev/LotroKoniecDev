@@ -7,7 +7,7 @@ to these components beyond what their respective rightsholders allow.
 
 ## datexport.dll
 
-Path: `src/Patcher/LotroKoniecDev.Infrastructure/datexport.dll`
+Path: `src/Patcher/LotroKoniecDev.Infrastructure.Windows/datexport.dll`
 
 A proprietary library originally by Turbine, Inc. (rights today associated with Standing
 Stone Games / *The Lord of the Rings Online*), circulating in community fan tooling since
@@ -17,7 +17,7 @@ be **removed promptly upon request from the rightsholder** (contact: koniecdev@g
 
 ## Microsoft Visual C++ runtime libraries
 
-Paths: `src/Patcher/LotroKoniecDev.Infrastructure/msvcp71.dll`, `msvcr71.dll`,
+Paths: `src/Patcher/LotroKoniecDev.Infrastructure.Windows/msvcp71.dll`, `msvcr71.dll`,
 `msvcp90.dll`, `msvcr80.dll`
 
 Microsoft Visual C++ redistributable runtime libraries, © Microsoft Corporation. Included
@@ -26,7 +26,7 @@ redistribution terms for the Visual C++ runtime.
 
 ## zlib1T.dll
 
-Path: `src/Patcher/LotroKoniecDev.Infrastructure/zlib1T.dll`
+Path: `src/Patcher/LotroKoniecDev.Infrastructure.Windows/zlib1T.dll`
 
 A build of the zlib compression library by Jean-loup Gailly and Mark Adler, required by
 `datexport.dll` at runtime. zlib is distributed under the zlib license:

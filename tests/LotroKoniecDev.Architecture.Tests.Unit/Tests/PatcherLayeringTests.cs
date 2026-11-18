@@ -9,8 +9,9 @@ namespace LotroKoniecDev.Architecture.Tests.Unit.Tests;
 /// already spell out.
 /// </summary>
 /// <remarks>
-/// The desktop app sits beside the Cli as a second shell (ADR-0033): its exe wires Infrastructure, and its
-/// UI reaches the patcher through Application only.
+/// The desktop app sits beside the Cli as a second shell (ADR-0033): its exe wires both Infrastructure
+/// projects, and its UI reaches the patcher through Application only. The Windows Infrastructure is
+/// <c>net10.0-windows</c>, so the cross-platform one cannot reference it (NU1201).
 /// </remarks>
 public sealed class PatcherLayeringTests
 {
@@ -64,6 +65,18 @@ public sealed class PatcherLayeringTests
 
         result.IsSuccessful.ShouldBeTrue(
             $"Application talks to infrastructure through its own Abstractions/ ports, never the adapters:{result.Describe()}");
+    }
+
+    [Fact]
+    public void InfrastructureAssembly_Dependencies_ReachNeitherCliNorDesktopApp()
+    {
+        TestResult result = Types.InAssembly(ProductionAssemblies.PatcherInfrastructure)
+            .Should()
+            .NotHaveDependencyOnAny(Namespaces.PatcherCli, Namespaces.DesktopApp)
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(
+            $"Infrastructure implements Application's ports; the shells wire it, never the other way round:{result.Describe()}");
     }
 
     [Fact]

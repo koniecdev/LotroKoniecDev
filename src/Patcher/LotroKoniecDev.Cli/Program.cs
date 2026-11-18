@@ -1,6 +1,7 @@
 ﻿using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.Cli.Commands;
 using LotroKoniecDev.Infrastructure;
+using LotroKoniecDev.Infrastructure.Windows;
 using LotroKoniecDev.Cli.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
@@ -37,6 +38,7 @@ public sealed class Program
         services.AddLogging(builder => builder.AddSerilog());
         services.AddApplicationServices();
         services.AddInfrastructureServices();
+        services.AddWindowsInfrastructureServices();
         services.AddCliServices();
 
         TypeRegistrar typeRegistrar = new(services);

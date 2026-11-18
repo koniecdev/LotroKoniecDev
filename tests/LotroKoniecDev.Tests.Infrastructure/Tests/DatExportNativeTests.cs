@@ -1,6 +1,6 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
-using LotroKoniecDev.Infrastructure;
+using LotroKoniecDev.Infrastructure.Windows;
 
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 
@@ -9,7 +9,7 @@ public sealed class DatExportNativeTests
     [Fact]
     public void InfrastructureAssembly_ShouldRestrictNativeDllSearchPaths_ToAssemblyAndSafeDirectories()
     {
-        DefaultDllImportSearchPathsAttribute? attribute = typeof(InfrastructureDependencyInjection).Assembly
+        DefaultDllImportSearchPathsAttribute? attribute = typeof(WindowsInfrastructureDependencyInjection).Assembly
             .GetCustomAttribute<DefaultDllImportSearchPathsAttribute>();
 
         attribute.ShouldNotBeNull();

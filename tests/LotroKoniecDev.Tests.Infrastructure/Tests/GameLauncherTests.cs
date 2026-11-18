@@ -1,5 +1,5 @@
 using LotroKoniecDev.Domain.Core.Monads;
-using LotroKoniecDev.Infrastructure.GameLaunching;
+using LotroKoniecDev.Infrastructure.Windows.GameLaunching;
 
 namespace LotroKoniecDev.Tests.Infrastructure.Tests;
 

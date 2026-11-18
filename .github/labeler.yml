@@ -3,7 +3,15 @@ needs-windows-check:
   - changed-files:
       - any-glob-to-any-file:
           - src/Patcher/LotroKoniecDev.Cli/**
-          - src/Patcher/LotroKoniecDev.Infrastructure/**
+          - src/Patcher/LotroKoniecDev.Infrastructure.Windows/**
+          # Cross-platform files whose behaviour matters only on Windows and no Linux test can
+          # prove: the registration the hosts combine with the Windows one, two adapters with a
+          # Windows-only edge case tested in Tests.Infrastructure, and the game-process check,
+          # whose process names exist only on Windows (ADR-0033, 2026-11-18 amendment).
+          - src/Patcher/LotroKoniecDev.Infrastructure/InfrastructureDependencyInjection.cs
+          - src/Patcher/LotroKoniecDev.Infrastructure/Diagnostics/GameProcessDetector.cs
+          - src/Patcher/LotroKoniecDev.Infrastructure/Diagnostics/WriteAccessChecker.cs
+          - src/Patcher/LotroKoniecDev.Infrastructure/AppUpdating/AppUpdateWorkspace.cs
           - src/Player/LotroKoniecDev.DesktopApp/**
           - installer/**
           - tests/LotroKoniecDev.Tests.Infrastructure/**

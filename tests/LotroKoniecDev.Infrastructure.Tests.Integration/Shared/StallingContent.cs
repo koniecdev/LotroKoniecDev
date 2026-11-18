@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>
 /// Declares no length and holds the body back until the caller's cancellation token fires. It plays a

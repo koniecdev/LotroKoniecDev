@@ -3,6 +3,7 @@ using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.DesktopApp.Presentation;
 using LotroKoniecDev.DesktopApp.Presentation.Settings;
 using LotroKoniecDev.Infrastructure;
+using LotroKoniecDev.Infrastructure.Windows;
 using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
@@ -33,6 +34,7 @@ internal static class DesktopAppDependencyInjection
         services.AddLogging(builder => builder.AddSerilog());
         services.AddApplicationServices();
         services.AddInfrastructureServices();
+        services.AddWindowsInfrastructureServices();
         services.AddPresentationServices();
         services.AddSingleton<ISettingsFile>(new SettingsFile(SettingsFilePath));
         services.AddSingleton<IFileProbe, FileProbe>();

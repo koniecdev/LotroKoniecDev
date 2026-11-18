@@ -1,4 +1,4 @@
-namespace LotroKoniecDev.Tests.Infrastructure.Shared;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
 /// <summary>An in-memory handler that fails every request the way a machine with no network does.</summary>
 internal sealed class ThrowingHttpMessageHandler : HttpMessageHandler

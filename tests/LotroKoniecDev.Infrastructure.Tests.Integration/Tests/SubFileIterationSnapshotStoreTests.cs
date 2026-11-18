@@ -2,7 +2,7 @@ using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Domain.Models;
 using LotroKoniecDev.Infrastructure.Storage;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The iteration snapshot of spec 0012 Tier 0 against real files. A saved snapshot reads back

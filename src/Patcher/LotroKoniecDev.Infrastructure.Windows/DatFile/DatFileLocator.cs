@@ -6,7 +6,7 @@ using LotroKoniecDev.Primitives.Constants;
 using LotroKoniecDev.Primitives.Enums;
 using Microsoft.Win32;
 
-namespace LotroKoniecDev.Infrastructure.DatFile;
+namespace LotroKoniecDev.Infrastructure.Windows.DatFile;
 
 public sealed class DatFileLocator : IDatFileLocator
 {

@@ -5,9 +5,9 @@ using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Domain.Core.Errors;
 using LotroKoniecDev.Domain.Core.Monads;
 using LotroKoniecDev.Infrastructure.Network;
-using LotroKoniecDev.Tests.Infrastructure.Shared;
+using LotroKoniecDev.Infrastructure.Tests.Integration.Shared;
 
-namespace LotroKoniecDev.Tests.Infrastructure.Tests;
+namespace LotroKoniecDev.Infrastructure.Tests.Integration.Tests;
 
 /// <summary>
 /// The downloader over an in-memory stub handler, with no network. The hash comparison itself is

@@ -1,5 +1,6 @@
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.DatFilesServices;
+using LotroKoniecDev.Infrastructure.AppUpdating;
 using LotroKoniecDev.Infrastructure.DatFile;
 using LotroKoniecDev.Infrastructure.Diagnostics;
 using LotroKoniecDev.Infrastructure.GameLaunching;
@@ -17,6 +18,9 @@ public static class InfrastructureDependencyInjection
     /// follow redirects, so a request cannot leave the origin we validated (#611).
     /// </summary>
     public const string TranslationSystemHttpClientKey = "translation-system";
+
+    /// <summary>The desktop app's folder name under AppData and the temp folder.</summary>
+    private const string AppDataFolderName = "LotroPoPolsku";
 
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services)
     {
@@ -49,6 +53,14 @@ public static class InfrastructureDependencyInjection
         services.AddSingleton<ISubFileIterationSnapshotStore, SubFileIterationSnapshotStore>();
         services.AddSingleton<IGameVersionFileStore, GameVersionFileStore>();
         services.AddSingleton<IFileHasher, FileHasher>();
+
+        // The desktop app's update (spec 0016). GitHub sends release downloads on to another GitHub
+        // host, so this client follows redirects and checks the final address itself.
+        services.AddSingleton<IGitHubReleaseClient, GitHubReleaseClient>();
+        services.AddSingleton<IAppUpdateWorkspace>(_ => new AppUpdateWorkspace(
+            Path.Combine(Path.GetTempPath(), AppDataFolderName, "updates"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), AppDataFolderName)));
+        services.AddSingleton<IInstallerFileOpener, InstallerFileOpener>();
 
         return services;
     }

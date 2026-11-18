@@ -1,6 +1,7 @@
 using FluentValidation;
 using LotroKoniecDev.Application.Abstractions;
 using LotroKoniecDev.Application.Abstractions.Messaging;
+using LotroKoniecDev.Application.Features.AppUpdating;
 using LotroKoniecDev.Application.Features.Exporting;
 using LotroKoniecDev.Application.Features.GameLaunching;
 using LotroKoniecDev.Application.Features.Patching;
@@ -21,10 +22,13 @@ public static class ApplicationDependencyInjection
         services.AddScoped<ICommandHandler<ApplyPatchCommand, Result<PatchSummaryResponse>>, ApplyPatchCommandHandler>();
         services.AddScoped<ICommandHandler<GameLaunchingCommand, Result<GameLaunchingResponse>>, GameLaunchingCommandHandler>();
         services.AddScoped<ICommandHandler<SyncTranslationFileCommand, Result<TranslationFileSyncResponse>>, SyncTranslationFileCommandHandler>();
+        services.AddScoped<IQueryHandler<CheckForAppUpdateQuery, Result<AppUpdateCheckResponse>>, CheckForAppUpdateQueryHandler>();
+        services.AddScoped<ICommandHandler<InstallAppUpdateCommand, Result>, InstallAppUpdateCommandHandler>();
 
         services.AddSingleton<IValidator<ApplyPatchCommand>, ApplyPatchCommandValidator>();
         services.AddSingleton<IValidator<GameLaunchingCommand>, GameLaunchingCommandValidator>();
         services.AddSingleton<IValidator<SyncTranslationFileCommand>, SyncTranslationFileCommandValidator>();
+        services.AddSingleton<IValidator<InstallAppUpdateCommand>, InstallAppUpdateCommandValidator>();
 
         services.AddSingleton<ITranslationParser, TranslationFileParser>();
         services.AddSingleton<IGameUpdateChecker, GameUpdateChecker>();

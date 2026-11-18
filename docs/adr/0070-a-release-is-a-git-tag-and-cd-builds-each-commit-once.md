@@ -1,6 +1,6 @@
 # ADR-0070: A release is a git tag, and CD builds each commit once
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-16 for desktop releases, #45: see the amendment below)
 **Date:** 2026-11-12
 **Decision-makers:** Solo maintainer (owner decisions recorded in #1344, 2026-11-12)
 **Amends:** [ADR-0012](0012-continuous-deployment-pipeline.md) §1 and Alternative D (semver images
@@ -37,6 +37,9 @@ Nothing reads version image tags. Deploy, rollback, the image scan and the runbo
 ## Decision
 
 ### 1. A release is a git tag plus a GitHub Release
+
+This section covers the server's releases. Desktop releases (`desktop-vX.Y.Z`) follow the
+2026-11-16 amendment at the end of this ADR.
 
 - A release is an annotated tag `vX.Y.Z` on a commit that already runs on prod, plus a GitHub Release
   with notes for translators and players. The numbers follow the wiki page `Wersje-systemu`. They are
@@ -87,10 +90,10 @@ cancels the waiting one. The group also keeps two runs of one commit from naming
 
 ### 3. Only the server images
 
-Rule 2 covers the four server images. The desktop app (M4, #45) will ship as an exe attached to the
-GitHub Release, so its release does build something on purpose. Its own ticket decides how, and it
-narrows the trigger check in `scripts/tests/commit-image.tests.sh`, which today refuses any workflow
-that starts on a tag or a release.
+Rule 2 covers the four server images. The desktop app (M4, #45) ships as an installer attached to
+its own GitHub Release, so its release does build something on purpose. How it does that is in the
+2026-11-16 amendment below: the trigger check in `scripts/tests/commit-image.tests.sh` stays as it
+is, with no exception.
 
 ### 4. ADR-0024's "previous release" stays `HEAD^1`
 
@@ -228,9 +231,59 @@ that lands second can move the lookup onto the shared script.
 - `commit-image.sh` reads digests with `--format '{{printf "%s" .Manifest.Digest}}'`: some buildx
   versions print the whole manifest view for a bare `{{.Manifest.Digest}}`.
 
+## Amendment (2026-11-16): desktop releases
+
+**Ticket:** #45 (M4-05). **Owner decisions:** the two `Owner decision` comments on #45, 2026-11-16.
+**Spec:** [0016](../specs/0016-desktop-app-update-and-installer.md).
+
+### What changes
+
+**§1 now covers the server's releases only.** A server release stays an annotated `vX.Y.Z` tag on a
+commit prod runs, with a release that builds nothing. The desktop app has releases of its own:
+
+- A desktop release is the tag `desktop-vX.Y.Z` plus a GitHub Release with the installer and its
+  SHA-256 file. Its numbers are separate from the server's (wiki `Wersje-systemu`).
+- It comes from "Run workflow" on `main` (`.github/workflows/desktop-release.yml`, a
+  `workflow_dispatch` with the version as input). The workflow checks the version, builds the exe and
+  the Inno Setup installer, and installs, re-installs and uninstalls it on a Windows runner.
+- **The tag comes last**, as an image name does in §2. Only after that smoke test does a job with
+  `contents: write` create `refs/tags/desktop-vX.Y.Z` on the dispatched commit (a lightweight tag,
+  made through the git refs API) and publish the release. A run that fails before that leaves no tag
+  and no release, so a broken build never uses up a version number.
+- A desktop release is never marked Latest. The server's release step passes `--latest`, so GitHub's
+  "Latest" keeps pointing at a server release. The app finds its releases by the `desktop-v` prefix
+  and never reads "Latest".
+
+**§3: no workflow starts on a tag, still.** The rule and its test in
+`scripts/tests/commit-image.tests.sh` stay without an exception. A release made with the workflow's
+`GITHUB_TOKEN` starts no other workflow (GitHub does not start runs for events that token makes), and
+no workflow listens to tags or releases anyway. The desktop workflow builds no image and has no
+`packages: write`, so §2 is untouched.
+
+### Alternatives considered for this amendment
+
+- **A tag push starts the build (the owner's first wording, `push: tags: desktop-v*`).** Rejected by
+  the owner's second decision. A failed build would leave a used-up tag, the trigger test would need
+  an exception for one file and one pattern, and the run would use the workflow file of the tagged
+  commit, not `main`'s.
+- **A draft release the owner checks by hand.** Rejected by the owner: a hand step on every release
+  gets forgotten, and the runner already installs and uninstalls the exact file.
+- **A separate repository for desktop releases**, so `/releases/latest` would mean the desktop app.
+  Rejected: it needs a write credential for another repo, and splits the code from its releases.
+- **The translation server as the update source.** Rejected: every desktop release would need a
+  server change, and an update would depend on the server being up.
+- **`gh release create --target` creates the tag.** Rejected for the git refs API: `gh` does not fail
+  when the tag already exists (it only refuses an existing published release) and then attaches the
+  release to that tag's commit, so a race could publish an installer built from another commit. The
+  refs API refuses an existing ref.
+- **Require a green `ci.yml` run on the commit first.** Not adopted: `ci.yml` skips docs-only
+  commits and cancels older runs, so the tip of `main` often has no run of its own and the check
+  would block good releases. The runbook asks the owner to look at `main`'s CI before the dispatch.
+
 ## References
 
 - #1344 (the bug and both owner decisions), epic #1346, wiki page `Wersje-systemu`
+- #45 and spec 0016 (desktop releases, the 2026-11-16 amendment)
 - ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023, ADR-0071 (the backup)
 - #1336 (which refs may deploy, and the rollout's provenance check), #1424 (a hand run with
   `image_tag` still builds first)

@@ -12,8 +12,9 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The first run starts once the window is on screen: its questions are panels inside this window,
-    /// and the disk scan runs in the background, so the window never waits for it.
+    /// The first run and the update check start once the window is on screen. The first run's questions
+    /// are panels inside this window, and the disk scan and the update check run in the background, so a
+    /// slow or failed one never holds the window back (spec 0016).
     /// </summary>
     protected override void OnOpened(EventArgs e)
     {
@@ -22,6 +23,7 @@ public sealed partial class MainWindow : Window
         if (DataContext is MainWindowViewModel viewModel)
         {
             _ = viewModel.GameFolder.StartAsync();
+            _ = viewModel.AppUpdate.CheckAsync();
         }
     }
 

@@ -1,3 +1,4 @@
+using System.Reflection;
 using LotroKoniecDev.Application.Extensions;
 using LotroKoniecDev.DesktopApp.Presentation;
 using LotroKoniecDev.DesktopApp.Presentation.Settings;
@@ -13,6 +14,9 @@ namespace LotroKoniecDev.DesktopApp;
 /// </summary>
 internal static class DesktopAppDependencyInjection
 {
+    /// <summary>The assembly metadata key the csproj stamps the version under (spec 0016).</summary>
+    internal const string VersionMetadataKey = "DesktopVersion";
+
     /// <summary>The settings sit next to the log file, in the app's own AppData folder (#43).</summary>
     internal static readonly string SettingsFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -32,6 +36,7 @@ internal static class DesktopAppDependencyInjection
         services.AddPresentationServices();
         services.AddSingleton<ISettingsFile>(new SettingsFile(SettingsFilePath));
         services.AddSingleton<IFileProbe, FileProbe>();
+        services.AddSingleton(new InstalledAppVersion(ReadStampedVersion()));
 
         // DI validation runs in every environment (#572). A handler that cannot be built stops the app
         // before any window opens, and Program writes the reason to the log file.
@@ -41,4 +46,11 @@ internal static class DesktopAppDependencyInjection
             ValidateOnBuild = true
         });
     }
+
+    /// <summary>A build with no stamp counts as a developer build, which never checks for updates.</summary>
+    private static string ReadStampedVersion() =>
+        typeof(DesktopAppDependencyInjection).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(attribute => attribute.Key == VersionMetadataKey)?.Value
+        ?? "0.0.0";
 }

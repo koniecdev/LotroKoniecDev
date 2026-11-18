@@ -232,6 +232,18 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/cd-gate.tests.sh
 
+      # The desktop release's checks before it builds (spec 0016, #45). Three of its refusals run only
+      # on the day someone makes a mistake, so this is their only proof.
+      - name: Desktop release check self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/desktop-release-check.tests.sh
+
+      # The clean-up after a failed desktop release (spec 0016, #45). It runs only when a release
+      # stops after its tag, and two of its endings delete things on GitHub, so this is its only proof.
+      - name: Desktop release clean-up self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/desktop-release-cleanup.tests.sh
+
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
       # exit 2 (the proof never ran) both block the promotion but demand OPPOSITE fixes, and the
       # runbook tells the approver not to retry a RED. Collapsing them would send them to split a

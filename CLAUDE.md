@@ -35,7 +35,10 @@ What is done and what is open is in "Roadmap" below. Since 2026-11-11 an outside
 on prod, so **prod data cannot be re-created by hand**. **API/code breaking changes stay free in
 0.x** (owner decision, #1344), because every client ships from this repo and deploys with it: no
 back-compat shims, no deprecation windows. A release is a git tag + a GitHub Release on the commit
-prod runs, and CD builds each commit once (ADR-0070; runbook → "Releases"). The one exception is
+prod runs, and CD builds each commit once (ADR-0070; runbook → "Releases"). The desktop app has its
+own `desktop-vX.Y.Z` releases, made by "Run workflow" on `desktop-release.yml`, which creates the tag
+only after its Windows install test passes; no workflow starts on a tag (ADR-0070, 2026-11-16
+amendment; spec 0016). The one exception is
 the **database schema**: the stack is deployed with zero-downtime CD, so migrations
 follow ADR-0023 (forward-only, N-1 backward-compatible, expand→backfill→contract) whatever the user
 count. Live backlog: `gh issue list`. Where an issue body conflicts with this file, **this file
@@ -935,9 +938,10 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
   the game and asks before it uses a folder from outside the allow-list (ADR-0069 amendment), the
   settings window keeps `config.json` in the app's AppData folder, and the main window always shows
   the risk note and the launcher notice. Every new text is Polish, and #42 replaces the English
-  labels #41 left (ADR-0033 amendment). #42 and #45 are open; #46 is closed (its tests ship with
-  each ticket). A GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP
-  is Windows-only, but the framework keeps the Steam Deck/Proton path open (WPF would close it).
+  labels #41 left (ADR-0033 amendment). #45 adds the Inno Setup installer, its release workflow and
+  the update at start (spec 0016). #42 is open; #46 is closed (its tests ship with each ticket). A
+  GUI over the patcher handlers + the same TMS auto-download the CLI ships. The MVP is Windows-only,
+  but the framework keeps the Steam Deck/Proton path open (WPF would close it).
 - **Post-MVP backlog (cut from MVP):** glossary, `TranslationHistory`, bulk operations, keyboard
   shortcuts, AI review, Discord notifications, public API versioning, crowdsourced game-version
   reports, per-language roles, Companion data auto-fetch from GitHub. **Epic TP-00 (#377)** parks

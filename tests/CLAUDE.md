@@ -26,7 +26,7 @@ Full project inventory (16 projects):
 | `LotroKoniecDev.TranslationSystem.Domain.Tests.Unit` | TMS domain unit | nothing (pure); Stryker target |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Unit` | TMS handlers, auth and endpoints (fake read DbContext, stub accessor and provisioner), and the account event consumer's pauses on a fake clock (#1223) | nothing (pure) |
 | `LotroKoniecDev.Frontend.Tests.Unit` | Blazor SSR components and infrastructure (bUnit) | nothing (pure) |
-| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43): the view models (incl. the progress bar the patcher handlers report to, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
+| `LotroKoniecDev.DesktopApp.Tests.Unit` | desktop app UI (#41, #43, #45): the view models (incl. the progress bar the patcher handlers report to, the busy gate and the update panel, the first-run search and its questions, the settings and their store over an in-memory `config.json`), the dialog adapter's answers when no dialog can open, the main window and settings window layouts and the splash hand-over, on Avalonia's headless platform | nothing (no screen; runs on Linux too) |
 | `LotroKoniecDev.AuthSystem.API.Tests.Unit` | auth-api: startup settings checks, handlers, middleware, pages, services, outbox and inbox, seed retry policy, when the timed jobs run (#948) | nothing (pure) |
 | `LotroKoniecDev.TranslationSystem.API.Tests.Integration` | in-process API against real PostgreSQL (Testcontainers; forged test tokens) | Docker |
 | `LotroKoniecDev.AuthSystem.API.Tests.Integration` | in-process auth-api against real PostgreSQL (Testcontainers) | Docker |
@@ -80,7 +80,10 @@ mutation score drops below it. It is a calibrated starting point; adjust it in t
   OpenIddict's stopped clock in `AuthSystem.API.Tests.Integration` (#1014); for the sign-out
   revoke's time limit in `Frontend.Tests.Unit` (#964); and for the access token's refresh time in
   both Frontend suites (#1025).
-- **Xunit.SkippableFact**: E2E tests that need Windows and a real DAT.
+- **Xunit.SkippableFact**: E2E tests that need Windows and a real DAT; and in
+  `Tests.Infrastructure`, the desktop update's installer start tests (#45), which show a UAC prompt
+  on a machine without admin rights. They run elevated, or with `RUN_UAC_PROMPT_TESTS=true` and a
+  person at the prompt, one filtered run per test (xUnit does not keep their order).
 - **Bogus**: generated user data in `AuthSystem.API.Tests.Integration` and `TranslationSystem.E2E.Tests`.
 - **coverlet.collector**: code coverage.
 - Versions: `Directory.Packages.props` is the single source of truth.
@@ -192,7 +195,8 @@ message.
 - `Tests/Core/`: `Error`, `ValueObject`, `Result`, `VarLenEncoder`, the default TMS address.
 - `Tests/Extensions/`: the `Result` extensions and the `LoadSubFile` guards against corrupt data.
 - `Tests/Features/`: the handlers and services (export, patch, launch with the Tier 0 wipe repair,
-  preflight, TMS file sync, endpoint resolution, integrity, version baseline, update check).
+  preflight, TMS file sync, endpoint resolution, integrity, version baseline, update check, and the
+  desktop app's own update: its version, the release policy, the check and the install, #45).
 - `Tests/Models/`: `Fragment`, `SubFile`, `Translation`, the source digest, the iteration
   snapshot and which game folders need the player's confirmation (`DatFileLocation`, ADR-0069).
 - `Tests/Parsers/`: the translation file parser, `TranslationLineCarver` and
@@ -236,8 +240,9 @@ stops violating, so the list cleans itself.
 
 Tests of the patcher's real infrastructure adapters: the game launcher, the `datexport.dll`
 interop, the sidecar stores (ledger, file cache, iteration snapshot), the check of why the game file
-refuses a write (Read-only flag, an ACL, a file held open; #1248), and the network adapters
-(downloader, discovery client, forum fetcher). The network tests drive the
+refuses a write (Read-only flag, an ACL, a file held open; #1248), the network adapters
+(downloader, discovery client, forum fetcher, the desktop app's GitHub release client), and the
+desktop update's download folders and held installer (#45). The network tests drive the
 adapters' integrity, response-size and timeout checks over an in-memory stub
 `HttpMessageHandler`, with no real network. TMS PostgreSQL/EF Core coverage lives in the
 `*.Tests.Integration` projects. A test that asserts on real file output belongs here, never in

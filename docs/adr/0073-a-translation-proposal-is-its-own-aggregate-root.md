@@ -3,11 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-11-13, updated 2026-11-21 (#1494)
 **Decision-makers:** Solo maintainer (owner decision, 2026-11-13, after comparing both options)
-**Related:** spec 0014 (translation review flow); `TranslationSystem.Domain/Aggregates/TranslationAggregate/`,
+**Related:** spec 0014 (translation review flow);
+`TranslationSystem.Domain/Aggregates/TranslationAggregate/`,
 `TranslationSystem.Persistence/Bulk/BulkTranslationInserter.cs`,
 `TranslationSystem.API/Features/Import/ImportExportedTexts.cs`,
 `TranslationSystem.API/Features/Translations/{UpsertTranslation,ApproveTranslation,BulkApproveTranslations}.cs`;
-tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422; ADR-0023, ADR-0024, ADR-0040, ADR-0043, ADR-0047, ADR-0065, ADR-0072
+tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422;
+ADR-0023, ADR-0024, ADR-0040, ADR-0043, ADR-0047, ADR-0065, ADR-0072
 
 ## Context
 
@@ -64,14 +66,15 @@ its own rules on its own `xmin`:
 - approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409,
   except a repeat of the caller's own request that already took effect, which answers 204 (spec
   0014, "Retries");
-- it takes no write while the previous app revision's last write is not yet reconciled (spec 0014,
-  "The deploy window"). It can tell from a stamp that its own write methods keep equal to
-  `UpdatedAt`.
+- it refuses save, approve, reject and withdraw on a row that the previous app revision wrote last
+  and #1388 has not yet reconciled (spec 0014, "The deploy window"); the import still writes such a
+  row. It can tell from a stamp that its own write methods keep equal to `UpdatedAt`.
 
 `Translation` cannot tell an older approved proposal from the live one by itself, so the handler
 loads the named proposal and the live one and passes them in; `Translation` decides. The author
-rule (#1345 brings it for reject, #1368 for approve) lives here too: given the proposal's author and whether that text was ever live,
-`Translation` refuses an author who approves or rejects their own text that has never been live.
+rule (#1345 brings it for reject, #1368 for approve) lives here too: given the proposal's author
+and whether that text was ever live, `Translation` refuses an author who approves or rejects their
+own text that has never been live.
 The link factory mirrors the same rule (ADR-0040).
 `WaitingProposalId` is cleared when the waiting proposal is approved, rejected or withdrawn.
 
@@ -111,8 +114,8 @@ The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY
 so they never write while the deploy-window stamp of spec 0014 exists. Until #1497, every write to
 `Translations` goes through `Translation`, whose write methods keep the stamp, and a set-based
 `UPDATE` of `Translations` waits (#1421 writes its backfill through `Translation` in chunks if it
-runs in that time). In the same transaction they set `WaitingProposalId` and mark a replaced
-proposal, either through `Translation` in chunks or with set-based SQL that keeps the same rules;
+runs in that time). In the same transaction the bulk paths set `WaitingProposalId` and mark a
+replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps the same rules;
 the partial unique index is the backstop.
 
 The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
@@ -135,8 +138,9 @@ empty and the length check. A set-based path compares each row with that row's o
   is live), so the previous app revision can read every row (ADR-0023). The N-1 run of ADR-0024
   runs the old tests against the new schema, but it cannot see rows the old revision writes during
   the deploy or after a rollback. Spec 0014 ("The deploy window") gives `Translations` two
-  temporary stamp columns, freezes every row the old revision wrote, status-only writes included,
-  until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only the
+  temporary stamp columns, freezes every row with Polish or a proposal that the old revision
+  wrote, status-only writes included (no save, approve, reject or withdraw; the import still writes
+  it), until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only the
   first implementation ticket writes in that window, and a set-based writer waits for #1497.
 - A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws while
   it has Polish, until an approval, so stale Polish never returns under changed English (ADR-0047).

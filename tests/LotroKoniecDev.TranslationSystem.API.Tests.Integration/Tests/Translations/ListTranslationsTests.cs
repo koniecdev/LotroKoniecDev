@@ -274,10 +274,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Theory]
     [InlineData("pl")]
     [InlineData("de")]
-    public async Task List_WithTheRemovedLangOption_IgnoresIt(string lang)
+    public async Task List_WithALangOption_IgnoresIt(string lang)
     {
-        // Arrange: the list holds only Polish rows and no longer takes a language (#1478). An old address
-        // that still sends one must keep working.
+        // Arrange: the list holds only Polish rows and takes no language (#1478), so a lang option is
+        // ignored like any unknown name.
         await SeedAsync(Row(1, "Frodo Baggins"), Row(2, "Samwise Gamgee"));
 
         // Act

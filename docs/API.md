@@ -406,7 +406,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as an unknown `status`) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`; a status name is case-sensitive) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |

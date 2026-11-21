@@ -52,19 +52,6 @@ internal sealed record TranslationListQuery
     public static bool ParseConflictsOnly(string? conflictsOnly) =>
         bool.TryParse(conflictsOnly, out bool isOn) && isOn;
 
-    /// <summary>
-    /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
-    /// </summary>
-    public static TranslationListQuery From(
-        string? search,
-        string? status,
-        int page,
-        int? pageSize = null,
-        bool conflictsOnly = false)
-    {
-        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
-    }
-
     public ListTranslationsRequest ToApiRequest()
         => new(Search: Search, Status: Status, Page: Page, PageSize: PageSize, ConflictsOnly: ConflictsOnly);
 
@@ -105,6 +92,19 @@ internal sealed record TranslationListQuery
         parameters["skipped"] = skipped.ToString(CultureInfo.InvariantCulture);
 
         return QueryHelpers.AddQueryString(PagePath, parameters);
+    }
+
+    /// <summary>
+    /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
+    /// </summary>
+    public static TranslationListQuery From(
+        string? search,
+        string? status,
+        int page,
+        int? pageSize = null,
+        bool conflictsOnly = false)
+    {
+        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
     }
 
     private void AddPagingAndFilterParameters(Dictionary<string, string?> parameters, int? page = null)

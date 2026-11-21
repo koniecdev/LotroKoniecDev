@@ -576,7 +576,7 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     `ci`, right after its self-test; prose in comments stays allowed. The one bounded exception is
     the editor's detail URI (`{discovered translations href}/{id}`): the `/editor/{id}` route hands
     over an id, not a link, as `TranslationEditorLoader` documents.
-- **A client's query options live in one Contracts record, enforced (#1478).** Every option a client
+- **A client's query options live in one Contracts record (#1478).** Every option a client
   sends to the translation API in the query string is a property of an `<Action>Request` record in
   `TranslationSystem.Contracts` (template: `ListTranslationsRequest`). The endpoint binds it with
   `[AsParameters]` and maps it to its own `Query`/`Command`; never `[FromQuery]`, a plain lambda
@@ -587,7 +587,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   with every test green. The website's own page addresses (`/translations?…`) and OIDC parameters
   are not API options and keep their own names. `QueryOptionContractTests` (TMS integration suite)
   reads ApiExplorer and fails when an endpoint binds a query option outside a Contracts record, or
-  when a record's `ToQueryParameters()` misses an option the API binds from it.
+  when a record's `ToQueryParameters()` misses an option the API binds from it. It cannot see a
+  hand-read `Request.Query` or a hand-written key in the website: review covers those two.
 - **The CLI resolves its download URL from discovery, and degrades without guessing (#611).**
   `SyncTranslationFileCommand` takes one input, `TmsBaseUrl`; everything else comes from
   `GET {baseUrl}/` with the HATEOAS vendor `Accept` (a plain-JSON request gets a link-less

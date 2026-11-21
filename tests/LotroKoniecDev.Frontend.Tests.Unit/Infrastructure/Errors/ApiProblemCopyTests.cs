@@ -135,6 +135,8 @@ public sealed class ApiProblemCopyTests
     [InlineData("Auth.RegistrationMailboxThrottled", 429, "Na tę skrzynkę pocztową było ostatnio zbyt wiele prób rejestracji. Odczekaj kwadrans i spróbuj ponownie.")]
     [InlineData("Auth.EmailChangeRecipientThrottled", 429, "Na tę skrzynkę pocztową wysłano niedawno zbyt wiele linków do zmiany adresu e-mail. Odczekaj kwadrans i spróbuj ponownie.")]
     [InlineData("Auth.DeletionScheduleThrottled", 429, "Usunięcie tego konta zaplanowano ostatnio zbyt wiele razy. Odczekaj godzinę i spróbuj ponownie.")]
+    [InlineData("Auth.ReviewerRoleNotAllowed", 422, "Rolę Recenzent można nadać tylko kontu tłumacza, które nie jest kontem administratora i nie czeka na usunięcie.")]
+    [InlineData("Auth.ReviewerRoleChangeFailed", 500, "Nie udało się zmienić roli Recenzent. Spróbuj ponownie.")]
     [InlineData("Validation.FluentValidation", 400, "Formularz zawiera nieprawidłowe dane.")]
     [InlineData("Internal.UnhandledException", 500, "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie za chwilę.")]
     public void Describe_WhenTheErrorCodeIsMapped_ShowsThePolishCopy(

@@ -162,6 +162,18 @@ internal static partial class ApiProblemCopy
                 "Na tę skrzynkę pocztową było ostatnio zbyt wiele prób rejestracji. Odczekaj kwadrans i spróbuj ponownie.",
             ["Auth.UserNotFound"] =
                 "Nie znaleziono konta.",
+
+            // ── Auth · account administration (#1488) ──────────────────────────────────────────
+            ["Auth.AccountListPageInvalid"] =
+                "Numer strony musi być równy 1 lub większy.",
+            ["Auth.ReviewerRoleNotAllowed"] =
+                "Rolę Recenzent można nadać tylko kontu tłumacza, które nie jest kontem administratora i nie czeka na usunięcie.",
+            ["Auth.ReviewerRoleChangeFailed"] =
+                "Nie udało się zmienić roli Recenzent. Spróbuj ponownie.",
+            ["GrantReviewerRole.Validation"] =
+                "Nie udało się rozpoznać konta, któremu ma zostać nadana rola.",
+            ["RemoveReviewerRole.Validation"] =
+                "Nie udało się rozpoznać konta, któremu ma zostać odebrana rola.",
             [InvalidCurrentPasswordCode] =
                 "Aktualne hasło jest nieprawidłowe.",
             // The export page keeps its own copy behind its "password-throttled" marker, because its route

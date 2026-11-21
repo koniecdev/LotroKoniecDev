@@ -24,4 +24,12 @@ internal interface IAuthSystemClient
         string relativeUri,
         object body,
         CancellationToken cancellationToken = default);
+
+    Task<ApiResult> PutApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResult> DeleteApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default);
 }

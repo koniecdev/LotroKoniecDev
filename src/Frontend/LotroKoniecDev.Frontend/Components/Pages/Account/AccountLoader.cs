@@ -56,6 +56,18 @@ internal sealed class AccountLoader
     }
 
     /// <summary>
+    /// Whether the auth root offers the admin's account list to this caller (#1488). It reads the cached
+    /// discovery document, so a failure there only hides the link.
+    /// </summary>
+    public async Task<bool> OffersAccountAdministrationAsync(CancellationToken cancellationToken = default)
+    {
+        ApiResult<AuthDiscoveryResponse> discoveryResult =
+            await _discoveryCache.GetAuthSystemDiscoveryAsync(cancellationToken);
+
+        return discoveryResult.IsSuccess && discoveryResult.Value.Links.HasLink(Rels.Accounts);
+    }
+
+    /// <summary>
     /// The auth API hands the export over only with the current password (ADR-0052). The link comes from
     /// the account resource, fetched fresh on every attempt and never from the day-cached discovery
     /// document, so the export button and this call cannot disagree. A missing rel is a refusal (#610).

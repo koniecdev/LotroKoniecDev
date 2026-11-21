@@ -51,4 +51,18 @@ internal sealed class AuthSystemClient : IAuthSystemClient
         ArgumentNullException.ThrowIfNull(body);
         return _httpClient.PostForHeadersApiResultAsync(relativeUri, body, cancellationToken);
     }
+
+    public Task<ApiResult> PutApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default)
+    {
+        return _httpClient.PutApiResultAsync(relativeUri, cancellationToken);
+    }
+
+    public Task<ApiResult> DeleteApiResultAsync(
+        string relativeUri,
+        CancellationToken cancellationToken = default)
+    {
+        return _httpClient.DeleteApiResultAsync(relativeUri, cancellationToken);
+    }
 }

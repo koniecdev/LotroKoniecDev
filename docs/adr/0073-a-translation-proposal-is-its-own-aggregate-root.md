@@ -1,20 +1,21 @@
 # ADR-0073: A translation proposal is its own aggregate root
 
 **Status:** Accepted
-**Date:** 2026-11-13
+**Date:** 2026-11-13, updated 2026-11-21 (#1494)
 **Decision-makers:** Solo maintainer (owner decision, 2026-11-13, after comparing both options)
 **Related:** spec 0014 (translation review flow); `TranslationSystem.Domain/Aggregates/TranslationAggregate/`,
 `TranslationSystem.Persistence/Bulk/BulkTranslationInserter.cs`,
 `TranslationSystem.API/Features/Import/ImportExportedTexts.cs`,
 `TranslationSystem.API/Features/Translations/{UpsertTranslation,ApproveTranslation,BulkApproveTranslations}.cs`;
-tickets #1384, #1388, #50, #1345, #1385, #1368, #1372, #1373; ADR-0023, ADR-0024, ADR-0040, ADR-0047, ADR-0065, ADR-0072
+tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422; ADR-0023, ADR-0024, ADR-0040, ADR-0043, ADR-0047, ADR-0065, ADR-0072
 
 ## Context
 
 Spec 0014 turns every save into a proposal. A proposal keeps its text and author for good. Only an
-approval makes it the live text that goes into `polish.txt`. The history of a row is the list of
-its proposals, and the spec needs it for undo (#50), for a rejection with a reason (#1345), and
-for marking AI drafts (#1373) and pattern saves (#1372).
+approval makes it the live text that goes into `polish.txt`. The history of a row is made of its
+proposals and, from #1422, the admin's manual status changes. The spec needs the proposals for undo
+(#50), for a rejection with a reason (#1345), and for marking AI drafts (#1373) and pattern saves
+(#1372).
 
 The question is where a proposal lives: as a child entity inside the `Translation` aggregate, or as
 its own aggregate root next to it.
@@ -38,8 +39,11 @@ Code facts that decide it:
 
 A proposal lives in its own table and has its own repository. It holds: text, author, created at,
 origin (a person's save, a pattern save, an AI draft, the backfill, a restore, an approval again
-after an English change) with a link to the pattern save, the AI upload or the restored proposal
-where there is one, outcome, decided by, decided at, and the rejection reason.
+after an English change) with a link to the pattern save, the AI upload or the proposal it copies (a
+restore, an approval again) where there is one, outcome, decided by, decided at, and the rejection
+reason. The first implementation ticket defines every origin value and every outcome value at once,
+in the domain and in the contracts: EF and the frontend's JSON reader both fail on an enum name they
+do not know, so a value added later would break the previous revision.
 
 Names in code: the origin is not called "source", because `TranslationSource` and
 `Translation.Source` already mean the English text. The restore step is not called `Restore`,
@@ -57,7 +61,12 @@ history, and the live text is always the approved proposal with the latest decis
 its own rules on its own `xmin`:
 
 - at most one waiting proposal (a new save replaces the waiting one, spec 0014 Q2);
-- approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409.
+- approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409,
+  except a repeat of the caller's own request that already took effect, which answers 204 (spec
+  0014, "Retries");
+- it takes no write while the previous app revision's last write is not yet reconciled (spec 0014,
+  "The deploy window"). It can tell from a stamp that its own write methods keep equal to
+  `UpdatedAt`.
 
 `Translation` cannot tell an older approved proposal from the live one by itself, so the handler
 loads the named proposal and the live one and passes them in; `Translation` decides. The author
@@ -87,20 +96,28 @@ new ADR first.
 
 - A foreign key from `Translation.WaitingProposalId` to the proposal.
 - A partial unique index on the proposal table: at most one waiting proposal per translation.
+- A `CHECK` constraint on the length of the proposal text, like the one on `Translations`
+  (ADR-0043 §2), because the set-based paths skip the validator.
 
 The `COPY` column list in `BulkTranslationInserter` (new `Translation` rows from an import) also
-gets the new column. That list is not a guard, and the column is nullable, so a list that misses
-it silently writes NULL; the first implementation ticket adds a test that the list matches the
+gets the new columns. That list is not a guard, and the columns are nullable, so a list that misses
+one silently writes NULL; the first implementation ticket adds a test that the list matches the
 model.
 
 ### 5. Bulk paths insert new proposal rows and never load a history
 
 The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY` or a batched
-`INSERT`, their choice). They never load the history of a row to add to it. They come after the
-contract step (#1388), so they never write in the deploy window of spec 0014. In the same
-transaction they set `WaitingProposalId` and mark a replaced proposal, either through `Translation`
-in chunks or with set-based SQL that keeps the same rules; the partial unique index is the
-backstop.
+`INSERT`, their choice). They never load the history of a row to add to it. They come after #1497,
+so they never write while the deploy-window stamp of spec 0014 exists. Until #1497, every write to
+`Translations` goes through `Translation`, whose write methods keep the stamp, and a set-based
+`UPDATE` of `Translations` waits (#1421 writes its backfill through `Translation` in chunks if it
+runs in that time). In the same transaction they set `WaitingProposalId` and mark a replaced
+proposal, either through `Translation` in chunks or with set-based SQL that keeps the same rules;
+the partial unique index is the backstop.
+
+The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
+row's English does not end with a line break, the run of CR and LF at the end goes), before the
+empty and the length check. A set-based path compares each row with that row's own English.
 
 ## Consequences
 
@@ -117,11 +134,16 @@ backstop.
 - `TranslatedText` keeps today's meaning for good (the live text, or the waiting text when nothing
   is live), so the previous app revision can read every row (ADR-0023). The N-1 run of ADR-0024
   runs the old tests against the new schema, but it cannot see rows the old revision writes during
-  the deploy or after a rollback. Spec 0014 ("The deploy window") freezes such rows until the
-  contract step (#1388) reconciles them, and only the first implementation ticket writes in that
-  window.
-- A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws until
-  an approval, so stale Polish never returns under changed English (ADR-0047).
+  the deploy or after a rollback. Spec 0014 ("The deploy window") gives `Translations` two
+  temporary stamp columns, freezes every row the old revision wrote, status-only writes included,
+  until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only the
+  first implementation ticket writes in that window, and a set-based writer waits for #1497.
+- A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws while
+  it has Polish, until an approval, so stale Polish never returns under changed English (ADR-0047).
+  A row that loses its last Polish becomes `Untranslated` (spec 0014).
+- Two sentences of ADR-0072 go stale with the first implementation ticket, which amends them: §1
+  (a save with the same text takes an approved row out of the game file) and §7 (bulk approve
+  never changes a text).
 - ADR-0072 counts a save that replaces Polish as an overwrite. A save no longer replaces anything,
   so the first implementation ticket keeps that budget's effect: a save on a row that already has
   Polish, live or waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite
@@ -155,11 +177,11 @@ Chosen. See the Decision.
 
 - `TranslationSystem.Domain/Aggregates/TranslationProposalAggregate/` (new aggregate, value objects
   for the text and the reason, repository interface).
-- `Translation`: the live text, `WaitingProposalId`, and the rules for save, approve, reject,
-  withdraw, restore and approve again.
+- `Translation`: the live text, `WaitingProposalId`, the rules for save, approve, reject,
+  withdraw, restore and approve again, and the deploy-window stamp (spec 0014).
 - `TranslationSystem.Persistence`: the proposal configuration, the foreign key, the partial unique
-  index, the migration with the backfill (spec 0014 "Backfill"), the `BulkTranslationInserter`
-  column list.
+  index, the length `CHECK`, the two stamp columns, the migration with the backfill (spec 0014
+  "Backfill"), the `BulkTranslationInserter` column list.
 - Read model and EF configuration in the same change (the CQRS rule).
 - Implementation tickets: see spec 0014.
 
@@ -167,5 +189,6 @@ Chosen. See the Decision.
 
 - Spec 0014: translation review flow.
 - ADR-0023 (forward-only migrations), ADR-0024 (N-1 proof), ADR-0040 (authorization-aware links),
-  ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0072 (daily save budget).
-- Tickets #1384, #1388, #50, #1345, #1385, #1368, #1372, #1373.
+  ADR-0043 (text length), ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0072 (daily
+  save budget).
+- Tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422.

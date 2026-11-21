@@ -117,7 +117,8 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
      table. When tickets were left (an early stop, or `-n` cut a list short), a
      `[conductor] not started: …` line follows the `done:` line, with those tickets and the
-     launcher line that starts them: relay it with `LOOP_TICKET_TIMEOUT_MIN=360` in front.
+     launcher line that starts them: relay it, with `LOOP_TICKET_TIMEOUT_MIN=360` in front of the
+     launcher command in it.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
      last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,

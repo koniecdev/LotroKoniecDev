@@ -237,6 +237,12 @@ everything that matters must be committed and pushed.
   version, which is done by hand) → STOP, return `BLOCKED` (category: mis-scope) and name the
   change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
+- **Your clock.** The loop stops this run after `LOOP_TICKET_TIMEOUT_MIN` minutes, counted from
+  the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN` (empty means 240), and run `date`
+  before step 1 so you know when you started. A resume prompt gives `minutes_left` instead. Never
+  take the number from memory, a document or an earlier run: `/backlog` starts runs with 360
+  (`docs/claude-loop.md` → "A longer ticket clock"). End a run `BLOCKED` for lack of time only after
+  you have read both numbers and the step that is left cannot fit (#1501).
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 

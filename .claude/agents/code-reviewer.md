@@ -333,7 +333,7 @@ Then produce a structured review table:
 Severities:
 - **Critical** — incorrect behavior, data loss, architecture violation, missing test for key path, or an edge case reachable from outside our trust boundary (API body / browser input / imported file / CLI arg / DAT bytes / third-party service) that crashes or silently misbehaves; and every Critical of Phase 0: a gate red on the reviewed commit, a test project or guard the author did not run, or a tree that is not the reviewed commit. Must fix before merge.
 - **Major** — significant code smell, a reachable edge case handled but untested (or unhandled on an internal path), unintended scope creep. Should fix.
-- **Minor** — style inconsistency, naming, optional improvement. Nice to fix. Never wrong behaviour a user would see, even when it looks rare or your numbers are rough: that is Major at least, because a later ticket for it costs far more than one more round now (#1501: a window taller than a laptop screen was rated Minor, and it took a ticket of its own).
+- **Minor** — style inconsistency, naming, optional improvement. Nice to fix. Never wrong behaviour a user would see that this diff adds, changes or makes reachable, even when it looks rare or your numbers are rough: that is Major at least, because a later ticket for it costs far more than one more round now (#1501: a window taller than a laptop screen was rated Minor, and it took a ticket of its own). Such a defect that is older than the diff stays Minor, with the action "file it as an older defect".
 - **Note** — observation, not actionable. FYI only.
 
 In round 3, the brief says so and lists every commit made since round 1's review, plus the files any

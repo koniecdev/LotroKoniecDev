@@ -337,8 +337,8 @@ Severities:
 - **Note** — observation, not actionable. FYI only.
 
 An older defect (already on `main` before the diff, not made reachable by it, and not another case
-of the class the ticket names) does not block this diff, whatever its severity: rate it by what it
-does, with the action "file it as an older defect".
+of the class the ticket names) is written as `Minor (older defect)`, whatever it does, with the action
+"file it as an older defect": it never blocks this diff. A red gate is never an older defect.
 
 In round 3, the brief says so and lists every commit made since round 1's review, plus the files any
 conflicted rebase since then resolved. Add one line right after the findings table: `Fix-made

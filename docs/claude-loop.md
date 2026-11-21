@@ -69,7 +69,8 @@ The worker must also know its clock. In the week to 2026-11-21, #1494 (and earli
 #905) was stopped by the engine and shows as `timeout`. But #1488 ($79, three rounds and an APPROVE
 done, one second-pass fix left) and #695 ($74) ended themselves as `blocked` at 208 and 191
 minutes, because each session believed it had 240 minutes. So `/work-ticket` reads the clock from
-its own environment and never from memory or a document. The prefix goes when the engine carries
+its own environment and never from memory or a document, and a session that stops itself for time
+ends `BLOCKED` with `CATEGORY: out-of-time`, not as a failed review. The prefix goes when the engine carries
 the value itself. Split a ticket that would not fit, rather than raising the clock again.
 
 ## A new engine version

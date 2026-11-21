@@ -392,6 +392,23 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListTranslations_PaginationLinks_CarryTheClampedPaging()
+    {
+        // Arrange: the links take the page size from the request record, which clamps it (#1478).
+        await SeedAsync(Row(1, "a"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?page=0&pageSize=500");
+
+        // Assert: the link names the page the caller got, not the one asked for.
+        response.Page.ShouldBe(1);
+        response.PageSize.ShouldBe(100);
+        response.Links.First(l => l.Rel == Rels.Self).Href.ShouldEndWith("/api/v1/translations?page=1&pageSize=100");
+    }
+
+    [Fact]
     public async Task ListTranslations_PlainJson_OmitsItemAndPaginationLinks()
     {
         // Arrange

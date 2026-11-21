@@ -3,8 +3,6 @@ using System.Linq.Expressions;
 using System.Security.Claims;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
 using LotroKoniecDev.SharedKernel.Authorization;
-using LotroKoniecDev.SharedKernel.BuildingBlocks;
-using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
@@ -17,7 +15,6 @@ using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
@@ -31,21 +28,18 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
-    private const string SupportedLanguage = SupportedLanguages.Polish;
-
+    /// <summary>
+    /// <see cref="ListTranslationsRequest"/> already holds the page limits, and the endpoint is the only
+    /// place that builds this query.
+    /// </summary>
     internal sealed record Query(
-        string? Lang,
         string? Search,
         TranslationStatus? Status,
-        int Page = 1,
-        int PageSize = 50,
-        string? Sort = null,
-        bool ConflictsOnly = false)
-        : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable
-    {
-        public int Page { get; } = Math.Max(Page, 1);
-        public int PageSize { get; } = Math.Clamp(PageSize, 1, 100);
-    }
+        int Page,
+        int PageSize,
+        string? Sort,
+        bool ConflictsOnly)
+        : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable;
 
     internal sealed class Handler : IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>>
     {
@@ -60,15 +54,6 @@ internal sealed class ListTranslations : IEndpoint
             Query query,
             CancellationToken cancellationToken)
         {
-            if (!string.IsNullOrWhiteSpace(query.Lang)
-                && !string.Equals(query.Lang, SupportedLanguage, StringComparison.OrdinalIgnoreCase))
-            {
-                return Result.Failure<PaginationResponse<TranslationListItemResponse>>(new Error(
-                    "Translations.UnsupportedLanguage",
-                    $"Language '{query.Lang}' is not supported; only '{SupportedLanguage}' exists today.",
-                    TypeOfError.Validation));
-            }
-
             IQueryable<TranslationReadModel> filtered = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null);
 
@@ -164,20 +149,20 @@ internal sealed class ListTranslations : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
         endpointRouteBuilder.MapGet("/api/v1/translations", async (
+                [AsParameters] ListTranslationsRequest request,
                 IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>> handler,
                 ITranslationAggregateLinkFactory translationLinkFactory,
                 IPaginationLinkFactory paginationLinkFactory,
                 ClaimsPrincipal user,
-                CancellationToken cancellationToken,
-                [FromQuery] string? lang = null,
-                [FromQuery] string? search = null,
-                [FromQuery] TranslationStatus? status = null,
-                [FromQuery] int page = 1,
-                [FromQuery] int pageSize = 50,
-                [FromQuery] string? sort = null,
-                [FromQuery] bool conflictsOnly = false) =>
+                CancellationToken cancellationToken) =>
             {
-                Query query = new(lang, search, status, page, pageSize, sort, conflictsOnly);
+                Query query = new(
+                    request.Search,
+                    request.Status,
+                    request.Page,
+                    request.PageSize,
+                    request.Sort,
+                    request.ConflictsOnly);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 
@@ -203,7 +188,7 @@ internal sealed class ListTranslations : IEndpoint
                         .. await paginationLinkFactory.CreatePaginationLinksAsync(
                             nameof(ListTranslations),
                             paged,
-                            new { lang, search, status, sort, conflictsOnly = conflictsOnly ? true : (bool?)null }),
+                            request.ToQueryParameters),
                         .. await translationLinkFactory.CreateCollectionLinksAsync(callerIsAdmin)
                     ];
                 });

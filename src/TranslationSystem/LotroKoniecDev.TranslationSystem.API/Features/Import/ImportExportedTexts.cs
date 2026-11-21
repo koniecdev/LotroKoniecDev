@@ -459,9 +459,9 @@ internal sealed partial class ImportExportedTexts : IEndpoint
         endpointRouteBuilder.MapPost("/api/v1/game-versions/{id:guid}/import", async (
                 Guid id,
                 IFormFile file,
+                [AsParameters] ImportExportedTextsRequest request,
                 ICommandHandler<Command, Result<ImportSummary>> handler,
-                CancellationToken cancellationToken,
-                [FromQuery] bool allowMassRemoval = false) =>
+                CancellationToken cancellationToken) =>
             {
                 await using Stream stream = file.OpenReadStream();
 
@@ -469,7 +469,7 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                 // fallback for a forward-only stream.
                 if (stream.CanSeek)
                 {
-                    Command command = new(GameVersionId.Create(id), stream, allowMassRemoval);
+                    Command command = new(GameVersionId.Create(id), stream, request.AllowMassRemoval);
                     Result<ImportSummary> result = await handler.Handle(command, cancellationToken);
 
                     return result.IsSuccess
@@ -486,7 +486,7 @@ internal sealed partial class ImportExportedTexts : IEndpoint
                     FileOptions.Asynchronous | FileOptions.DeleteOnClose);
                 await stream.CopyToAsync(buffered, cancellationToken);
 
-                Command bufferedCommand = new(GameVersionId.Create(id), buffered, allowMassRemoval);
+                Command bufferedCommand = new(GameVersionId.Create(id), buffered, request.AllowMassRemoval);
                 Result<ImportSummary> bufferedResult = await handler.Handle(bufferedCommand, cancellationToken);
 
                 return bufferedResult.IsSuccess

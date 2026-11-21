@@ -16,6 +16,7 @@ public sealed class TrailingLineBreaksTests
     [InlineData("tekst \r\n", "tekst ")]
     [InlineData("tekst\t\n", "tekst\t")]
     [InlineData("tekst\\n\r\n", "tekst\\n")]
+    [InlineData("\r\n", "")]
     public void RemoveUnlessSourceEndsWithOne_WhenTheEnglishHasNoTrailingBreak_ShouldRemoveOnlyTheTrailingBreaks(
         string polish, string expected)
         => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(polish, Source(EnglishWithoutABreak)).ShouldBe(expected);

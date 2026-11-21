@@ -98,10 +98,10 @@ public sealed class Translation : AggregateRoot<TranslationId>
 
     /// <summary>
     /// Any status becomes <see cref="TranslationStatus.Draft"/>, so editing an approved row takes it out
-    /// of the distributed set until it is approved again (spec 0001). <see cref="PreviousSourceText"/>
-    /// stays until approve clears it. The length and blank guards are programmer-error checks on the text
-    /// as sent, like <c>UpsertTranslation.Validator</c>, which gives the translator the message (#598).
-    /// The stored text drops the trailing line breaks <see cref="TrailingLineBreaks"/> removes (#1476).
+    /// of the distributed set until it is approved again (spec 0001); <see cref="PreviousSourceText"/>
+    /// stays until approve clears it. The guards are programmer-error checks on the text as sent;
+    /// <c>UpsertTranslation.Validator</c> gives the translator the message (#598). The stored text loses
+    /// the trailing line breaks that <see cref="TrailingLineBreaks"/> removes (#1476).
     /// </summary>
     public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {

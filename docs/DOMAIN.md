@@ -235,8 +235,9 @@ Czysta funkcja (`static class`, `RemoveUnlessSourceEndsWithOne`) dla każdej śc
 polski (#1476, ADR-0039, poprawka z 2026-11-21). Tłumacz, który na końcu tekstu wciśnie Enter, wysyła
 CR LF, a teksty gry nigdy nie kończą się prawdziwą nową linią. Gdy angielski nie kończy się CR ani LF,
 funkcja usuwa cały ciąg CR i LF z końca polskiego. Spacje, tabulatory, wpisane dwa znaki `\n`
-i nowe linie w środku tekstu zostają. Dziś woła ją `ProvideTranslation`; propozycje z #1384 wołają
-tę samą funkcję.
+i nowe linie w środku tekstu zostają. Dziś woła ją tylko `ProvideTranslation`; każda nowa ścieżka
+zapisu polskiego (np. propozycje z #1384) musi wołać tę samą funkcję. Tekst z samych nowych linii
+wraca pusty, więc wołający najpierw odrzuca pusty tekst.
 
 ### TranslationDiffService
 

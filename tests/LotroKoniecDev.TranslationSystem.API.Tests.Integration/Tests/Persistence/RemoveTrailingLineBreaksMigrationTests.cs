@@ -30,6 +30,8 @@ public sealed class RemoveTrailingLineBreaksMigrationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // xUnit skips DisposeAsync when InitializeAsync throws, so a failed run may leave the database.
+        await ExecuteOnSharedDatabaseAsync($"DROP DATABASE IF EXISTS {DatabaseName} WITH (FORCE);");
         string sharedConnectionString = await ExecuteOnSharedDatabaseAsync($"CREATE DATABASE {DatabaseName};");
         string connectionString = new NpgsqlConnectionStringBuilder(sharedConnectionString) { Database = DatabaseName }
             .ConnectionString;
@@ -70,6 +72,7 @@ public sealed class RemoveTrailingLineBreaksMigrationTests : IAsyncLifetime
         await PlantAsync(5, EnglishWithoutABreak, "Spacja \r\n");
         // The game writes its line break as the two characters \n, which the translator copies.
         await PlantAsync(6, "Line one\\n", "Linia pierwsza\\n\r\n");
+        await PlantAsync(7, "", "Pusty angielski\r\n");
 
         // Act
         await _dbContext.Database.MigrateAsync(MigrationId<RemoveTrailingLineBreaksFromTranslatedText>());
@@ -82,6 +85,7 @@ public sealed class RemoveTrailingLineBreaksMigrationTests : IAsyncLifetime
         rows[4].TranslatedText.ShouldBe("Dwa razy");
         rows[5].TranslatedText.ShouldBe("Spacja ");
         rows[6].TranslatedText.ShouldBe("Linia pierwsza\\n");
+        rows[7].TranslatedText.ShouldBe("Pusty angielski");
     }
 
     [Fact]

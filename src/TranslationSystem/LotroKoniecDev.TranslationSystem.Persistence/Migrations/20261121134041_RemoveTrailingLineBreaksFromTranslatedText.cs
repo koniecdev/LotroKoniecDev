@@ -14,13 +14,13 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
     /// text changes: status, author, approver and dates stay, because no trigger or interceptor touches
     /// them.
     ///
-    /// A row whose Polish is only whitespace is left alone. Removing its breaks would leave an empty
+    /// A row whose Polish is only whitespace is left alone. Removing its breaks would leave a blank
     /// text, which the domain never stores, so a person fixes it in the editor.
     ///
     /// N-1 note (ADR-0023): the previous revision still saves trailing breaks until traffic moves to
     /// the new one. Running this UPDATE again by hand after the deploy cleans those rows; it is safe to
-    /// run twice. The player file is rebuilt only by the next approve, because raw SQL schedules no
-    /// rebuild.
+    /// run twice. Raw SQL schedules no rebuild of the player file, so the file shows a cleaned
+    /// approved row only after the next rebuild (an approve, an edit of an approved row or an import).
     /// </remarks>
     public partial class RemoveTrailingLineBreaksFromTranslatedText : Migration
     {

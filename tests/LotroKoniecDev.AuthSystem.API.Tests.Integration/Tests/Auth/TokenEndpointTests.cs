@@ -282,76 +282,50 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
-    public async Task RefreshTokenGrant_ShouldReturnUpdatedRoles_WhenRolesChangedInDatabase()
+    public async Task RefreshTokenGrant_ShouldFail_WhenRolesChangedInDatabase()
+    {
+        // Arrange: a role change ends the session, so the website signs in again with the new roles
+        // (#1488). No revoke runs here, so only the role check can refuse.
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
+
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, request.Email, AuthConstants.Roles.Admin);
+
+        // Act
+        HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(refreshToken);
+
+        // Assert
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        using JsonDocument body = JsonDocument.Parse(await refreshResponse.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("error").GetString().ShouldBe("invalid_grant");
+        body.RootElement.GetProperty("error_description").GetString().ShouldBe("The refresh token is no longer valid.");
+    }
+
+    [Fact]
+    public async Task PasswordGrant_AfterARoleChange_ShouldIssueEveryRoleAsAnArray()
     {
         // Arrange
         const string password = "TestPass1!";
         (RegisterRequest request, _) =
             await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, request.Email, AuthConstants.Roles.Admin);
 
-        using FormUrlEncodedContent loginRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "password",
-            ["username"] = request.Email,
-            ["password"] = password,
-            ["client_id"] = "lotrokoniecdev-test",
-            ["scope"] = "openid email profile roles api offline_access"
-        });
-
-        HttpResponseMessage loginResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), loginRequest);
-
-        string loginContent = await loginResponse.Content.ReadAsStringAsync();
-        using JsonDocument loginJson = JsonDocument.Parse(loginContent);
-
-        string initialAccessToken = loginJson.RootElement.GetProperty("access_token").GetString()!;
-        string refreshToken = loginJson.RootElement.GetProperty("refresh_token").GetString()!;
-
-        using JsonDocument initialIntrospection = await IntrospectTokenAsync(initialAccessToken);
-        initialIntrospection.RootElement.GetProperty("active").GetBoolean().ShouldBeTrue();
-        string initialRole = initialIntrospection.RootElement.GetProperty("role").GetString()!;
-        initialRole.ShouldBe("Translator");
-
-        // Act: the user gains the Admin role, then refreshes
-        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
-        UserManager<ApplicationUser> userManager =
-            scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-
-        ApplicationUser? user = await userManager.FindByNameAsync(request.Username);
-        user.ShouldNotBeNull();
-
-        IdentityResult addRoleResult = await userManager.AddToRoleAsync(user, "Admin");
-        addRoleResult.Succeeded.ShouldBeTrue();
-
-        using FormUrlEncodedContent refreshRequest = new(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = refreshToken,
-            ["client_id"] = "lotrokoniecdev-test"
-        });
-
-        HttpResponseMessage refreshResponse = await ApiClient.Http.PostAsync(
-            new Uri("connect/token", UriKind.Relative), refreshRequest);
+        // Act: the user signs in again
+        string accessToken = await GetAccessTokenAsync(request.Email, password);
 
         // Assert
-        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
-
-        string refreshContent = await refreshResponse.Content.ReadAsStringAsync();
-        using JsonDocument refreshJson = JsonDocument.Parse(refreshContent);
-
-        string newAccessToken = refreshJson.RootElement.GetProperty("access_token").GetString()!;
-        using JsonDocument newIntrospection = await IntrospectTokenAsync(newAccessToken);
-        newIntrospection.RootElement.GetProperty("active").GetBoolean().ShouldBeTrue();
-
-        // When multiple roles exist, the "role" claim is an array
-        newIntrospection.RootElement.GetProperty("role").ValueKind.ShouldBe(JsonValueKind.Array);
-        List<string> roles = newIntrospection.RootElement.GetProperty("role")
+        using JsonDocument introspection = await IntrospectTokenAsync(accessToken);
+        introspection.RootElement.GetProperty("active").GetBoolean().ShouldBeTrue();
+        introspection.RootElement.GetProperty("role").ValueKind.ShouldBe(JsonValueKind.Array);
+        List<string> roles = introspection.RootElement.GetProperty("role")
             .EnumerateArray()
             .Select(e => e.GetString()!)
             .ToList();
 
         roles.ShouldContain("Translator");
-        roles.ShouldContain("Admin");
+        roles.ShouldContain(AuthConstants.Roles.Admin);
     }
 
     [Fact]

@@ -37,6 +37,37 @@ internal static class AccountStateFactory
         }
     }
 
+    /// <summary>
+    /// Changes only the roles and revokes nothing, the state a role change leaves when its revoke fails
+    /// (#1488).
+    /// </summary>
+    public static async Task AddToRoleAsync(IServiceProvider services, string email, string role)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        IdentityResult result = await userManager.AddToRoleAsync(user, role);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not give the role '{role}' to test user '{email}'.");
+        }
+    }
+
+    /// <inheritdoc cref="AddToRoleAsync"/>
+    public static async Task RemoveFromRoleAsync(IServiceProvider services, string email, string role)
+    {
+        await using AsyncServiceScope scope = services.CreateAsyncScope();
+        UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        ApplicationUser user = await FindAsync(userManager, email);
+
+        IdentityResult result = await userManager.RemoveFromRoleAsync(user, role);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Could not take the role '{role}' from test user '{email}'.");
+        }
+    }
+
     public static async Task RemovePasswordAsync(IServiceProvider services, string email)
     {
         await using AsyncServiceScope scope = services.CreateAsyncScope();

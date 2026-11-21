@@ -1,3 +1,4 @@
+using LotroKoniecDev.AuthSystem.API.Features.Admin;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
 using LotroKoniecDev.AuthSystem.API.Features.Discovery;
 using LotroKoniecDev.AuthSystem.Contracts.Hateoas;
@@ -29,6 +30,12 @@ internal sealed class DiscoveryLinkFactory : IDiscoveryLinkFactory
             links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: nameof(ExportAccountData),
                 rel: Rels.ExportAccountData,
+                method: HttpMethods.Get));
+
+            // Only the admin gets it: the link factory replays the endpoint's admin policy (ADR-0040).
+            links.AddIfPresent(await _linkFactory.CreateAsync(
+                endpoint: nameof(ListAccounts),
+                rel: Rels.Accounts,
                 method: HttpMethods.Get));
         }
         else

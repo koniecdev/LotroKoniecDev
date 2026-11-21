@@ -30,4 +30,18 @@ public static class Rels
     /// always reads it fresh.
     /// </summary>
     public const string DownloadAccountData = "download-account-data";
+
+    /// <summary>
+    /// The admin's list of accounts (#1488). The auth root offers it only to the admin, because the link
+    /// factory replays the endpoint's policy (ADR-0040).
+    /// </summary>
+    public const string Accounts = "accounts";
+
+    // Account administration actions, on each account in that list
+    public const string GrantReviewer = "grant-reviewer";
+    public const string RemoveReviewer = "remove-reviewer";
+
+    // Collection / pagination navigation
+    public const string PreviousPage = "previous-page";
+    public const string NextPage = "next-page";
 }

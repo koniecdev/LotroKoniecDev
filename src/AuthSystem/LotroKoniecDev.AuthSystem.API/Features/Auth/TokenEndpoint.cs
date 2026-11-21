@@ -76,10 +76,8 @@ internal sealed partial class TokenEndpoint : IEndpoint
         AuthenticateResult result = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
-        ApplicationUser? user = await FindUserStillAllowedAsync(
-            result.Principal, TokenGrantName.CodeExchange, userManager, signInManager, logger);
-
-        if (user is null)
+        if (await FindUserStillAllowedAsync(
+                result.Principal, TokenGrantName.CodeExchange, userManager, signInManager, logger) is null)
         {
             return Refuse(AuthorizationCodeNoLongerValid);
         }
@@ -150,22 +148,19 @@ internal sealed partial class TokenEndpoint : IEndpoint
         AuthenticateResult authenticateResult = await httpContext.AuthenticateAsync(
             OpenIddictServerAspNetCoreDefaults.AuthenticationScheme);
 
-        ApplicationUser? user = await FindUserStillAllowedAsync(
-            authenticateResult.Principal, TokenGrantName.Refresh, userManager, signInManager, logger);
-
-        if (user is null)
+        if (await FindUserStillAllowedAsync(
+                authenticateResult.Principal, TokenGrantName.Refresh, userManager, signInManager, logger)
+            is not { } allowed)
         {
             return Refuse(RefreshTokenNoLongerValid);
         }
 
         ClaimsIdentity identity = (ClaimsIdentity)authenticateResult.Principal!.Identity!;
 
-        identity.SetClaim(Claims.Subject, user.Id.ToString());
-        identity.SetClaim(Claims.Email, user.Email);
-        identity.SetClaim(Claims.Name, user.UserName);
-
-        IList<string> roles = await userManager.GetRolesAsync(user);
-        identity.SetClaims(Claims.Role, [.. roles]);
+        identity.SetClaim(Claims.Subject, allowed.User.Id.ToString());
+        identity.SetClaim(Claims.Email, allowed.User.Email);
+        identity.SetClaim(Claims.Name, allowed.User.UserName);
+        identity.SetClaims(Claims.Role, [.. allowed.Roles]);
 
         // Set again, not kept from the refresh token. UserTokenAudiences says why.
         identity.SetResources(UserTokenAudiences.All);
@@ -182,7 +177,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
     /// token was issued. Null means refused. The client gets the same answer for every case; only the
     /// log line names it (#944, #977).
     /// </summary>
-    private static async Task<ApplicationUser?> FindUserStillAllowedAsync(
+    private static async Task<(ApplicationUser User, IList<string> Roles)?> FindUserStillAllowedAsync(
         ClaimsPrincipal? principal,
         TokenGrantName grant,
         UserManager<ApplicationUser> userManager,
@@ -225,7 +220,16 @@ internal sealed partial class TokenEndpoint : IEndpoint
             return null;
         }
 
-        return user;
+        // A role change revokes the sessions, but only as best effort, and the website keeps the roles it
+        // signed in with. So a token issued with other roles ends the session instead (#1488).
+        IList<string> roles = await userManager.GetRolesAsync(user);
+        if (!principal.GetClaims(Claims.Role).ToHashSet(StringComparer.Ordinal).SetEquals(roles))
+        {
+            LogRefusedRolesChanged(logger, grant.Step, userId);
+            return null;
+        }
+
+        return (user, roles);
     }
 
     private static IResult HandleClientCredentialsGrant(OpenIddictRequest request)
@@ -314,4 +318,7 @@ internal sealed partial class TokenEndpoint : IEndpoint
 
     [LoggerMessage(EventId = EventIds.TokenGrantRefusedStaleSecurityStamp, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the security stamp in the token is not current")]
     private static partial void LogRefusedStaleSecurityStamp(ILogger logger, string step, string userId);
+
+    [LoggerMessage(EventId = EventIds.TokenGrantRefusedRolesChanged, Level = LogLevel.Information, Message = "{Step} refused for user {UserId}: the roles in the token are not the account's current roles")]
+    private static partial void LogRefusedRolesChanged(ILogger logger, string step, string userId);
 }

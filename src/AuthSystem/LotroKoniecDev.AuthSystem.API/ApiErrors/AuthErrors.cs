@@ -30,6 +30,21 @@ internal static class AuthErrors
             "User not found.",
             TypeOfError.NotFound);
 
+    public static Error AccountListPageInvalid =>
+        new("Auth.AccountListPageInvalid",
+            "The page number must be 1 or more.",
+            TypeOfError.Validation);
+
+    public static Error ReviewerRoleNotAllowed =>
+        new("Auth.ReviewerRoleNotAllowed",
+            "The Reviewer role can be given only to a translator account that is not an admin and has no deletion scheduled.",
+            TypeOfError.DataConflict);
+
+    public static Error ReviewerRoleChangeFailed =>
+        new("Auth.ReviewerRoleChangeFailed",
+            "The Reviewer role could not be changed. Try again.",
+            TypeOfError.Failure);
+
     public static Error InvalidPasswordResetToken =>
         new("Auth.InvalidPasswordResetToken",
             "The password reset token is invalid or has expired.",

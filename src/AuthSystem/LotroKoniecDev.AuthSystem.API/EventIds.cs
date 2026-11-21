@@ -141,6 +141,7 @@ internal static class EventIds
     public const int TokenGrantRefusedTokenExpired = 2395;
     public const int TokenGrantRefusedByOpenIddict = 2396;
     public const int TokenGrantRefusalUserLookupFailed = 2397;
+    public const int TokenGrantRefusedRolesChanged = 2398;
 
     // Change E-mail request / confirm / revert (2500-2519). 2502 and 2507 are retired: the dispatch logs
     // 2525 and 2526 instead (#860).
@@ -232,4 +233,10 @@ internal static class EventIds
     public const int RegistrationAttemptedNoticeAccountErased = 2771;
     public const int RegistrationAttemptedNoticeAddressMissing = 2772;
     public const int RegistrationAttemptedNoticeAddressMovedOn = 2773;
+
+    // Reviewer role given or taken away by the admin (2790-2799, #1488). 2780-2789 is reserved for the
+    // security event trail (#695).
+    public const int ReviewerRoleGranted = 2790;
+    public const int ReviewerRoleRemoved = 2791;
+    public const int ReviewerRoleChangeFailed = 2792;
 }

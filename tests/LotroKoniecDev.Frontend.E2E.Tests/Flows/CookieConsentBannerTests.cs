@@ -184,8 +184,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// The reporter's screen size. Below 640px the bar is at its tallest. Real iOS Safari is covered by
-    /// the manual retest on staging.
+    /// The reporter's screen size. Below 640px the bar is at its tallest. These tests run in Chromium only.
     /// </summary>
     private async Task<IBrowserContext> NewPhoneContextAsync()
     {

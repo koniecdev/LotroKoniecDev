@@ -7,7 +7,8 @@
 
 @* The notice only informs, because every cookie we set is strictly necessary. So it shows once: the page
    that shows it also sets the cookie, and the browser closes it with no request, so nothing typed or ticked
-   on the page is lost (#1339). A cookie that needs consent would break this. *@
+   on the page is lost (#1339). A cookie that needs consent would break this. A browser older than
+   <dialog> (Safari 15.4, Firefox 98) sends the form as a GET and reloads the page once. *@
 @if (_shown)
 {
     <dialog class="cookie-bar" open aria-label="Informacja o plikach cookie">
@@ -38,11 +39,11 @@
     private string PrivacyPolicyCookiesUrl =>
         $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy#cookies";
 
-    // It runs in the layout's first render pass, before a streamed page writes its first byte.
     protected override void OnInitialized()
     {
         HttpContext? httpContext = HttpContextAccessor.HttpContext;
         _shown = !CookieConsentCookie.WasShown(httpContext?.Request.Cookies[CookieConsentCookie.Name]);
+        // The layout renders this before a streamed page writes its first byte, so the header still fits.
         if (!_shown || httpContext is null || httpContext.Response.HasStarted)
         {
             return;

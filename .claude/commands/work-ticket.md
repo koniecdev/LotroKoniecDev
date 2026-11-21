@@ -238,15 +238,16 @@ everything that matters must be committed and pushed.
   change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
 - **Your clock.** The loop stops this run after `LOOP_TICKET_TIMEOUT_MIN` minutes, counted from
-  the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN`. When the variable is unset it prints
-  nothing and exits 1, and the clock is the engine's default of 240; a refused command or any other
-  error means you do not know your clock. Run `date` as your first command, so you know when you started. After a resume,
-  run `date` again: the prompt's `minutes_left` counts from that moment. Never take the number from
-  memory, a document or an earlier run: the line `/backlog` prints starts runs with 360
-  (`docs/claude-loop.md` → "A longer ticket clock"). End a run `BLOCKED` for lack of time
-  (`CATEGORY: out-of-time`) only when you know the minutes left (the clock minus the time since your
-  start, or `minutes_left` minus the time since the resume) and the step that is left cannot fit
-  (#1501).
+  the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN`. When the variable is unset it
+  prints nothing and exits 1, and the clock is the engine's default of 240; a refused command or any
+  other error means you do not know your clock. Run `date` as your first command, so you know when
+  you started. After a resume, run `date` again: its `minutes_left` counts from that moment.
+  Never take the number from memory, a document or an earlier run: the line `/backlog` prints starts
+  runs with 360 (`docs/claude-loop.md` → "A longer ticket clock"). End a run `BLOCKED` for lack of
+  time (`CATEGORY: out-of-time`) only when you know the minutes left (before any resume: the clock
+  minus the time since your start; after a resume: `minutes_left` minus the time since that resume)
+  and the step that is left cannot fit. Its `QUESTIONS` name the step that was left, the minutes it
+  needs, the branch and the commits not pushed yet (#1501).
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 

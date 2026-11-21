@@ -2,21 +2,25 @@
 
 - **Status:** Agreed (2026-11-13; every owner question answered)
 - **Date:** 2026-11-12, updated 2026-11-13 (owner decisions in #1345, #1368, #1369, #1372, #1373,
-  the domain model, and the owner's answers to Q1–Q9)
+  the domain model, and the owner's answers to Q1–Q9) and 2026-11-21 (#1494: the decisions made
+  after 13 November, see "Changes of 2026-11-21")
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
-  reason) and the review points of #1332. Implementation tickets: #1384 (every save is a proposal)
-  first. Once #1384 runs on prod: #1388 (its contract step) and #1386 (the wiki's "coming" mark).
-  After #1388: #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw).
-  #1368 (the Reviewer's right to approve, the author rule) after #50 and #1345. The Reviewer role
-  itself, the admin page that gives it, and its limits come earlier, in #1488, which needs nothing
-  from this spec (owner decision of 2026-11-21: #1368 split).
+  reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks)
+  lands first, then #1384 (every save is a proposal). Once #1384 runs on prod: #1388 (its contract
+  step) and #1386 (the wiki's "coming" mark). After #1388: #50 (history and restore), #1345
+  (rejection with a reason) and #1385 (withdraw), and later #1497 (it removes the deploy-window
+  stamp). #1368 (the Reviewer's right to approve, reject and restore, and the author rule) after
+  #50 and #1345. The Reviewer role itself, the admin page that gives it, and its limits come
+  earlier, in #1488, which needs nothing from this spec (owner decision of 2026-11-21: #1368 is
+  split).
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
-  (authorization-aware links), ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0023
-  (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one hijacked translator
-  account), #1368 (Reviewer role, nobody approves their own text), #1369 (glossary), #1372
-  (pattern saves), #1373 (AI draft uploads), wiki `Wersje-systemu` (1.0 criterion 4),
-  `Mechanizm-diff` and `Import-do-TMS`. ADR-0073 records the domain model.
+  (authorization-aware links), ADR-0043 (text length), ADR-0047 (source digest), ADR-0065 (account
+  erasure), ADR-0023 (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one
+  hijacked translator account), #1488 (the Reviewer role and its limits), #1368 (the Reviewer's
+  right to approve; nobody approves their own text), #1476 (trailing line breaks), #1421 and #1422
+  ("Nie do tłumaczenia"), #1369 (glossary), #1372 (pattern saves), #1373 (AI draft uploads), wiki
+  `Wersje-systemu`, `Mechanizm-diff` and `Import-do-TMS`. ADR-0073 records the domain model.
 
 ## Business context
 
@@ -36,7 +40,9 @@ texts out of the game just by editing them (#687).
 On 2026-11-13 the owner decided more of the flow:
 
 - Approval is no longer admin-only. A new Reviewer role ("Recenzent"), granted by the admin,
-  approves texts, and nobody approves their own text, the admin included (#1368).
+  approves texts, and nobody approves their own text, the admin included (#1368). On 2026-11-21
+  the owner split this in two: #1488 brings the role and its limits first, and #1368 later gives
+  the role the right to approve, reject and restore.
 - The same people send a text back, always with a reason, and never their own text (#1345).
 - Proposals will also come in bulk: one pattern save fills a whole group of rows (#1372), and the
   admin uploads AI drafts (#1373). Both must show in the history where a text came from.
@@ -111,9 +117,10 @@ back.
 ## Business rules & edge cases
 
 - **A save never changes what players get (Q1).** Only an approve does: of a new proposal, of an
-  older one (restore), or of the live text again after the English changed. This reverses the
-  wiki rule in `Mechanizm-diff` ("Kiedy tłumacz zapisze poprawkę, wiersz wraca do statusu Wersja
-  robocza"). The wiki already says the new rule, marked as coming with #1384 (wiki-first rule).
+  older one (restore), or of the live text again after the English changed. This is criterion 2 of
+  1.0 in the wiki (`Wersje-systemu`: "Zapis tworzy propozycję"). It reverses the old wiki rule in
+  `Mechanizm-diff` ("Kiedy tłumacz zapisze poprawkę, wiersz wraca do statusu Wersja robocza"). The
+  wiki already says the new rule, marked as coming with #1384 (wiki-first rule).
 - **Approve and reject name the proposal.** The request carries the proposal id the reviewer saw.
   Reject takes only the waiting proposal. Approve takes the waiting proposal, an approved proposal
   other than the live one (restore), or the live one of a row in "Do ponownego sprawdzenia"
@@ -171,6 +178,10 @@ back.
   - A reviewer does what a translator does, approves or rejects other people's proposals, and
     restores older versions.
   - The admin does what a reviewer does, and grants or removes the Reviewer role (#1488).
+  - **Until #1368, only the admin approves, rejects and restores,** although the Reviewer role
+    exists from #1488. #1488 gives the role only higher limits: 300 requests a minute, counted per
+    account, and no daily save limit (ADR-0072). #1368 changes the approve, reject and restore
+    policy from Admin to Reviewer or Admin.
   - Nobody approves or rejects their own text that has never been live (the exception for a text
     that was live is above).
   - Owner principle (2026-11-13), the reason reviewers restore too: the admin is never the only
@@ -193,13 +204,13 @@ back.
   rebuild. Response: `TranslationDetailResponse` with the live text and the waiting proposal.
 - **Approve:** `POST /api/v1/translations/{id}/approve`, body `{ proposalId }`
   (`ApproveTranslation.Command(TranslationId, TranslationProposalId)`, rel `approve`, Reviewer or
-  Admin). The id names the waiting proposal, an approved proposal other than the live one (restore),
+  Admin; Admin only until #1368). The id names the waiting proposal, an approved proposal other than the live one (restore),
   or the live one of a row in "Do ponownego sprawdzenia" (approve again). 204; 403 for a plain
   translator; 403 with the error code `TranslationProposal.OwnProposal` when the caller wrote the
   waiting proposal; 409 for any other id, a proposal of another row included; 404 for an unknown
   translation and 422 for a removed row, as today.
 - **Reject (new):** `POST /api/v1/translations/{id}/reject`, body `{ proposalId, reason }`
-  (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin, never the proposal's
+  (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin (Admin only until #1368), never the proposal's
   author). 204; 400 for an empty reason or one over 1000 characters; 403 for a plain translator;
   403 with `TranslationProposal.OwnProposal` when the caller wrote the proposal; 409 when the
   proposal is not the one waiting; 422 for a removed row. #1345 adds that error code, and #1368,
@@ -339,8 +350,8 @@ All answers below are the owner's, given on 2026-11-13.
 - **Q3. How the translator learns about a rejection.** In the app only: the editor and the
   "rejected" filter. No e-mail for now.
 - **Q4. What "Zatwierdzone" means.** Option (A): reviewed by a reviewer or the admin who is not the
-  author, as the wiki says (`Wersje-systemu`, criterion 4). No "Sprawdzone w grze" mark and no
-  preview file.
+  author, as the wiki says (`Wersje-systemu`, the point "Tekst zatwierdza ktoś inny niż jego autor"
+  under "Wersje 1.x"). No "Sprawdzone w grze" mark and no preview file.
 - **Q5. Who sees the history.** Every translator sees the history of every row.
 - **Q7. Withdraw.** Yes. The author may withdraw their own waiting proposal, for example after a
   save by mistake. The proposal gets the outcome "withdrawn", and `WaitingProposalId` is cleared.
@@ -348,7 +359,8 @@ All answers below are the owner's, given on 2026-11-13.
 - **Q9 (a). Who may restore.** Reviewers and the admin, not only the admin. The reason is the
   owner's principle: the admin is never the only person who can do a routine step.
 - **Who may reject.** A reviewer or the admin, never the author of the text (owner decision in
-  #1345, 2026-11-13; wiki `Wersje-systemu`, criterion 4).
+  #1345, 2026-11-13; wiki `Wersje-systemu`, the point "Tekst zatwierdza ktoś inny niż jego autor"
+  under "Wersje 1.x").
 - **Is the reason required.** Yes: a send-back needs a reason (#1345; the wiki: "odsyła je z
   powodem").
 - **Does every approve and rejection go into the history.** Yes (#1345).
@@ -374,12 +386,14 @@ All answers below are the owner's, given on 2026-11-13.
 ## Assumptions
 
 - One language (Polish) and three roles (Translator, Reviewer, Admin). #1488 adds the Reviewer
-  role; it may approve from #1368 on.
-- #1368 depends on #50, which this spec covers: the owner wants the history before more people can
-  approve. So the first implementation tickets may land while only the admin approves. The rules
-  are written for three roles; each ticket applies the roles that exist when it lands.
-- Proposal rows are small (most texts are short). The growth per 1000 saves is measured once during
-  implementation and written down (#50 task).
+  role; a reviewer may approve, reject and restore from #1368 on.
+- #1368 depends on #50 and #1345, which this spec covers: the owner wants the history before more
+  people can approve. So the first implementation tickets land while only the admin approves,
+  rejects and restores, although the Reviewer role exists from #1488. The rules are written for
+  three roles; #1368 changes the policy from Admin to Reviewer or Admin.
+- Proposal rows are small (most texts are short). The growth per 1000 saves is measured once in
+  #1384 and written down there.
+- The column names in "The deploy window" are suggestions. #1384 may rename them; the rules stay.
 - The wiki is updated with the verdicts before any code (wiki-first rule), starting with the
   `Mechanizm-diff` rule that Q1 flips. Until that change reaches prod, the wiki marks the new rule
   as coming with the ticket that ships it. ADR-0073 records the model.

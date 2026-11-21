@@ -238,12 +238,15 @@ everything that matters must be committed and pushed.
   change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
 - **Your clock.** The loop stops this run after `LOOP_TICKET_TIMEOUT_MIN` minutes, counted from
-  the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN` (empty means 240), and run `date`
-  as your first command so you know when you started. After a resume, the prompt's `minutes_left`
-  is what is left. Never take the number from memory, a document or an earlier run: the line
-  `/backlog` prints starts runs with 360 (`docs/claude-loop.md` → "A longer ticket clock"). End a
-  run `BLOCKED` for lack of time only after you have worked out the minutes left (the clock minus
-  the time since your start, or `minutes_left`) and the step that is left cannot fit (#1501).
+  the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN`. No output means the variable is
+  unset, so the clock is the engine's default of 240; a refused or failed command means you do not
+  know your clock. Run `date` as your first command, so you know when you started. After a resume,
+  run `date` again: the prompt's `minutes_left` counts from that moment. Never take the number from
+  memory, a document or an earlier run: the line `/backlog` prints starts runs with 360
+  (`docs/claude-loop.md` → "A longer ticket clock"). End a run `BLOCKED` for lack of time
+  (`CATEGORY: out-of-time`) only when you know the minutes left (the clock minus the time since your
+  start, or `minutes_left` minus the time since the resume) and the step that is left cannot fit
+  (#1501).
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 
@@ -257,6 +260,7 @@ The loop may resume this session with a prompt of one line of facts, such as
 - Background runs are off. If you were waiting for something (the test suite, a CodeQL check),
   run it again now in the foreground, with a Bash timeout long enough for it and at most
   `bash_max_timeout_ms` ms.
+- Run `date` first: `minutes_left` counts from now ("Your clock" under "Scope & safety").
 - The loop stops this session in about `minutes_left` minutes. Finish the steps that are still
   open (commit, push, step 9 on the body file, the PR, CodeQL) and end with the `STATUS: DONE` or
   `STATUS: BLOCKED` block below, with nothing after it. A resume changes no rule: you still never
@@ -296,7 +300,7 @@ LESSONS: <one line, or "none">
 
 ```
 STATUS: BLOCKED
-CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | pr-closed | pr-state-unknown
+CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | out-of-time | pr-closed | pr-state-unknown
 QUESTIONS:
 - <the exact 3-5 questions or the specific blocker the user must resolve>
 ```

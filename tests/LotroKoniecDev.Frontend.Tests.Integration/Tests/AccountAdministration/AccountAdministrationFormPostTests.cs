@@ -1,10 +1,13 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Admin;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.TranslationSystem.Contracts.Discovery;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,6 +27,7 @@ public sealed class AccountAdministrationFormPostTests : IClassFixture<Productio
     private const string AuthOrigin = "https://auth.staging.invalid";
     private const string RowId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
     private const string PagePath = "/admin/accounts";
+    private const string GrantedMessage = "Nadano rolę Recenzent.";
 
     private readonly ProductionFrontendFactory _factory;
 
@@ -86,6 +90,48 @@ public sealed class AccountAdministrationFormPostTests : IClassFixture<Productio
         authSystem.Writes.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Post_AStaleFormToTheAddressTheRedirectLeft_ShowsNoOldMessageAndWritesNothing()
+    {
+        // Arrange: after a change every row form posts to the flagged address, so a second click of a
+        // double click lands there. Only a GET shows the message.
+        StatefulAuthSystem authSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"remove-reviewer-{RowId}", antiforgeryToken, $"{PagePath}?changed=granted"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("<h1>Konta i role</h1>");
+        page.ShouldNotContain(GrantedMessage);
+        authSystem.Writes.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Post_AGrantTheApiRefusesWhileTheFreshListNoLongerDrawsTheForm_ShowsTheProblemAndTheList()
+    {
+        // Arrange: the account changed between the list read and the write, so the posted form is gone
+        // and only the hidden target can take the post.
+        StatefulAuthSystem authSystem = new() { RefuseAfterApplying = true };
+        using WebApplicationFactory<Program> host = CreateHost(authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FormPost($"grant-reviewer-{RowId}", antiforgeryToken));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("status-error");
+        page.ShouldContain("Odbierz rolę Recenzent");
+    }
+
     public AccountAdministrationFormPostTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
@@ -103,8 +149,8 @@ public sealed class AccountAdministrationFormPostTests : IClassFixture<Productio
                 .ConfigurePrimaryHttpMessageHandler(() => authSystem);
         }));
 
-    private static HttpRequestMessage FormPost(string formName, string antiforgeryToken) =>
-        new(HttpMethod.Post, PagePath)
+    private static HttpRequestMessage FormPost(string formName, string antiforgeryToken, string pathAndQuery = PagePath) =>
+        new(HttpMethod.Post, pathAndQuery)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
@@ -140,6 +186,9 @@ public sealed class AccountAdministrationFormPostTests : IClassFixture<Productio
 
         public bool RowListed { get; init; } = true;
 
+        /// <summary>The write lands, then the answer is a 422, as when the account changed meanwhile.</summary>
+        public bool RefuseAfterApplying { get; init; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -170,7 +219,22 @@ public sealed class AccountAdministrationFormPostTests : IClassFixture<Productio
         {
             Interlocked.Increment(ref _writes);
             _isReviewer = isReviewer;
-            return new HttpResponseMessage(HttpStatusCode.NoContent);
+            return RefuseAfterApplying ? Refusal() : new HttpResponseMessage(HttpStatusCode.NoContent);
+        }
+
+        private static HttpResponseMessage Refusal()
+        {
+            ProblemDetails problem = new()
+            {
+                Status = (int)HttpStatusCode.UnprocessableEntity,
+                Title = "Data Conflict",
+                Detail = "The Reviewer role can be given only to a translator account."
+            };
+            problem.Extensions["errorCode"] = "Auth.ReviewerRoleNotAllowed";
+            return new HttpResponseMessage(HttpStatusCode.UnprocessableEntity)
+            {
+                Content = JsonContent.Create(problem, mediaType: new MediaTypeHeaderValue("application/problem+json"))
+            };
         }
 
         private AccountListResponse ListResponse()

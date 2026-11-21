@@ -106,7 +106,10 @@ Owner rules are above. These are the session's own calls, written down so the ow
   caller as before with 100. `UpsertTranslation` spends the save budget only when
   `ICurrentUserAccessor.HasDailySaveBudget()` is true (neither `Admin` nor `Reviewer`).
 - **Website:** `/admin/accounts`, Static SSR, Polish labels, one form per row that follows the row's
-  link with PUT or DELETE, `PostedFormTarget` in the load-failure branch (#1122).
+  link with PUT or DELETE. A successful change redirects to the same page with `changed=granted` or
+  `changed=removed`, and only that GET shows the message. `PostedFormTarget` sits in the load-failure
+  branch and, for the page's own forms the fresh list no longer draws, in the loaded branch too, so a
+  second click or a stale tab shows the list instead of a blank 400 (#1122).
 
 ## Acceptance criteria
 

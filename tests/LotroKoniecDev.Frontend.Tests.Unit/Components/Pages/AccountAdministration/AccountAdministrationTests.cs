@@ -151,6 +151,25 @@ public sealed class AccountAdministrationTests : BunitContext
     }
 
     [Fact]
+    public async Task Grant_OnALaterPage_RedirectsBackToThatPageWithTheGrantedFlag()
+    {
+        // Arrange
+        AccountListResponse secondPage = Page(Account("frodo", [AuthConstants.Roles.Translator], new LinkDto(GrantHref, Rels.GrantReviewer, "PUT")));
+        StubDiscovery();
+        _client.GetApiResultAsync<AccountListResponse>($"{AccountsHref}?page=2", Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(secondPage));
+        _client.PutApiResultAsync(GrantHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
+        Navigation().NavigateTo("/admin/accounts?page=2");
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Act
+        await component.Find("table.data-table form").SubmitAsync();
+
+        // Assert
+        Navigation().Uri.ShouldEndWith("/admin/accounts?page=2&changed=granted");
+    }
+
+    [Fact]
     public async Task Grant_WhenTheApiRefuses_ShowsTheProblemAndKeepsTheListAndTheAddress()
     {
         // Arrange
@@ -183,6 +202,20 @@ public sealed class AccountAdministrationTests : BunitContext
 
         // Assert
         component.Find(".status-message.status-success").TextContent.ShouldContain(expected);
+    }
+
+    [Fact]
+    public void Render_WithAChangedValueThePageDoesNotKnow_ShowsNoMessage()
+    {
+        // Arrange
+        StubAccounts(Page(Account("frodo", AuthConstants.Roles.Translator)));
+        Navigation().NavigateTo("/admin/accounts?changed=zzz");
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert
+        component.FindAll(".status-message.status-success").ShouldBeEmpty();
     }
 
     [Theory]

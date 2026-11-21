@@ -2,7 +2,9 @@
 
 @* Blazor sends a post only to a form that is on the rendered page, and otherwise answers 400 with a blank
    page (#1122). A page that draws its form only when its data loaded puts this in its load-failure
-   branch, so the post still finds a form and the page shows its own load error. *@
+   branch, so the post still finds a form and the page shows its own load error. A page whose row
+   forms change after a post also puts it in its loaded branch for the forms it no longer draws
+   (#1488). *@
 @if (_formName is not null)
 {
     <form method="post" @formname="@_formName" @onsubmit="IgnoreSubmit" hidden></form>

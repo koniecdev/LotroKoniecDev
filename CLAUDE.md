@@ -450,7 +450,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `pr-verify` and `ci`, and its self-test proves the guard still fires; smoke leg 2 fails if a
   deployed page serves an inline script its own CSP blocks. Real interactivity or an inline script
   is an ADR-first architecture change. A page that draws a named form only after its data loaded
-  puts `<PostedFormTarget>` in its load-failure branch (#1122).
+  puts `<PostedFormTarget>` in its load-failure branch (#1122). A page whose row forms change after a
+  post (the admin's account list, #1488) also redirects after a success, and puts it in its loaded
+  branch for its own forms the fresh list no longer draws, so a second click shows the list.
 - **Never touch the request inside a `HybridCache` factory (#825).** For a token that can be
   cancelled, `HybridCache` runs the factory on the thread pool without the request's context, so
   `IHttpContextAccessor.HttpContext` is `null` there: a typed client sends no bearer and no caller

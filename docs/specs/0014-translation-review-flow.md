@@ -6,21 +6,22 @@
   after 13 November, see "Changes of 2026-11-21")
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
-  reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks)
-  lands first, then #1384 (every save is a proposal). Once #1384 runs on prod: #1388 (its contract
-  step) and #1386 (the wiki's "coming" mark). After #1388: #50 (history and restore), #1345
-  (rejection with a reason) and #1385 (withdraw), and later #1497 (it removes the deploy-window
-  stamp). #1368 (the Reviewer's right to approve, reject and restore, and the author rule) after
-  #50 and #1345. The Reviewer role itself, the admin page that gives it, and its limits come
-  earlier, in #1488, which needs nothing from this spec (owner decision of 2026-11-21: #1368 is
+  reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks) lands
+  first, then #1384 (every save is a proposal). Once #1384 runs on prod: #1388 (it reconciles the
+  rows of the deploy window) and #1386 (the wiki's "coming" mark). After #1388: #50 (history and
+  restore), #1345 (rejection with a reason) and #1385 (withdraw), and later #1497 (it removes the
+  deploy-window stamp). #1368 (the Reviewer's right to approve, reject and restore, and the author
+  rule) after #50 and #1345. The Reviewer role itself, the admin page that gives it, and its limits
+  come earlier, in #1488, which needs nothing from this spec (owner decision of 2026-11-21: #1368 is
   split).
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
   (authorization-aware links), ADR-0043 (text length), ADR-0047 (source digest), ADR-0065 (account
   erasure), ADR-0023 (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one
   hijacked translator account), #1488 (the Reviewer role and its limits), #1368 (the Reviewer's
   right to approve; nobody approves their own text), #1476 (trailing line breaks), #1421 and #1422
-  ("Nie do tłumaczenia"), #1369 (glossary), #1372 (pattern saves), #1373 (AI draft uploads), wiki
-  `Wersje-systemu`, `Mechanizm-diff` and `Import-do-TMS`. ADR-0073 records the domain model.
+  ("Nie do tłumaczenia"), #1369 (glossary), #1372 (pattern saves), #1373 (AI draft uploads), #378
+  (copies of an identical text), wiki `Wersje-systemu`, `Mechanizm-diff` and `Import-do-TMS`.
+  ADR-0073 records the domain model.
 
 ## Business context
 
@@ -84,7 +85,9 @@ back.
   approve does today). It skips a waiting proposal the caller wrote and counts it in its summary
   (#1368).
 - **Proposals in bulk.** A pattern save (#1372) and an AI upload (#1373) add one proposal per row,
-  each marked with its origin and the save or upload it came from.
+  each marked with its origin and the save or upload it came from. A copy of an identical long text
+  (#378, owner decision of 2026-11-13) is a proposal too, marked as a copy, with a link to the
+  proposal it copies.
 - **List and counters.** New labels and filters for "waiting for review", "change waiting" (live
   text plus a newer proposal) and "rejected". A row with no live text whose last proposal was
   rejected shows "Odrzucone" until the next save (Q8). Editing an approved text no longer lowers
@@ -160,12 +163,13 @@ back.
   - a withdraw, when the named proposal is already withdrawn;
   - bulk approve skips such an item and counts it, as it skips any other.
 
-  A retried save adds a second proposal with the same text, which replaces the first one. This
-  cost is accepted, as ADR-0072 accepts the retried save, and every save is a proposal (wiki
-  `Mechanizm-diff`). Everything else stays a 409. These rules cover an answer lost after the
-  request committed. A retry that overlaps an attempt still running can still get a 409 from the
-  row's `xmin`, because a timed-out attempt may still be served; the editor shows the conflict, and
-  the reload shows the real state.
+  A retried save adds a second proposal with the same text, which replaces the first one. This cost
+  is accepted, as ADR-0072 accepts the retried save, and every save is a proposal (wiki
+  `Mechanizm-diff`). Everything else stays a 409. On a row out of step ("The deploy window") the
+  freeze is tested first, so a repeat there also gets the 409. These rules cover an answer lost
+  after the request committed. A retry that overlaps an attempt still running can still get a 409
+  from the row's `xmin`, because a timed-out attempt may still be served; the editor shows the
+  conflict, and the reload shows the real state.
 - **The English changes (import, spec 0001).** Unchanged rule: the row becomes "Do ponownego
   sprawdzenia" and its live text leaves `polish.txt` (ADR-0047). A waiting proposal stays waiting.
   A reviewer or the admin can approve the waiting proposal, or approve the live text again ("the
@@ -294,12 +298,12 @@ back.
   counts rows, so the sum still holds.
 - **Domain (owner decision, 2026-11-13): `TranslationProposal` is its own aggregate root, not a
   child of `Translation`.** ADR-0073 records it.
-  - `TranslationProposal`: text, author, created at, origin (a person's save, a pattern save, an
-    AI draft, the backfill, a restore, an approval again after an English change) with a link to
-    the pattern save (#1372), the AI upload (#1373) or the proposal it copies (a restore, an
-    approval again) where there is one, outcome, decided by, decided at, rejection reason.
-    Proposals are only appended: the text never changes, and the outcome is set once (waiting →
-    approved, rejected, replaced or withdrawn).
+  - `TranslationProposal`: text, author, created at, origin (a person's save, a pattern save, an AI
+    draft, a copy of an identical text, the backfill, a restore, an approval again after an English
+    change) with a link to the pattern save (#1372), the AI upload (#1373) or the proposal it copies
+    (a copy of an identical text #378, a restore, an approval again) where there is one, outcome,
+    decided by, decided at, rejection reason. Proposals are only appended: the text never changes,
+    and the outcome is set once (waiting → approved, rejected, replaced or withdrawn).
   - #1384 defines every origin value and every outcome value at once, in the domain enum and in
     the `TranslationSystem.Contracts` enum. EF reads an enum stored as a string and throws on a name
     it does not know, and so does the frontend's JSON reader, so a value added later would break the
@@ -379,8 +383,8 @@ back.
     - The `COPY` of new rows writes NULL stamps. A new row has no Polish, so it is in step.
     - Until #1497 removes the stamp, every write to `Translations` goes through `Translation`,
       whose write methods keep the stamp. A set-based `UPDATE` of `Translations` waits for #1497:
-      #1372 and #1373 depend on it. If #1421 starts after #1384 is merged and before #1497 is
-      closed, it writes its backfill through `Translation` in chunks, or waits for #1497.
+      #1372 and #1373 depend on it. If #1421 or #378 starts after #1384 is merged and before #1497
+      is closed, it writes `Translations` through `Translation` in chunks, or waits for #1497.
   - **Out of step** (one test for the domain, the link factory and #1388): the stamp is set and
     differs from `UpdatedAt`, or the stamp is NULL and `TranslatedText` is not NULL. Both columns
     get their value in one statement, so the test compares stored values. A row with no Polish and
@@ -395,14 +399,14 @@ back.
     proposal that the previous revision saves, approves or imports while it runs, until #1388 is
     deployed and its reconcile has run. An import touches many rows at once. #1384 writes this into
     the runbook: keep a rollback short, and do not import during it unless it cannot wait.
-  - **The contract step (#1388)** reconciles the rows out of step in a background service at API
+  - **The reconcile step (#1388)** reconciles the rows out of step in a background service at API
     start, off the startup path, like `TranslationFileFormatUpgradeService`. It is idempotent. For
     each such row, with `U` = its `UpdatedAt` as read:
-    1. Let `D` be the live proposal, or else the waiting one. If `TranslatedText` is not NULL and
-       there is no `D`, or the text differs from `D`'s, or `SubmittedById` differs from `D`'s
-       author: add a proposal with that text, author `SubmittedById`, created at `U`, origin
-       "backfill" (the time is approximate). A waiting proposal becomes "replaced", and the new one
-       waits.
+    1. Let `D` be the live proposal, or else the waiting one. If `TranslatedText` is not NULL, and
+       one of these holds: there is no `D`, the text differs from `D`'s, or `SubmittedById` differs
+       from `D`'s author, then add a proposal with that text, author `SubmittedById`, created at
+       `U`, origin "backfill" (the time is approximate). A waiting proposal becomes "replaced", and
+       the new one waits.
     2. If the status as read is `Approved`, the first of these that fits applies, decided by
        `ApprovedById` at `U`: the proposal from step 1 is approved at once; or, with no live text,
        the waiting proposal whose text equals `TranslatedText` is approved (the previous revision
@@ -494,16 +498,17 @@ back.
       after a rollback, a write that changes only the status included, takes no save, approve,
       reject or withdraw from the new revision until #1388 has reconciled it (the import still
       writes it), and those links are hidden. The cases: it approves a `Draft` row whose text
-      equals the waiting proposal; it saves the same text on an approved
-      row; it saves the same text on a backfilled "Do ponownego sprawdzenia" row; it approves again
-      a "Do ponownego sprawdzenia" row; it saves on a row with no proposal; its import touches a
-      row with proposals; a write lands while the backfill runs. A row with no Polish and no
+      equals the waiting proposal; it saves the same text on an approved row; it saves the same
+      text on a backfilled "Do ponownego sprawdzenia" row; it approves again a "Do ponownego
+      sprawdzenia" row; it saves on a row with no proposal; its import touches a row with
+      proposals; a write lands while the backfill runs. A row with no Polish and no
       proposal is never frozen, also after the imports of both revisions wrote it.
-- [ ] After #1388, every row with Polish has a proposal for its current text, and a row the
-      previous revision left unpublished is not published. An approved row whose text already
-      matches its live proposal, by the same author, and that was not in "Do ponownego sprawdzenia"
-      at its last stamp, gets no new proposal; an approval again by the previous revision gets its
-      copy. `polish.txt` is byte-identical before and after the reconcile.
+- [ ] After #1388, every row with Polish has a proposal for its current text, and a row the previous
+      revision left unpublished is not published. An approved row whose text already matches its
+      live proposal, by the same author, and that was not in "Do ponownego sprawdzenia" at its last
+      stamp, gets no new proposal; an approval again by the previous revision of a row that was in
+      "Do ponownego sprawdzenia" at its last stamp gets its copy. `polish.txt` is byte-identical
+      before and after the reconcile.
 - [ ] The previous app revision keeps working against the migrated schema (the N-1 proof,
       ADR-0024).
 - [ ] Account erasure leaves proposals in place under "Usunięte konto"; the data export lists the

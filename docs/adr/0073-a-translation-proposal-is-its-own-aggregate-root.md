@@ -9,7 +9,8 @@
 `TranslationSystem.API/Features/Import/ImportExportedTexts.cs`,
 `TranslationSystem.API/Features/Translations/`
 (`UpsertTranslation`, `ApproveTranslation`, `BulkApproveTranslations`);
-tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422;
+tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #378, #1421,
+#1422;
 ADR-0023, ADR-0024, ADR-0040, ADR-0043, ADR-0047, ADR-0065, ADR-0072
 
 ## Context
@@ -41,12 +42,13 @@ Code facts that decide it:
 ### 1. `TranslationProposal` is its own aggregate root
 
 A proposal lives in its own table and has its own repository. It holds: text, author, created at,
-origin (a person's save, a pattern save, an AI draft, the backfill, a restore, an approval again
-after an English change) with a link to the pattern save, the AI upload or the proposal it copies (a
-restore, an approval again) where there is one, outcome, decided by, decided at, and the rejection
-reason. The first implementation ticket defines every origin value and every outcome value at once,
-in the domain and in the contracts: EF and the frontend's JSON reader both fail on an enum name they
-do not know, so a value added later would break the previous revision.
+origin (a person's save, a pattern save, an AI draft, a copy of an identical text, the backfill, a
+restore, an approval again after an English change) with a link to the pattern save, the AI upload
+or the proposal it copies (a copy of an identical text, a restore, an approval again) where there is
+one, outcome, decided by, decided at, and the rejection reason. The first implementation ticket
+defines every origin value and every outcome value at once, in the domain and in the contracts: EF
+and the frontend's JSON reader both fail on an enum name they do not know, so a value added later
+would break the previous revision.
 
 Names in code: the origin is not called "source", because `TranslationSource` and
 `Translation.Source` already mean the English text. The restore step is not called `Restore`,
@@ -115,10 +117,10 @@ The bulk paths of #1372 and #1373 insert proposals as new rows, set-based (`COPY
 `INSERT`, their choice). They never load the history of a row to add to it. They come after #1497,
 so they never write while the deploy-window stamp of spec 0014 exists. Until #1497, every write to
 `Translations` goes through `Translation`, whose write methods keep the stamp, and a set-based
-`UPDATE` of `Translations` waits (#1421 writes its backfill through `Translation` in chunks if it
-runs in that time). In the same transaction the bulk paths set `WaitingProposalId` and mark a
-replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps the
-same rules; the partial unique index is the backstop.
+`UPDATE` of `Translations` waits (#1421 and #378 write `Translations` through `Translation` in
+chunks if they run in that time). In the same transaction the bulk paths set `WaitingProposalId` and
+mark a replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps
+the same rules; the partial unique index is the backstop.
 
 The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
 row's English does not end with a line break, the run of CR and LF at the end goes), before the
@@ -138,13 +140,13 @@ empty and the length check. A set-based path compares each row with that row's o
 
 - Two aggregates change in one transaction (decision 3). This is accepted and must not be "fixed".
 - `TranslatedText` keeps today's meaning for good (the live text, or the waiting text when nothing
-  is live), so the previous app revision can read every row (ADR-0023). The N-1 run of ADR-0024
-  runs the old tests against the new schema, but it cannot see rows the old revision writes during
-  the deploy or after a rollback. Spec 0014 ("The deploy window") gives `Translations` two
-  temporary stamp columns, freezes every row with Polish or a proposal that the old revision
-  wrote, status-only writes included (no save, approve, reject or withdraw; the import still writes
-  it), until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only
-  the first implementation ticket writes in that window, and a set-based writer waits for #1497.
+  is live), so the previous app revision can read every row (ADR-0023). The N-1 run of ADR-0024 runs
+  the old tests against the new schema, but it cannot see rows the old revision writes during the
+  deploy or after a rollback. Spec 0014 ("The deploy window") gives `Translations` two temporary
+  stamp columns, freezes every row with Polish or a proposal that the old revision wrote,
+  status-only writes included (no save, approve, reject or withdraw; the import still writes it),
+  until #1388 reconciles it, and lets #1497 remove the stamp later. Only the first implementation
+  ticket writes in that window, and a set-based writer waits for #1497.
 - A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws while
   it has Polish, until an approval, so stale Polish never returns under changed English (ADR-0047).
   A row that loses its last Polish becomes `Untranslated` (spec 0014).

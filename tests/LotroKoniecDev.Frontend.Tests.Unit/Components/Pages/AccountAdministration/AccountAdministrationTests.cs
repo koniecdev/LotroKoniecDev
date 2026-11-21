@@ -7,6 +7,8 @@ using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
+using Bunit.TestDoubles;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
@@ -16,12 +18,16 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.AccountAdministration;
 
 /// <summary>
-/// Pins what the loader tests cannot reach: each row shows its roles in Polish, and the role forms and
-/// the pager follow the server's links, never a role check (#1488). The real form posts are in
-/// <c>FormPostWhileTheLoadFailsTests</c> and the auth API's endpoint tests.
+/// Pins what the loader tests cannot reach: each row shows its roles in Polish, the role forms and the
+/// pager follow the server's links, never a role check, and a change redirects (#1488). The real form
+/// posts are in <c>AccountAdministrationFormPostTests</c> and <c>FormPostWhileTheLoadFailsTests</c>.
 /// </summary>
 public sealed class AccountAdministrationTests : BunitContext
 {
+    private const string AccountsHref = "https://auth.example/accounts";
+    private const string GrantHref = "https://auth.example/accounts/1/reviewer";
+    private const string RemoveHref = "https://auth.example/accounts/2/reviewer";
+
     private readonly IDiscoveryCache _discoveryCache = Substitute.For<IDiscoveryCache>();
     private readonly IAuthSystemClient _client = Substitute.For<IAuthSystemClient>();
 
@@ -111,6 +117,92 @@ public sealed class AccountAdministrationTests : BunitContext
         component.FindAll("table.data-table").ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task Grant_WhenTheApiAccepts_RedirectsWithTheGrantedFlagFollowingTheRowsHref()
+    {
+        // Arrange: only a PUT to the row's own href is stubbed to succeed, so the redirect proves it.
+        StubAccounts(Page(Account("frodo", [AuthConstants.Roles.Translator], new LinkDto(GrantHref, Rels.GrantReviewer, "PUT"))));
+        _client.PutApiResultAsync(GrantHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Act
+        await component.Find("table.data-table form").SubmitAsync();
+
+        // Assert
+        Navigation().Uri.ShouldEndWith("/admin/accounts?changed=granted");
+    }
+
+    [Fact]
+    public async Task Remove_WhenTheApiAccepts_RedirectsWithTheRemovedFlagFollowingTheRowsHref()
+    {
+        // Arrange
+        StubAccounts(Page(Account(
+            "sam",
+            [AuthConstants.Roles.Reviewer, AuthConstants.Roles.Translator],
+            new LinkDto(RemoveHref, Rels.RemoveReviewer, "DELETE"))));
+        _client.DeleteApiResultAsync(RemoveHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Act
+        await component.Find("table.data-table form").SubmitAsync();
+
+        // Assert
+        Navigation().Uri.ShouldEndWith("/admin/accounts?changed=removed");
+    }
+
+    [Fact]
+    public async Task Grant_WhenTheApiRefuses_ShowsTheProblemAndKeepsTheListAndTheAddress()
+    {
+        // Arrange
+        StubAccounts(Page(Account("frodo", [AuthConstants.Roles.Translator], new LinkDto(GrantHref, Rels.GrantReviewer, "PUT"))));
+        _client.PutApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new() { Title = "Nie można nadać tej roli.", Status = 422 }));
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+        string addressBefore = Navigation().Uri;
+
+        // Act
+        await component.Find("table.data-table form").SubmitAsync();
+
+        // Assert
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Nie można nadać");
+        component.FindAll("table.data-table").ShouldNotBeEmpty();
+        Navigation().Uri.ShouldBe(addressBefore);
+    }
+
+    [Theory]
+    [InlineData("granted", "Nadano rolę Recenzent.")]
+    [InlineData("removed", "Odebrano rolę Recenzent.")]
+    public void Render_AfterTheRedirect_ShowsTheChangesMessage(string changed, string expected)
+    {
+        // Arrange
+        StubAccounts(Page(Account("frodo", AuthConstants.Roles.Translator)));
+        Navigation().NavigateTo($"/admin/accounts?changed={changed}");
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert
+        component.Find(".status-message.status-success").TextContent.ShouldContain(expected);
+    }
+
+    [Theory]
+    [InlineData("abc")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("99999999999")]
+    public void Render_WithAPageThatIsNotAPageNumber_LoadsTheFirstPage(string page)
+    {
+        // Arrange: a value the page cannot read shows the first page instead of failing (#1356).
+        StubAccounts(Page(Account("frodo", AuthConstants.Roles.Translator)));
+        Navigation().NavigateTo($"/admin/accounts?page={page}");
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert: the stub answers only the first page's href, so a row on screen proves it.
+        component.FindAll("[data-testid=account-row]").Count.ShouldBe(1);
+    }
+
     public AccountAdministrationTests()
     {
         Services.AddAntiforgery();
@@ -118,6 +210,9 @@ public sealed class AccountAdministrationTests : BunitContext
         Services.AddSingleton(_client);
         Services.AddScoped<AccountAdministrationLoader>();
     }
+
+    private BunitNavigationManager Navigation() =>
+        (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 
     private static AccountSummaryResponse Account(string username, params string[] roles) =>
         Account(username, roles, links: []);
@@ -132,7 +227,7 @@ public sealed class AccountAdministrationTests : BunitContext
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("https://auth.example/accounts", Rels.Accounts, "GET")]
+            Links = [new LinkDto(AccountsHref, Rels.Accounts, "GET")]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>()).Returns(ApiResult.Success(discovery));
     }
@@ -140,7 +235,7 @@ public sealed class AccountAdministrationTests : BunitContext
     private void StubAccounts(AccountListResponse page)
     {
         StubDiscovery();
-        _client.GetApiResultAsync<AccountListResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountListResponse>(AccountsHref, Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(page));
     }
 }

@@ -239,6 +239,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("/game-versions", "delete-not-a-guid")]
     [InlineData($"/editor/{RowId}", "save-translationx")]
     [InlineData("/account/delete", "change-email")]
+    [InlineData("/admin/accounts", "grant-reviewer-not-a-guid")]
     public async Task Post_NamingAFormThePageNeverHas_WhileTheLoadFails_StillGetsTheBadRequest(
         string path,
         string formName)

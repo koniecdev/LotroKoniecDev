@@ -137,6 +137,9 @@ public sealed class ApiProblemCopyTests
     [InlineData("Auth.DeletionScheduleThrottled", 429, "Usunięcie tego konta zaplanowano ostatnio zbyt wiele razy. Odczekaj godzinę i spróbuj ponownie.")]
     [InlineData("Auth.ReviewerRoleNotAllowed", 422, "Rolę Recenzent można nadać tylko kontu tłumacza, które nie jest kontem administratora i nie czeka na usunięcie.")]
     [InlineData("Auth.ReviewerRoleChangeFailed", 500, "Nie udało się zmienić roli Recenzent. Spróbuj ponownie.")]
+    [InlineData("Auth.AccountListPageInvalid", 400, "Numer strony musi być równy 1 lub większy.")]
+    [InlineData("GrantReviewerRole.Validation", 400, "Nie udało się rozpoznać konta, któremu ma zostać nadana rola.")]
+    [InlineData("RemoveReviewerRole.Validation", 400, "Nie udało się rozpoznać konta, któremu ma zostać odebrana rola.")]
     [InlineData("Validation.FluentValidation", 400, "Formularz zawiera nieprawidłowe dane.")]
     [InlineData("Internal.UnhandledException", 500, "Wystąpił nieoczekiwany błąd serwera. Spróbuj ponownie za chwilę.")]
     public void Describe_WhenTheErrorCodeIsMapped_ShowsThePolishCopy(

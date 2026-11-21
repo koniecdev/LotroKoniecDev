@@ -18,7 +18,7 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.AccountAdministrat
 public sealed class AccountAdministrationLoaderTests
 {
     private const string AdvertisedAccountsHref = "https://auth.example/advertised/accounts";
-    private const string AdvertisedGrantHref = "https://auth.example/advertised/accounts/42/reviewer";
+    private const string AdvertisedReviewerHref = "https://auth.example/advertised/accounts/42/reviewer";
 
     private readonly IDiscoveryCache _discoveryCache = Substitute.For<IDiscoveryCache>();
     private readonly IAuthSystemClient _client = Substitute.For<IAuthSystemClient>();
@@ -26,14 +26,15 @@ public sealed class AccountAdministrationLoaderTests
     [Fact]
     public async Task ListAccountsAsync_OnTheFirstPage_GetsTheAdvertisedHref()
     {
-        // Arrange
+        // Arrange: only the advertised href is stubbed, so a success proves it was followed.
         AccountAdministrationLoader loader = CreateLoader(advertisesAccounts: true);
+        StubListAt(AdvertisedAccountsHref);
 
         // Act
-        await loader.ListAccountsAsync(page: 1);
+        ApiResult<AccountListResponse> result = await loader.ListAccountsAsync(page: 1);
 
         // Assert
-        await _client.Received(1).GetApiResultAsync<AccountListResponse>(AdvertisedAccountsHref, Arg.Any<CancellationToken>());
+        result.IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
@@ -41,13 +42,13 @@ public sealed class AccountAdministrationLoaderTests
     {
         // Arrange
         AccountAdministrationLoader loader = CreateLoader(advertisesAccounts: true);
+        StubListAt($"{AdvertisedAccountsHref}?page=3");
 
         // Act
-        await loader.ListAccountsAsync(page: 3);
+        ApiResult<AccountListResponse> result = await loader.ListAccountsAsync(page: 3);
 
         // Assert
-        await _client.Received(1).GetApiResultAsync<AccountListResponse>(
-            $"{AdvertisedAccountsHref}?page=3", Arg.Any<CancellationToken>());
+        result.IsSuccess.ShouldBeTrue();
     }
 
     [Fact]
@@ -70,10 +71,10 @@ public sealed class AccountAdministrationLoaderTests
     {
         // Arrange
         AccountAdministrationLoader loader = CreateLoader(advertisesAccounts: true);
-        _client.PutApiResultAsync(AdvertisedGrantHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
+        _client.PutApiResultAsync(AdvertisedReviewerHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
 
         // Act
-        ApiResult result = await loader.GrantReviewerAsync(AdvertisedGrantHref);
+        ApiResult result = await loader.GrantReviewerAsync(AdvertisedReviewerHref);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
@@ -84,14 +85,34 @@ public sealed class AccountAdministrationLoaderTests
     {
         // Arrange
         AccountAdministrationLoader loader = CreateLoader(advertisesAccounts: true);
-        _client.DeleteApiResultAsync(AdvertisedGrantHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
+        _client.DeleteApiResultAsync(AdvertisedReviewerHref, Arg.Any<CancellationToken>()).Returns(ApiResult.Success());
 
         // Act
-        ApiResult result = await loader.RemoveReviewerAsync(AdvertisedGrantHref);
+        ApiResult result = await loader.RemoveReviewerAsync(AdvertisedReviewerHref);
 
         // Assert
         result.IsSuccess.ShouldBeTrue();
     }
+
+    [Fact]
+    public async Task ListAccountsAsync_WhenTheDiscoveryCallFails_PassesTheFailureOn()
+    {
+        // Arrange: the sign-in server is down.
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AuthDiscoveryResponse>(new() { Status = StatusCodes.Status503ServiceUnavailable }));
+        AccountAdministrationLoader loader = new(_discoveryCache, _client);
+
+        // Act
+        ApiResult<AccountListResponse> result = await loader.ListAccountsAsync(page: 1);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails.ShouldNotBeNull().Status.ShouldBe(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    private void StubListAt(string href) =>
+        _client.GetApiResultAsync<AccountListResponse>(href, Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(new AccountListResponse([], 1, 50, 0)));
 
     private AccountAdministrationLoader CreateLoader(bool advertisesAccounts)
     {
@@ -100,8 +121,6 @@ public sealed class AccountAdministrationLoaderTests
             Links = advertisesAccounts ? [new LinkDto(AdvertisedAccountsHref, Rels.Accounts, "GET")] : []
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>()).Returns(ApiResult.Success(discovery));
-        _client.GetApiResultAsync<AccountListResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Success(new AccountListResponse([], 1, 50, 0)));
 
         return new AccountAdministrationLoader(_discoveryCache, _client);
     }

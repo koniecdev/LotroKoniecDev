@@ -24,12 +24,6 @@ internal sealed class AccountAdministrationLoader
     private readonly IDiscoveryCache _discoveryCache;
     private readonly IAuthSystemClient _client;
 
-    public AccountAdministrationLoader(IDiscoveryCache discoveryCache, IAuthSystemClient client)
-    {
-        _discoveryCache = discoveryCache;
-        _client = client;
-    }
-
     /// <summary>
     /// A missing <c>accounts</c> rel means the server does not offer the list to this caller, which becomes
     /// a 403. It is never decided here from role claims.
@@ -73,5 +67,11 @@ internal sealed class AccountAdministrationLoader
         ArgumentException.ThrowIfNullOrWhiteSpace(removeHref);
 
         return _client.DeleteApiResultAsync(removeHref, cancellationToken);
+    }
+
+    public AccountAdministrationLoader(IDiscoveryCache discoveryCache, IAuthSystemClient client)
+    {
+        _discoveryCache = discoveryCache;
+        _client = client;
     }
 }

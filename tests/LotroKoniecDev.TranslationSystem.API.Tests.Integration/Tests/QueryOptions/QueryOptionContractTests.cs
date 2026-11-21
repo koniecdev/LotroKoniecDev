@@ -20,7 +20,25 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.QueryOpti
 [Collection("TranslationApi")]
 public sealed class QueryOptionContractTests
 {
+    private const string ToQueryParametersName = nameof(ListTranslationsRequest.ToQueryParameters);
+
     private static readonly Assembly ContractsAssembly = typeof(ListTranslationsRequest).Assembly;
+
+    /// <summary>
+    /// One per record that builds an address, every option away from its default, so none is left out
+    /// for being the default.
+    /// </summary>
+    private static readonly IReadOnlyList<object> RequestsWithEveryOption =
+    [
+        new ListTranslationsRequest(
+            Search: "Stout-axe",
+            Status: TranslationStatus.Draft,
+            Page: 2,
+            PageSize: 25,
+            Sort: "gossipId:desc",
+            ConflictsOnly: true),
+        new ImportExportedTextsRequest(AllowMassRemoval: true)
+    ];
 
     private readonly TranslationSystemApiFactory _factory;
 
@@ -49,40 +67,37 @@ public sealed class QueryOptionContractTests
     }
 
     [Fact]
-    public void ListTranslationsRequest_WritesEveryOptionTheApiBindsFromIt()
-    {
-        // Arrange: every option away from its default, so none is left out for being the default.
-        ListTranslationsRequest request = new(
-            Search: "Stout-axe",
-            Status: TranslationStatus.Draft,
-            Page: 2,
-            PageSize: 25,
-            Sort: "gossipId:desc",
-            ConflictsOnly: true);
-
-        // Act
-        List<string> written = request.ToQueryParameters()
-            .Select(parameter => parameter.Key.ToUpperInvariant())
-            .ToList();
-
-        // Assert
-        written.ShouldBe(BoundOptionNamesOf(typeof(ListTranslationsRequest)), ignoreOrder: true);
-    }
-
-    [Fact]
-    public void ImportExportedTextsRequest_WritesEveryOptionTheApiBindsFromIt()
+    public void EveryRecordThatBuildsAnAddress_HasACaseInThisClass()
     {
         // Arrange
-        ImportExportedTextsRequest request = new(AllowMassRemoval: true);
-
-        // Act
-        List<string> written = request.ToQueryParameters()
-            .Select(parameter => parameter.Key.ToUpperInvariant())
+        List<Type> recordsWithTheMethod = ContractsAssembly.GetExportedTypes()
+            .Where(type => type.GetMethod(ToQueryParametersName, Type.EmptyTypes) is not null)
             .ToList();
 
+        // Act
+        List<Type> recordsWithACase = RequestsWithEveryOption.Select(request => request.GetType()).ToList();
+
         // Assert
-        written.ShouldBe(BoundOptionNamesOf(typeof(ImportExportedTextsRequest)), ignoreOrder: true);
+        recordsWithTheMethod.ShouldNotBeEmpty();
+        recordsWithACase.ShouldBe(recordsWithTheMethod, ignoreOrder: true);
     }
+
+    [Theory]
+    [MemberData(nameof(RequestsWithEveryOptionSet))]
+    public void ARecordThatBuildsAnAddress_WritesEveryOptionTheApiBindsFromIt(object request)
+    {
+        // Act
+        IEnumerable<KeyValuePair<string, string?>> parameters = (IEnumerable<KeyValuePair<string, string?>>)request
+            .GetType()
+            .GetMethod(ToQueryParametersName, Type.EmptyTypes)!
+            .Invoke(request, null)!;
+        List<string> written = parameters.Select(parameter => parameter.Key.ToUpperInvariant()).ToList();
+
+        // Assert
+        written.ShouldBe(BoundOptionNamesOf(request.GetType()), ignoreOrder: true);
+    }
+
+    public static TheoryData<object> RequestsWithEveryOptionSet() => new(RequestsWithEveryOption);
 
     public QueryOptionContractTests(TranslationSystemApiFactory factory)
     {

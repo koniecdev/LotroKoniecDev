@@ -126,7 +126,7 @@ public sealed class PaginationLinkFactoryTests
         _linkFactory
             .CreateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<object?>())
             .Returns(call => new LinkDto(
-                $"/list?at={((RouteValueDictionary)call.ArgAt<object?>(3)!)["at"]}",
+                $"/list?at={new RouteValueDictionary(call.ArgAt<object?>(3))["at"]}",
                 call.ArgAt<string>(1),
                 call.ArgAt<string>(2)));
 

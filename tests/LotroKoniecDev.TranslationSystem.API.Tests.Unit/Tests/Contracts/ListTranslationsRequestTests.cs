@@ -41,7 +41,7 @@ public sealed class ListTranslationsRequestTests
     [Fact]
     public void ToQueryParameters_WithEveryOption_WritesTheFiltersFirstThenThePaging()
     {
-        // The paging links keep this order, so their hrefs stay as they were.
+        // The paging links rely on this order.
         ListTranslationsRequest request = new(
             Search: "Stout-axe",
             Status: TranslationStatus.NeedsReview,
@@ -81,7 +81,7 @@ public sealed class ListTranslationsRequestTests
     [Fact]
     public void ToQueryParameters_WithPaddedSearch_SendsItAsTyped()
     {
-        // The API trims the term itself, as it did before.
+        // The API trims the term itself.
         IReadOnlyList<KeyValuePair<string, string?>> parameters =
             new ListTranslationsRequest(Search: " Frodo ").ToQueryParameters();
 

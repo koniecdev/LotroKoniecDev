@@ -77,7 +77,7 @@ unieważnienia**, więc nielegalnej kombinacji (np. „Approved i unieważniony"
 | INV-1.4 | 🟢 ⚠️ `PreviousSourceText` **zamrożony** — kolejne zmiany źródła na `NeedsReview` go nie nadpisują | Tłumacz dalej widzi angielski, pod który napisano *obecny* polski. | `Translation.cs` |
 | INV-1.5 | 🟢 `MarkRemoved` to **miękkie** usunięcie | Ustawia `RemovedInVersion`; wiersz wypada z pracy i z pliku, nigdy nie jest kasowany. `IsRemoved => RemovedInVersion is not null`. | `Translation.cs` |
 | INV-1.6 | 🟢 `Restore` zachowuje poprzedni status | Czyści tylko `RemovedInVersion`; status (także `Approved`) zostaje, bo stary polski nadal pasuje. | `Translation.cs` |
-| INV-1.7 | 🟢 `ProvideTranslation`: **każdy** poprzedni status → `Draft` | Edycja `Approved` wyjmuje wiersz z dystrybucji do ponownej akceptacji; `PreviousSourceText` zostaje do approve. Pusty tekst albo dłuższy niż `DatFormatConstants.MaxTranslatedTextLength` (32767) rzuca wyjątek — to guard programisty za walidatorem (ADR-0043). | `Translation.cs` |
+| INV-1.7 | 🟢 `ProvideTranslation`: **każdy** poprzedni status → `Draft` | Edycja `Approved` wyjmuje wiersz z dystrybucji do ponownej akceptacji; `PreviousSourceText` zostaje do approve. Pusty tekst albo dłuższy niż `DatFormatConstants.MaxTranslatedTextLength` (32767) rzuca wyjątek — to guard programisty za walidatorem (ADR-0043). Zapisany tekst traci końcowe znaki nowej linii (CR/LF), gdy angielski nie kończy się nową linią (#1476, `TrailingLineBreaks`); guardy liczą tekst w postaci wysłanej. | `Translation.cs`, `TrailingLineBreaks.cs` |
 | INV-1.8 | 🟢 Nie zatwierdzisz wiersza **bez polskiej treści** | `Approve` na pustym `TranslatedText` → błąd. | `TranslationEntity.CannotApproveWithoutTranslation` |
 | INV-1.9 | 🟢 Nie zatwierdzisz wiersza **miękko usuniętego** | `Approve` na `IsRemoved` → błąd. | `TranslationEntity.CannotApproveRemoved` |
 | INV-1.10 | 🟢 `Approve` czyści unieważnienie | → `Approved`, stempluje recenzenta, `PreviousSourceText = null` — wiersz wraca do zbioru dystrybucji. | `Translation.cs` |
@@ -200,7 +200,7 @@ nic, ponowny upload jest idempotentny). Błędy importu to `DataConflict` → **
 
 | # | Invariant | Reguła | Błąd / uwaga |
 |---|-----------|--------|--------------|
-| INV-8.1 | 🔵 Upsert: `FileId > 0`, `GossipId >= 0`, `TranslatedText` niepuste i ≤ **32767** znaków | Walidator komendy; limit to `DatFormatConstants.MaxTranslatedTextLength`, granica formatu DAT (ADR-0043). Za nim stoją guard domenowy (INV-1.7) i `CHECK` w bazie. | `UpsertTranslation.cs`, `TranslationConfiguration.cs` |
+| INV-8.1 | 🔵 Upsert: `FileId > 0`, `GossipId >= 0`, `TranslatedText` niepuste i ≤ **32767** znaków | Walidator komendy; limit to `DatFormatConstants.MaxTranslatedTextLength`, granica formatu DAT (ADR-0043). Za nim stoją guard domenowy (INV-1.7) i `CHECK` w bazie. Walidator liczy tekst w postaci wysłanej, przed usunięciem końcowych nowych linii (INV-1.7), bo nie zna angielskiego; tekst z samych nowych linii jest pusty. | `UpsertTranslation.cs`, `TranslationConfiguration.cs` |
 | INV-8.2 | 🔵 Upsert nieistniejącego fragmentu → `NotFound` (404) | Wiersz powstaje z importu, nie z upsertu. | `TranslationEntity.NotFound(fileId, gossipId)` (`UpsertTranslation.cs`) |
 | INV-8.3 | 🔵 Upsert na miękko usuniętym → 422 | Usunięty wiersz jest poza pracą. | `TranslationEntity.CannotEditRemoved` (`UpsertTranslation.cs`) |
 | INV-8.4 | 🔵 Upsert tworzy profil autora **przed** stemplowaniem FK | Prowizjonowanie w handlerze (middleware z INV-4.4 nie daje gwarancji). | `UpsertTranslation.cs` |

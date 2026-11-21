@@ -434,7 +434,10 @@ items without any links.
 **`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`.
 Creates or replaces the Polish text of the row keyed by `(fileId, gossipId)`; the row must already
 exist (it comes from an import). `translatedText` must not be empty and must be at most 32767
-characters, the most the DAT can hold (ADR-0043). The translator is taken from the **token**, never
+characters, the most the DAT can hold (ADR-0043). Both checks count the text as sent, so a text of only
+line breaks is empty. When the row's English does not end with a line break, the stored text drops
+the line breaks (CR and LF) at its end; spaces and breaks inside the text stay (#1476, ADR-0039
+amendment of 2026-11-21). The translator is taken from the **token**, never
 the body. Editing an `Approved` row moves it to `Draft`, which takes it out of the file until someone
 approves it again. A soft-removed row → **422** (`TranslationEntity.CannotEditRemoved`); unknown
 fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are. A caller who is not an

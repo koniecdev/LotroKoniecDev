@@ -101,6 +101,7 @@ wersji, bez kopiowania wierszy przy każdym patchu (spec 0001).
   i stempluje tłumacza. Każdy poprzedni status → `Draft`. Edycja wiersza `Approved` wyjmuje go
   z pobieranego pliku do ponownej akceptacji. Tekst dłuższy, niż zmieści DAT, rzuca wyjątek, bo
   to błąd programisty; komunikat dla tłumacza daje `UpsertTranslation.Validator` (ADR-0043).
+  Zapisuje tekst bez końcowych znaków nowej linii, które usuwa `TrailingLineBreaks` (#1476).
 - `Approve(approvedBy, now)` — zatwierdza do dystrybucji. Wymaga polskiej treści i nieusuniętego
   wiersza. Ustawia `Approved`, stempluje recenzenta, czyści `PreviousSourceText`, zwraca `Result`.
 
@@ -225,6 +226,17 @@ leżą w `TranslationSystem.Primitives`; `IdentityId` (wspólny z Auth) leży w
 ---
 
 ## Serwisy domenowe
+
+### TrailingLineBreaks
+
+`src/TranslationSystem/…Domain/Aggregates/TranslationAggregate/Services/TrailingLineBreaks.cs`
+
+Czysta funkcja (`static class`, `RemoveUnlessSourceEndsWithOne`) dla każdej ścieżki, która zapisuje
+polski (#1476, ADR-0039, poprawka z 2026-11-21). Tłumacz, który na końcu tekstu wciśnie Enter, wysyła
+CR LF, a teksty gry nigdy nie kończą się prawdziwą nową linią. Gdy angielski nie kończy się CR ani LF,
+funkcja usuwa cały ciąg CR i LF z końca polskiego. Spacje, tabulatory, wpisane dwa znaki `\n`
+i nowe linie w środku tekstu zostają. Dziś woła ją `ProvideTranslation`; propozycje z #1384 wołają
+tę samą funkcję.
 
 ### TranslationDiffService
 

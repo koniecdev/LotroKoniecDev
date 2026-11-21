@@ -2222,6 +2222,11 @@ times.
    by an import after the copy was made, so there is no earlier state to put back. Fix both kinds in
    the editor, and an approved one at once: editing an approved row turns it back into a draft,
    which leaves the game file.
+
+   A copy made before the migration `RemoveTrailingLineBreaksFromTranslatedText` ran (#1476) can
+   bring back Polish that ends with an invisible line break. After `END=COMMIT`, run that
+   migration's `UPDATE` once on `PROD`. It changes only the text, so it keeps every status, author
+   and date, and it is safe to run twice.
 5. **Rebuild the translation file.** A raw SQL update schedules no rebuild. Approve one row in the
    editor: any approval rebuilds the whole file for its language a few seconds later. When nothing
    waits for approval, open a restored row, save it unchanged (it becomes a draft) and approve it.

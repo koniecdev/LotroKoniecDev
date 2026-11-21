@@ -37,7 +37,7 @@ everything that matters must be committed and pushed.
 
 ## The loop (do not skip steps)
 
-1. **Pull the ticket.** `gh issue view $ARGUMENTS --json number,title,state,labels,body,comments`
+1. **Pull the ticket.** Run `date` first ("Your clock" under "Scope & safety"). `gh issue view $ARGUMENTS --json number,title,state,labels,body,comments`
    — one call returning title, labels, body (Context / Depends on / Tasks / Acceptance criteria)
    and the `comments` array (later comments override the body). **Never use `-c/--comments`** — it
    replaces the default view with a comments-only one, so a comment-free issue prints nothing and
@@ -239,10 +239,11 @@ everything that matters must be committed and pushed.
   own and changes like any other file.
 - **Your clock.** The loop stops this run after `LOOP_TICKET_TIMEOUT_MIN` minutes, counted from
   the run's start: read it with `printenv LOOP_TICKET_TIMEOUT_MIN` (empty means 240), and run `date`
-  before step 1 so you know when you started. A resume prompt gives `minutes_left` instead. Never
-  take the number from memory, a document or an earlier run: `/backlog` starts runs with 360
-  (`docs/claude-loop.md` → "A longer ticket clock"). End a run `BLOCKED` for lack of time only after
-  you have read both numbers and the step that is left cannot fit (#1501).
+  as your first command so you know when you started. After a resume, the prompt's `minutes_left`
+  is what is left. Never take the number from memory, a document or an earlier run: the line
+  `/backlog` prints starts runs with 360 (`docs/claude-loop.md` → "A longer ticket clock"). End a
+  run `BLOCKED` for lack of time only after you have worked out the minutes left (the clock minus
+  the time since your start, or `minutes_left`) and the step that is left cannot fit (#1501).
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 

@@ -173,7 +173,7 @@ public sealed class ImportExportLoaderTests
         handler.LastRequest.ShouldNotBeNull();
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Post);
         handler.LastRequest.RequestUri!.ToString()
-            .ShouldBe($"{BaseUrl}{AdvertisedImportHref.TrimStart('/')}?allowMassRemoval=false");
+            .ShouldBe($"{BaseUrl}{AdvertisedImportHref.TrimStart('/')}");
     }
 
     [Fact]

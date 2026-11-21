@@ -13,7 +13,6 @@ using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.GameVersions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.GameVersionAggregate;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.GameVersions;
@@ -72,13 +71,14 @@ internal sealed class ListGameVersions : IEndpoint
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
     {
         endpointRouteBuilder.MapGet("/api/v1/game-versions", async (
+                [AsParameters] ListGameVersionsRequest request,
                 IQueryHandler<Query, Result<IReadOnlyList<GameVersionResponse>>> handler,
                 IGameVersionAggregateLinkFactory gameVersionLinkFactory,
                 ClaimsPrincipal user,
-                CancellationToken cancellationToken,
-                [FromQuery] string? sort = null) =>
+                CancellationToken cancellationToken) =>
             {
-                Result<IReadOnlyList<GameVersionResponse>> result = await handler.Handle(new Query(sort), cancellationToken);
+                Result<IReadOnlyList<GameVersionResponse>> result =
+                    await handler.Handle(new Query(request.Sort), cancellationToken);
 
                 if (result.IsFailure)
                 {

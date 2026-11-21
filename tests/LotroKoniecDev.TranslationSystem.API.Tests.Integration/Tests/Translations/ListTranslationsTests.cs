@@ -15,6 +15,7 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
@@ -270,14 +271,61 @@ public sealed class ListTranslationsTests : IAsyncLifetime
             .ShouldBe([(100, 1L), (100, 2L), (200, 1L)]);
     }
 
-    [Fact]
-    public async Task List_WithUnsupportedLanguage_ShouldReturn400()
+    [Theory]
+    [InlineData("pl")]
+    [InlineData("de")]
+    public async Task List_WithALangOption_IgnoresIt(string lang)
     {
+        // Arrange: the list holds only Polish rows and takes no language (#1478), so a lang option is
+        // ignored like any unknown name.
+        await SeedAsync(Row(1, "Frodo Baggins"), Row(2, "Samwise Gamgee"));
+
         // Act
-        HttpResponseMessage response = await TranslatorClient().GetAsync("/api/v1/translations?lang=de");
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?lang={lang}");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Theory]
+    [InlineData("Banana")]
+    [InlineData("draft")]
+    public async Task List_WithUnknownStatus_ShouldReturn400(string status)
+    {
+        // Act: the status binds by its exact enum name, so a wrong case is unknown too.
+        HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations?status={status}");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
+    }
+
+    [Theory]
+    [MemberData(nameof(RoundTripCases))]
+    public async Task List_WithAnAddressBuiltFromTheSharedRequest_AppliesEveryOption(
+        ListTranslationsRequest request,
+        long[] expectedGossipIds,
+        int expectedTotal)
+    {
+        // Arrange: each option changes the result on its own. The address comes from the record the
+        // website uses, so a name the API stops binding fails here (#1478).
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Stout-axe[D]", "Wytrzymały topór"),
+            Translated(4, "Stout-axe[D]", "Topór", approve: true),
+            Translated(5, "Dwarf[D]", "Krasnolud"),
+            Translated(6, "Dwarf[D]", "Krasnoludek"),
+            Translated(7, "Stout heart", "Dzielne serce"),
+            Row(8, "Stout-axe[D]"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(QueryHelpers.AddQueryString(string.Empty, request.ToQueryParameters()));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe(expectedGossipIds);
+        page.TotalCount.ShouldBe(expectedTotal);
     }
 
     [Fact]
@@ -495,6 +543,28 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
     }
+
+    public static TheoryData<ListTranslationsRequest, long[], int> RoundTripCases() => new()
+    {
+        { new ListTranslationsRequest(), [1, 2, 3, 4, 5, 6, 7, 8], 8 },
+        { new ListTranslationsRequest(Search: "Stout"), [1, 2, 3, 4, 7, 8], 6 },
+        { new ListTranslationsRequest(Status: TranslationStatus.Draft), [1, 2, 3, 5, 6, 7], 6 },
+        { new ListTranslationsRequest(Page: 2), [], 8 },
+        { new ListTranslationsRequest(PageSize: 3), [1, 2, 3], 8 },
+        { new ListTranslationsRequest(Sort: "gossipId:desc"), [8, 7, 6, 5, 4, 3, 2, 1], 8 },
+        { new ListTranslationsRequest(ConflictsOnly: true), [1, 2, 3, 4, 5, 6], 6 },
+        {
+            new ListTranslationsRequest(
+                Search: "Stout",
+                Status: TranslationStatus.Draft,
+                Page: 2,
+                PageSize: 2,
+                Sort: "gossipId:desc",
+                ConflictsOnly: true),
+            [1],
+            3
+        }
+    };
 
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)
     {

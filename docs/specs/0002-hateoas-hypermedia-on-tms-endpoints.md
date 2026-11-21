@@ -70,8 +70,8 @@ authorized for + pagination/collection navigation) under the HATEOAS vendor medi
   - collection: `self` → `GET /api/v1/game-versions`; `register` → `POST /api/v1/game-versions`
     only when the caller is **Admin**.
 - **Pagination:** `self`/`first`/`last` always when there is ≥1 page; `previous` when `Page > 1`;
-  `next` when `Page < TotalPages`; every link preserves the active `lang`/`search`/`status` filters
-  and `page`/`pageSize`.
+  `next` when `Page < TotalPages`; every link preserves the active filters (`search`, `status`,
+  `sort`, `conflictsOnly`) and `page`/`pageSize`, written by `ListTranslationsRequest` (#1478).
 - **Role source:** the endpoint reads the caller's `ClaimsPrincipal` (`IsInRole(Admin)`), consistent
   with `CurrentUserAccessor`.
 

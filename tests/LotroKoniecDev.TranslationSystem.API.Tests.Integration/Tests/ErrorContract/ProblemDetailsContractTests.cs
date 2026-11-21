@@ -34,24 +34,6 @@ public sealed class ProblemDetailsContractTests : IAsyncLifetime
     public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
-    public async Task ListTranslations_WithUnsupportedLanguage_ShouldReturn400ValidationProblem()
-    {
-        // Arrange
-        using HttpClient client = TranslatorClient();
-
-        // Act
-        HttpResponseMessage response = await client.GetAsync("/api/v1/translations?lang=de");
-        JsonElement problem = await ReadProblemDetailsAsync(response);
-
-        // Assert
-        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
-        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe(ProblemJson);
-        problem.GetProperty("status").GetInt32().ShouldBe(400);
-        problem.GetProperty("title").GetString().ShouldBe("Validation Error");
-        problem.GetProperty("errorCode").GetString().ShouldBe("Translations.UnsupportedLanguage");
-    }
-
-    [Fact]
     public async Task RegisterGameVersion_WithInvalidFormat_ShouldReturn400ValidationProblem()
     {
         // Arrange

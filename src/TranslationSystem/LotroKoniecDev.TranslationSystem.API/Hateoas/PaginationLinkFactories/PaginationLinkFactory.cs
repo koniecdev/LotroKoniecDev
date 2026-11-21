@@ -17,7 +17,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
     public async ValueTask<IReadOnlyList<LinkDto>> CreatePaginationLinksAsync<T>(
         string endpointName,
         PaginationResponse<T> paginationResponse,
-        object? additionalRouteValues = null)
+        Func<int, IEnumerable<KeyValuePair<string, string?>>> queryParametersForPage)
     {
         List<LinkDto> links = [];
 
@@ -25,7 +25,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
             endpoint: endpointName,
             rel: Rels.Self,
             method: HttpMethods.Get,
-            values: BuildRouteValues(paginationResponse.Page, paginationResponse.PageSize, additionalRouteValues)));
+            values: new RouteValueDictionary(queryParametersForPage(paginationResponse.Page))));
 
         // Not on the page you are on, or the pager draws a dead button (#545). They stay when the page is
         // out of range (?page=99 of 3): the only way back for a caller who went too far.
@@ -35,7 +35,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
                 endpoint: endpointName,
                 rel: Rels.FirstPage,
                 method: HttpMethods.Get,
-                values: BuildRouteValues(1, paginationResponse.PageSize, additionalRouteValues)));
+                values: new RouteValueDictionary(queryParametersForPage(1))));
         }
 
         if (paginationResponse.Page != paginationResponse.TotalPages && paginationResponse.TotalPages > 0)
@@ -44,7 +44,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
                 endpoint: endpointName,
                 rel: Rels.LastPage,
                 method: HttpMethods.Get,
-                values: BuildRouteValues(paginationResponse.TotalPages, paginationResponse.PageSize, additionalRouteValues)));
+                values: new RouteValueDictionary(queryParametersForPage(paginationResponse.TotalPages))));
         }
 
         if (paginationResponse.Page > 1)
@@ -53,7 +53,7 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
                 endpoint: endpointName,
                 rel: Rels.PreviousPage,
                 method: HttpMethods.Get,
-                values: BuildRouteValues(paginationResponse.Page - 1, paginationResponse.PageSize, additionalRouteValues)));
+                values: new RouteValueDictionary(queryParametersForPage(paginationResponse.Page - 1))));
         }
 
         if (paginationResponse.Page < paginationResponse.TotalPages)
@@ -62,19 +62,9 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
                 endpoint: endpointName,
                 rel: Rels.NextPage,
                 method: HttpMethods.Get,
-                values: BuildRouteValues(paginationResponse.Page + 1, paginationResponse.PageSize, additionalRouteValues)));
+                values: new RouteValueDictionary(queryParametersForPage(paginationResponse.Page + 1))));
         }
 
         return links;
-    }
-
-    private static RouteValueDictionary BuildRouteValues(int page, int pageSize, object? additionalRouteValues)
-    {
-        RouteValueDictionary values = additionalRouteValues is not null
-            ? new RouteValueDictionary(additionalRouteValues)
-            : [];
-        values["page"] = page;
-        values["pageSize"] = pageSize;
-        return values;
     }
 }

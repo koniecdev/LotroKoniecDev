@@ -19,9 +19,6 @@ internal sealed class ImportExportLoader
 {
     private const string FileFieldName = "file";
 
-    /// <summary>The caller's choice for this one upload, which the server cannot put in the link.</summary>
-    private const string AllowMassRemovalParameter = "allowMassRemoval";
-
     private const string UploadContentType = "text/plain";
 
     /// <summary>The name the patcher's <c>patch</c> command expects.</summary>
@@ -72,7 +69,7 @@ internal sealed class ImportExportLoader
 
         return await _client.SendMultipartApiResultAsync<ImportSummary>(
             HttpMethod.Post,
-            QueryHelpers.AddQueryString(importHref, AllowMassRemovalParameter, allowMassRemoval ? "true" : "false"),
+            QueryHelpers.AddQueryString(importHref, new ImportExportedTextsRequest(allowMassRemoval).ToQueryParameters()),
             content,
             cancellationToken);
     }

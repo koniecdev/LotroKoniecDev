@@ -1,4 +1,5 @@
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Translations;
@@ -11,14 +12,14 @@ public sealed class TranslationListQueryTests
     private const string CollectionHref = "/resolved-by-discovery/translations";
 
     [Fact]
-    public void From_WithNoFilters_BuildsBaseUriWithLangAndDefaultPaging()
+    public void From_WithNoFilters_BuildsBaseUriWithDefaultPagingAndNoLanguage()
     {
         TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
 
         string uri = query.ToApiUri(CollectionHref);
 
         uri.ShouldStartWith($"{CollectionHref}?");
-        uri.ShouldContain("lang=pl");
+        uri.ShouldNotContain("lang=");
         uri.ShouldContain("page=1");
         uri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
         uri.ShouldNotContain("search=");
@@ -118,11 +119,25 @@ public sealed class TranslationListQueryTests
         string uri = query.ToApiUri(CollectionHref);
 
         uri.ShouldStartWith($"{CollectionHref}?");
-        uri.ShouldContain("lang=pl");
+        uri.ShouldNotContain("lang=");
         uri.ShouldContain("page=2");
         uri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
         uri.ShouldContain("search=Gandalf");
         uri.ShouldContain("status=Approved");
+    }
+
+    [Fact]
+    public void ToApiRequest_CarriesTheListStateTheApiBinds()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "  Gandalf ", status: "approved", page: 2, pageSize: 25, conflictsOnly: true);
+
+        query.ToApiRequest().ShouldBe(new ListTranslationsRequest(
+            Search: "Gandalf",
+            Status: TranslationStatus.Approved,
+            Page: 2,
+            PageSize: 25,
+            ConflictsOnly: true));
     }
 
     [Fact]

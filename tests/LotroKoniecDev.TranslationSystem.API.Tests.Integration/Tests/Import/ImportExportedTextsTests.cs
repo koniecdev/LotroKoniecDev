@@ -21,6 +21,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
@@ -334,6 +335,50 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
         (await GetTranslationAsync(2))!.IsRemoved.ShouldBeFalse();
         (await GetTranslationAsync(3))!.IsRemoved.ShouldBeFalse();
         // All or nothing: the version must not become processed.
+        (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Unprocessed);
+    }
+
+    [Fact]
+    public async Task Import_WithMassRemovalAllowedByTheSharedRequest_ShouldRemoveTheRows()
+    {
+        // Arrange: the same drop as above. The address comes from the record the website uses, so a
+        // name the API stops binding fails here (#1478).
+        GameVersionId firstVersion = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta"), Line(3, "Gamma")));
+
+        GameVersionId secondVersion = await SeedVersionAsync("48.1");
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(secondVersion, new ImportExportedTextsRequest(AllowMassRemoval: true)),
+            ExportContent(Line(1, "Alpha")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await GetTranslationAsync(2))!.IsRemoved.ShouldBeTrue();
+        (await GetTranslationAsync(3))!.IsRemoved.ShouldBeTrue();
+        (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Processed);
+    }
+
+    [Fact]
+    public async Task Import_WithTheSharedRequestAtItsDefault_ShouldRefuseAMassRemoval()
+    {
+        // Arrange
+        GameVersionId firstVersion = await SeedVersionAsync("48.0");
+        using HttpClient client = AdminClient();
+        await client.PostAsync(ImportRoute(firstVersion), ExportContent(Line(1, "Alpha"), Line(2, "Beta"), Line(3, "Gamma")));
+
+        GameVersionId secondVersion = await SeedVersionAsync("48.1");
+
+        // Act
+        HttpResponseMessage response = await client.PostAsync(
+            ImportRoute(secondVersion, new ImportExportedTextsRequest()),
+            ExportContent(Line(1, "Alpha")));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.UnprocessableEntity);
+        (await GetTranslationAsync(2))!.IsRemoved.ShouldBeFalse();
         (await GetVersionStatusAsync(secondVersion)).ShouldBe(GameVersionStatus.Unprocessed);
     }
 
@@ -852,6 +897,9 @@ public sealed class ImportExportedTextsTests : IAsyncLifetime
 
     private static string ImportRoute(GameVersionId versionId)
         => $"/api/v1/game-versions/{versionId.Value}/import";
+
+    private static string ImportRoute(GameVersionId versionId, ImportExportedTextsRequest request)
+        => QueryHelpers.AddQueryString(ImportRoute(versionId), request.ToQueryParameters());
 
     private static string Line(int gossipId, string text) => $"{FileId}||{gossipId}||{text}||NULL||NULL||1";
 

@@ -344,7 +344,9 @@ For every row of the uploaded export, compared against the stored source state b
 - The forum scrape (regex on release notes) keeps working; if SSG redesigns the page, detection
   degrades gracefully to the manual fallback, never to false versions.
 - One language (`pl`) ships; identity, statuses and routes are language-scoped so a second
-  language is additive.
+  language is additive. The one exception is the translation list: it dropped its `lang` option
+  (owner decision 2026-11-19, #1478), because it holds only Polish rows and a second language
+  would need a new model there anyway. The file download keeps its `{lang}`.
 - Translation volume stays in the patcher-proven envelope (~780k rows, tens of MB) — streaming +
   pre-built artifact handles it; no pagination/chunking of the file itself.
 

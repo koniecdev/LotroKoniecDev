@@ -406,7 +406,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (unsupported lang) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`; a status name is case-sensitive) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
@@ -414,11 +414,13 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 | `POST` | `/api/v1/translations/{id:guid}/approve` | `RequireAdminRole` | **204** · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/approve` | `RequireAdminRole` | **200** `BulkApproveTranslationsResponse` · **400** · **403** — see below |
 
-**`GET /translations`** query parameters:
+**`GET /translations`** query parameters. They are the properties of `ListTranslationsRequest` in
+`TranslationSystem.Contracts`: the endpoint binds that record and the website builds its address from
+it, so a name is written once (#1478). The list holds only Polish rows and takes no language; an
+unknown name, such as the old `lang`, is ignored.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `lang` | string? | — | optional; only `polish` exists today (anything else → **400**) |
 | `search` | string? | — | case-insensitive substring of the English source **or** the Polish (LIKE special characters escaped) |
 | `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs retranslation" view |
 | `page` | int | `1` | at least 1 |
@@ -506,7 +508,9 @@ Upload of a fresh `exported.txt` for one version (spec 0001), **admin only**, `m
 - form field `file` — the `||`-format export. The size limit is **256 MB** by default
   (`ImportUploadLimits.MaxUploadBytes`, configurable as `Import:MaxUploadBytes`); a larger file →
   **413**;
-- query `allowMassRemoval` (default `false`) — turns off the mass-removal guard.
+- query `allowMassRemoval` (default `false`) — turns off the mass-removal guard. It is the property of
+  `ImportExportedTextsRequest` in `TranslationSystem.Contracts`, which the endpoint binds and the
+  website builds the address from (#1478).
 
 The handler reads the upload **twice** (spec 0006). The first pass validates the file and compares it
 with the stored sources by `(FileId, GossipId)`, hash to hash, without writing anything, so the

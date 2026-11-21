@@ -1,6 +1,7 @@
 using System.Globalization;
-using Microsoft.AspNetCore.WebUtilities;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
@@ -11,9 +12,6 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 /// </summary>
 internal sealed record TranslationListQuery
 {
-    /// <summary>The only language the API supports today.</summary>
-    internal const string Language = "pl";
-
     /// <summary>Must be one of <see cref="PageSizeOptions"/>.</summary>
     internal const int DefaultPageSize = 50;
 
@@ -54,36 +52,23 @@ internal sealed record TranslationListQuery
     public static bool ParseConflictsOnly(string? conflictsOnly) =>
         bool.TryParse(conflictsOnly, out bool isOn) && isOn;
 
-    /// <summary>
-    /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
-    /// </summary>
-    public static TranslationListQuery From(
-        string? search,
-        string? status,
-        int page,
-        int? pageSize = null,
-        bool conflictsOnly = false)
-    {
-        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
-    }
+    public ListTranslationsRequest ToApiRequest()
+        => new(Search: Search, Status: Status, Page: Page, PageSize: PageSize, ConflictsOnly: ConflictsOnly);
 
+    /// <summary>
+    /// The API's option names come from <see cref="ListTranslationsRequest"/>, the record the API binds,
+    /// so the two ends cannot spell them differently (#1478).
+    /// </summary>
     public string ToApiUri(string collectionHref)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionHref);
 
-        Dictionary<string, string?> parameters = new()
-        {
-            ["lang"] = Language,
-            ["pageSize"] = PageSize.ToString(CultureInfo.InvariantCulture)
-        };
-        AddPagingAndFilterParameters(parameters);
-
-        return QueryHelpers.AddQueryString(collectionHref, parameters);
+        return QueryHelpers.AddQueryString(collectionHref, ToApiRequest().ToQueryParameters());
     }
 
     /// <summary>
-    /// For the pager links. It leaves out <c>lang</c>, which only the API needs, and the default
-    /// <c>pageSize</c>, so the URL the user sees stays short (#323).
+    /// For the pager links. The page's own address is the website's contract with the browser, so it keeps
+    /// its own names. It leaves out the default <c>pageSize</c>, so the URL the user sees stays short (#323).
     /// </summary>
     public string ToPageRelativeUri(int page)
     {
@@ -107,6 +92,19 @@ internal sealed record TranslationListQuery
         parameters["skipped"] = skipped.ToString(CultureInfo.InvariantCulture);
 
         return QueryHelpers.AddQueryString(PagePath, parameters);
+    }
+
+    /// <summary>
+    /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
+    /// </summary>
+    public static TranslationListQuery From(
+        string? search,
+        string? status,
+        int page,
+        int? pageSize = null,
+        bool conflictsOnly = false)
+    {
+        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
     }
 
     private void AddPagingAndFilterParameters(Dictionary<string, string?> parameters, int? page = null)

@@ -181,6 +181,27 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     }
 
     [Fact]
+    public async Task AuthorizationCodeGrant_ForAnUnchangedAccountWithTwoRoles_ShouldLogNothing()
+    {
+        // Arrange: every Reviewer holds two roles, and the role check compares the set the code carries
+        // (#1488).
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, user.Email, AuthConstants.Roles.Reviewer);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task AuthorizationCodeGrant_WhenTheCodeVerifierIsWrong_ShouldWarnWithTheUserAndOpenIddictsReason()
     {
         // Arrange

@@ -41,7 +41,8 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
         LockedOut,
         DeletionScheduledAndLockedOut,
         SecurityStampChanged,
-        RolesChanged
+        RolesChanged,
+        RoleRemoved
     }
 
     public enum SessionEnd
@@ -57,6 +58,7 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
     [InlineData(AccountChange.DeletionScheduledAndLockedOut, EventIds.TokenGrantRefusedDeletionScheduled, "account deletion is scheduled")]
     [InlineData(AccountChange.SecurityStampChanged, EventIds.TokenGrantRefusedStaleSecurityStamp, "the security stamp in the token is not current")]
     [InlineData(AccountChange.RolesChanged, EventIds.TokenGrantRefusedRolesChanged, "the roles in the token are not the account's current roles")]
+    [InlineData(AccountChange.RoleRemoved, EventIds.TokenGrantRefusedRolesChanged, "the roles in the token are not the account's current roles")]
     public async Task RefreshTokenGrant_WhenTheAccountChangedAfterSignIn_ShouldLogTheCaseAsInformation(
         AccountChange change,
         int expectedEventId,
@@ -387,6 +389,9 @@ public sealed class TokenRefreshRefusalLoggingTests : EndpointsTestBase
                 break;
             case AccountChange.RolesChanged:
                 await AccountStateFactory.AddToRoleAsync(Factory.Services, email, AuthConstants.Roles.Reviewer);
+                break;
+            case AccountChange.RoleRemoved:
+                await AccountStateFactory.RemoveFromRoleAsync(Factory.Services, email, AuthConstants.Roles.Translator);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(change), change, null);

@@ -165,6 +165,25 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(42949674)]
+    [InlineData(int.MaxValue)]
+    public async Task ListAccounts_WithAPagePastTheEnd_ShouldReturnAnEmptyPage(int page)
+    {
+        // Arrange: a huge page number must not wrap into a negative database offset.
+        string adminToken = await AdminAccessTokenAsync();
+
+        // Act
+        AccountListResponse response = await GetAccountsAsync(
+            adminToken, string.Create(CultureInfo.InvariantCulture, $"{AccountsPath}?page={page}"));
+
+        // Assert
+        response.Page.ShouldBe(page);
+        response.Items.ShouldBeEmpty();
+        response.TotalCount.ShouldBe(1);
+    }
+
     [Fact]
     public async Task Discovery_AsAdmin_ShouldOfferTheAccountList()
     {
@@ -238,17 +257,47 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         (await RolesOfAsync(targetId.Value)).ShouldNotContain(AuthConstants.Roles.Reviewer);
     }
 
-    [Fact]
-    public async Task GrantReviewer_ForAnUnknownAccount_ShouldReturn404()
+    [Theory]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task ChangeReviewerRole_ForAnUnknownAccount_ShouldReturn404(string method)
     {
         // Arrange
         string adminToken = await AdminAccessTokenAsync();
 
         // Act
-        using HttpResponseMessage response = await SendAsync(HttpMethod.Put, ReviewerPath(Guid.NewGuid()), adminToken);
+        using HttpResponseMessage response = await SendAsync(new HttpMethod(method), ReviewerPath(Guid.NewGuid()), adminToken);
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
+    [Theory]
+    [InlineData("PUT", "GrantReviewerRole.Validation")]
+    [InlineData("DELETE", "RemoveReviewerRole.Validation")]
+    public async Task ChangeReviewerRole_ForTheEmptyAccountId_ShouldReturn400(string method, string errorCode)
+    {
+        // Arrange
+        string adminToken = await AdminAccessTokenAsync();
+
+        // Act
+        using HttpResponseMessage response = await SendAsync(new HttpMethod(method), ReviewerPath(Guid.Empty), adminToken);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).ShouldContain(errorCode);
+    }
+
+    [Theory]
+    [InlineData("PUT")]
+    [InlineData("DELETE")]
+    public async Task ChangeReviewerRole_WithoutAToken_ShouldReturn401(string method)
+    {
+        // Act
+        using HttpResponseMessage response = await SendAsync(new HttpMethod(method), ReviewerPath(Guid.NewGuid()), accessToken: null);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
     }
 
     [Theory]

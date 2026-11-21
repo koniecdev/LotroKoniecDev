@@ -304,6 +304,28 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_ForAnAccountWithTwoRoles_ShouldKeepWorkingRefreshAfterRefresh()
+    {
+        // Arrange: every Reviewer holds two roles, and the role check compares the set the refresh token
+        // carries. The second refresh uses a token the refresh path itself wrote (#1488).
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, request.Email, AuthConstants.Roles.Reviewer);
+        string firstRefreshToken = await GetRefreshTokenAsync(request.Email, password);
+        using HttpResponseMessage firstRefresh = await RequestRefreshGrantAsync(firstRefreshToken);
+        firstRefresh.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument firstBody = JsonDocument.Parse(await firstRefresh.Content.ReadAsStringAsync());
+        string secondRefreshToken = firstBody.RootElement.GetProperty("refresh_token").GetString()!;
+
+        // Act
+        using HttpResponseMessage secondRefresh = await RequestRefreshGrantAsync(secondRefreshToken);
+
+        // Assert
+        secondRefresh.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task PasswordGrant_AfterARoleChange_ShouldIssueEveryRoleAsAnArray()
     {
         // Arrange

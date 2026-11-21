@@ -24,11 +24,6 @@ internal sealed class RequestRateLimitPartitioner
 
     private readonly RateLimitPartitionKeyResolver _addressKeyResolver;
 
-    public RequestRateLimitPartitioner(RateLimitPartitionKeyResolver addressKeyResolver)
-    {
-        _addressKeyResolver = addressKeyResolver;
-    }
-
     public RateLimitPartition<string> Partition(HttpContext httpContext)
     {
         (string key, int permitLimit) = Choose(httpContext);
@@ -54,5 +49,10 @@ internal sealed class RequestRateLimitPartitioner
         }
 
         return (_addressKeyResolver.Resolve(httpContext), AddressPermitLimit);
+    }
+
+    public RequestRateLimitPartitioner(RateLimitPartitionKeyResolver addressKeyResolver)
+    {
+        _addressKeyResolver = addressKeyResolver;
     }
 }

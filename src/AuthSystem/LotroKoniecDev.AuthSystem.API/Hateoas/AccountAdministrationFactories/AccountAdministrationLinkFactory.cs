@@ -10,11 +10,6 @@ internal sealed class AccountAdministrationLinkFactory : IAccountAdministrationL
 {
     private readonly ILinkFactory _linkFactory;
 
-    public AccountAdministrationLinkFactory(ILinkFactory linkFactory)
-    {
-        _linkFactory = linkFactory;
-    }
-
     public async ValueTask<List<LinkDto>> CreateAccountLinksAsync(
         Guid accountId,
         IReadOnlyList<string> roles,
@@ -73,5 +68,10 @@ internal sealed class AccountAdministrationLinkFactory : IAccountAdministrationL
         }
 
         return links;
+    }
+
+    public AccountAdministrationLinkFactory(ILinkFactory linkFactory)
+    {
+        _linkFactory = linkFactory;
     }
 }

@@ -40,18 +40,6 @@ internal sealed partial class GrantReviewerRole : IApiEndpoint
         private readonly IValidator<Command> _validator;
         private readonly ILogger<Handler> _logger;
 
-        public Handler(
-            UserManager<ApplicationUser> userManager,
-            IUserSessionRevoker sessionRevoker,
-            IValidator<Command> validator,
-            ILogger<Handler> logger)
-        {
-            _userManager = userManager;
-            _sessionRevoker = sessionRevoker;
-            _validator = validator;
-            _logger = logger;
-        }
-
         public async ValueTask<Result> Handle(Command command, CancellationToken cancellationToken)
         {
             ValidationResult validationResult = await _validator.ValidateAsync(command, cancellationToken);
@@ -91,6 +79,18 @@ internal sealed partial class GrantReviewerRole : IApiEndpoint
             LogReviewerRoleGranted(_logger, account.Id, command.AdminUserId);
 
             return Result.Success();
+        }
+
+        public Handler(
+            UserManager<ApplicationUser> userManager,
+            IUserSessionRevoker sessionRevoker,
+            IValidator<Command> validator,
+            ILogger<Handler> logger)
+        {
+            _userManager = userManager;
+            _sessionRevoker = sessionRevoker;
+            _validator = validator;
+            _logger = logger;
         }
 
         [LoggerMessage(EventId = EventIds.ReviewerRoleGranted, Level = LogLevel.Information, Message = "Reviewer role given to user {UserId} by admin {AdminUserId}")]

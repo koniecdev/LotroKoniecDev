@@ -28,11 +28,6 @@ internal sealed class ListAccounts : IApiEndpoint
     {
         private readonly AuthDbContext _dbContext;
 
-        public Handler(AuthDbContext dbContext)
-        {
-            _dbContext = dbContext;
-        }
-
         public async ValueTask<Result<AccountListResponse>> Handle(Query query, CancellationToken cancellationToken)
         {
             if (query.Page < 1)
@@ -46,10 +41,18 @@ internal sealed class ListAccounts : IApiEndpoint
 
             int totalCount = await accounts.CountAsync(cancellationToken);
 
+            // Counted in long, so a huge page number cannot wrap into a negative offset, which
+            // PostgreSQL refuses. A page past the end is simply empty.
+            long skipped = (long)(query.Page - 1) * PageSize;
+            if (skipped >= totalCount)
+            {
+                return Result.Success(new AccountListResponse([], query.Page, PageSize, totalCount));
+            }
+
             var page = await accounts
                 .OrderBy(user => user.UserName)
                 .ThenBy(user => user.Id)
-                .Skip((query.Page - 1) * PageSize)
+                .Skip((int)skipped)
                 .Take(PageSize)
                 .Select(user => new { user.Id, user.UserName, user.Email, user.DeletionScheduledAt })
                 .ToListAsync(cancellationToken);
@@ -80,6 +83,11 @@ internal sealed class ListAccounts : IApiEndpoint
                 .ToList();
 
             return Result.Success(new AccountListResponse(items, query.Page, PageSize, totalCount));
+        }
+
+        public Handler(AuthDbContext dbContext)
+        {
+            _dbContext = dbContext;
         }
     }
 

@@ -7,7 +7,8 @@
 `TranslationSystem.Domain/Aggregates/TranslationAggregate/`,
 `TranslationSystem.Persistence/Bulk/BulkTranslationInserter.cs`,
 `TranslationSystem.API/Features/Import/ImportExportedTexts.cs`,
-`TranslationSystem.API/Features/Translations/{UpsertTranslation,ApproveTranslation,BulkApproveTranslations}.cs`;
+`TranslationSystem.API/Features/Translations/`
+(`UpsertTranslation`, `ApproveTranslation`, `BulkApproveTranslations`);
 tickets #1384, #1388, #1497, #50, #1345, #1385, #1368, #1488, #1476, #1372, #1373, #1421, #1422;
 ADR-0023, ADR-0024, ADR-0040, ADR-0043, ADR-0047, ADR-0065, ADR-0072
 
@@ -52,10 +53,10 @@ Names in code: the origin is not called "source", because `TranslationSource` an
 because `Translation.Restore` already undoes a soft removal.
 
 Proposals are only appended. The text never changes, and the outcome is set once: waiting →
-approved, rejected, replaced or withdrawn. A restore, and an approval of the live text again after an
-English change, add a new proposal that is approved at once. Its author is the author of the copied
-proposal, and it is decided by the person who approved it. So every approval is one row in the
-history, and the live text is always the approved proposal with the latest decision time.
+approved, rejected, replaced or withdrawn. A restore, and an approval of the live text again after
+an English change, add a new proposal that is approved at once. Its author is the author of the
+copied proposal, and it is decided by the person who approved it. So every approval is one row in
+the history, and the live text is always the approved proposal with the latest decision time.
 
 ### 2. `Translation` keeps the live text and the waiting proposal's id as plain columns
 
@@ -66,9 +67,10 @@ its own rules on its own `xmin`:
 - approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409,
   except a repeat of the caller's own request that already took effect, which answers 204 (spec
   0014, "Retries");
-- it refuses save, approve, reject and withdraw on a row that the previous app revision wrote last
-  and #1388 has not yet reconciled (spec 0014, "The deploy window"); the import still writes such a
-  row. It can tell from a stamp that its own write methods keep equal to `UpdatedAt`.
+- it refuses save, approve, reject and withdraw on a row that the previous app revision wrote and
+  #1388 has not yet reconciled (spec 0014, "The deploy window"); the import still writes such a
+  row. It can tell from a stamp that its own write methods keep equal to `UpdatedAt` on a row that
+  has a proposal.
 
 `Translation` cannot tell an older approved proposal from the live one by itself, so the handler
 loads the named proposal and the live one and passes them in; `Translation` decides. The author
@@ -115,8 +117,8 @@ so they never write while the deploy-window stamp of spec 0014 exists. Until #14
 `Translations` goes through `Translation`, whose write methods keep the stamp, and a set-based
 `UPDATE` of `Translations` waits (#1421 writes its backfill through `Translation` in chunks if it
 runs in that time). In the same transaction the bulk paths set `WaitingProposalId` and mark a
-replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps the same rules;
-the partial unique index is the backstop.
+replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps the
+same rules; the partial unique index is the backstop.
 
 The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
 row's English does not end with a line break, the run of CR and LF at the end goes), before the
@@ -129,7 +131,8 @@ empty and the length check. A set-based path compares each row with that row's o
 - The import and bulk approve keep loading the same small `Translation` they load today.
 - The history can grow without limit and never slows the paths that do not read it.
 - The rules live in one place (`Translation`), and the database also enforces the one-waiting rule.
-- An approval is never lost from the history, because it is a row.
+- An approval is never lost from the history, because it is a row (except an approval by the
+  previous app revision that the deploy-window reconcile cannot see, spec 0014).
 
 ### Negative / Accepted Trade-offs
 
@@ -140,8 +143,8 @@ empty and the length check. A set-based path compares each row with that row's o
   the deploy or after a rollback. Spec 0014 ("The deploy window") gives `Translations` two
   temporary stamp columns, freezes every row with Polish or a proposal that the old revision
   wrote, status-only writes included (no save, approve, reject or withdraw; the import still writes
-  it), until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only the
-  first implementation ticket writes in that window, and a set-based writer waits for #1497.
+  it), until the contract step (#1388) reconciles it, and lets #1497 remove the stamp later. Only
+  the first implementation ticket writes in that window, and a set-based writer waits for #1497.
 - A row in "Do ponownego sprawdzenia" keeps that status through saves, rejects and withdraws while
   it has Polish, until an approval, so stale Polish never returns under changed English (ADR-0047).
   A row that loses its last Polish becomes `Untranslated` (spec 0014).

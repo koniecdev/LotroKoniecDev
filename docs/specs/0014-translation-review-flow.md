@@ -140,8 +140,8 @@ back.
   person who approved it, at that moment. So the history stays append-only, an outcome is still
   set once, and the live text is always the approved proposal with the latest decision time.
 - **Nobody approves or rejects their own text that has never been live,** the admin included
-  (#1368, #1345). "Author" is the proposal's author, not `Translation.SubmittedById`. A single approve or reject refuses it with its own error. Bulk approve
-  skips it and counts it.
+  (#1368, #1345). "Author" is the proposal's author, not `Translation.SubmittedById`. A single
+  approve or reject refuses it with its own error. Bulk approve skips it and counts it.
 - **Exception (Q9 (b)): a text that was already live.** Its author may restore it, and may approve
   their own live text again after an English change. Such a text brings in nothing new.
 - **Withdraw names the proposal too.** Only its author may withdraw it. If it is no longer the one
@@ -199,8 +199,8 @@ back.
     it. So stale Polish never goes back into `polish.txt` under changed English (ADR-0047). This
     replaces spec 0001's rule that a save on `NeedsReview` gives `Draft`.
   - **A row that loses its last Polish** (its waiting proposal was rejected or withdrawn, and
-    nothing is live) becomes `Untranslated`, because "Do ponownego sprawdzenia" means that Polish exists
-    (`Mechanizm-diff`). Its `PreviousSourceText` is cleared, because there is nothing left to
+    nothing is live) becomes `Untranslated`, because "Do ponownego sprawdzenia" means that Polish
+    exists (`Mechanizm-diff`). Its `PreviousSourceText` is cleared, because there is nothing left to
     compare (`Mechanizm-diff`: the column is filled only when there is something to compare). It
     shows "Odrzucone" while its latest proposal is rejected (Q8). The cost: a translator who writes
     that text again no longer sees the old English panel.
@@ -255,8 +255,9 @@ back.
   than the live one (restore), or the live one of a row in "Do ponownego sprawdzenia" (approve
   again). 204, also for a repeat that already took effect ("Retries"); 403 for a plain translator;
   403 with the error code `TranslationProposal.OwnProposal` when the caller wrote the waiting
-  proposal; 409 for any other id, a proposal of another row included; 404 for an unknown
-  translation and 422 for a removed row, as today.
+  proposal (from #1368, which brings the author rule for approve); 409 for any other id, a
+  proposal of another row included; 404 for an unknown translation and 422 for a removed row, as
+  today.
 - **Reject (new):** `POST /api/v1/translations/{id}/reject`, body `{ proposalId, reason }`
   (`RejectTranslationProposal.Command`, rel `reject`, Reviewer or Admin; Admin only until #1368;
   never the proposal's author). 204, also for a repeat ("Retries"); 400 for an empty reason or one
@@ -273,8 +274,9 @@ back.
   plain string in the contract (`proposal`; #1422 adds its own), never an enum: the frontend reads
   enums with `JsonStringEnumConverter`, which fails the whole answer on a name it does not know, so
   a new kind would break the previous frontend. A client shows a kind it does not know as a plain
-  line with its time and author. The history only grows, so #50 caps or pages the answer and picks
-  the size: a technical choice, not a question for the owner. An unknown translation is a 404.
+  line with its time and author. The history only grows, so #50 pages the answer, newest first,
+  and picks the page size: a technical choice, not a question for the owner. Every entry stays
+  reachable. An unknown translation is a 404.
   Restore is the `approve` rel on an approved proposal other than the live one, for a caller the
   policy allows.
   - **Request budget.** The editor loads the history on a GET only, like the panel of rows with the
@@ -327,11 +329,11 @@ back.
     nullable, so a list that misses one silently writes NULL; #1384 adds a test that the list
     matches the model, with no exception for the stamps.
 - **Files touched:** TMS database (new table; `WaitingProposalId` and two stamp columns on
-  `Translations`; expand migration plus backfill, ADR-0023). The `polish.txt` artifact keeps its format, and the projector does not
-  change: it still builds the file from `TranslatedText` of `Approved` rows that are not removed
-  (`PrecomputedTranslationFileProjector`). On every `Approved` row that is in step (see "The deploy
-  window"), that text is the live text, and both app revisions build the same file from a frozen
-  row.
+  `Translations`; expand migration plus backfill, ADR-0023). The `polish.txt` artifact keeps its
+  format, and the projector does not change: it still builds the file from `TranslatedText` of
+  `Approved` rows that are not removed (`PrecomputedTranslationFileProjector`). On every
+  `Approved` row that is in step (see "The deploy window"), that text is the live text, and both
+  app revisions build the same file from a frozen row.
 - **`TranslatedText` keeps today's meaning, for good:** the live text, or the waiting text on a row
   with nothing live; NULL when there is neither (after a reject or a withdraw on such a row). So
   the previous app revision can read every row, and no later step changes the column's meaning.
@@ -353,26 +355,27 @@ back.
   fits the proposals. So the new revision records which rows it wrote itself, and treats every
   other write as the previous revision's.
   - **Columns** (expand, #1384; the names are suggestions). `Translations.ProposalStampAt`
-    (timestamptz, nullable) holds the `UpdatedAt` that a proposal-aware revision last wrote.
-    `ProposalStampNeedsReview` (boolean, nullable) says whether the row was "Do ponownego
-    sprawdzenia" after that write. The previous revision does not map them, so its writes move
-    `UpdatedAt` and leave the stamp alone.
+    (timestamptz, nullable) holds the `UpdatedAt` that a proposal-aware revision last wrote, on a
+    row that has a proposal; it is NULL on a row that never had one. `ProposalStampNeedsReview`
+    (boolean, nullable) says whether the row was "Do ponownego sprawdzenia" after that write. The
+    previous revision does not map them, so its writes move `UpdatedAt` and leave the stamp alone.
   - **Who sets them.**
     - The #1384 backfill, on each row it gives a proposal. It inserts the proposal and sets the
       stamp and the flag from the `UpdatedAt` and the status it read for that proposal, and it does
       not change `UpdatedAt`. Both writes read one snapshot: one statement with a data-modifying
       CTE, or a short table lock. The trap: under `READ COMMITTED`, an `UPDATE … FROM` reads again
-      a row that another transaction changed in the meantime, so the `SET` takes both values from
-      the snapshot that fed the insert, never from `t."UpdatedAt"` or `t."Status"`. A row the previous revision changes during the backfill
-      then stays out of step and frozen, as it must.
+      a row that another transaction changed in the meantime, so the `SET` must take both values
+      from the snapshot that fed the insert, never from `t."UpdatedAt"` or `t."Status"`. A row the
+      previous revision changes during the backfill then stays out of step and frozen, as it must.
     - `Translation` itself, in one private helper that every write method uses to set
       `UpdatedAt`. Today each write method sets `UpdatedAt` itself; #1384 adds the helper. The
       in-step test reads the row as it was loaded, before the write method changes any column.
-      After the write, on a row that was in step, the stamp becomes the new `UpdatedAt` and the
-      flag the new status. On a row that was out of step, both stay as they are. A row gets its first stamp with its
-      first proposal; a row with no proposal keeps NULL. In #1384 only the import writes a row out
-      of step, because every other write refuses it; from #1388 the reconcile writes it too and
-      sets the stamp itself.
+      After the write, on a row that was in step and already has a stamp, the stamp becomes the
+      new `UpdatedAt` and the flag the new status. A row with a NULL stamp gets its first stamp only
+      from the write that adds its first proposal; any other write, the import included, leaves it
+      NULL. On a row that was out of step, both stay as they are. In #1384 only the import writes a
+      row out of step, because every other write refuses it; from #1388 the reconcile writes it
+      too and sets the stamp itself.
     - The `COPY` of new rows writes NULL stamps. A new row has no Polish, so it is in step.
     - Until #1497 removes the stamp, every write to `Translations` goes through `Translation`,
       whose write methods keep the stamp. A set-based `UPDATE` of `Translations` waits for #1497:
@@ -388,9 +391,10 @@ back.
     read model maps both columns, and the link factory runs the same test through one shared
     function and hides `upsert`, `approve`, `reject` and `withdraw` on such a row: a state rule
     (ADR-0040). The import still writes such a row.
-  - **Accepted cost.** During a rollback, an import by the previous revision freezes every row with
-    proposals it touches until #1388 runs. #1384 writes this into the runbook: do not import during
-    a rollback unless it cannot wait.
+  - **Accepted cost.** A rollback to the revision before #1384 freezes every row with Polish or a
+    proposal that the previous revision saves, approves or imports while it runs, until #1388 is
+    deployed and its reconcile has run. An import touches many rows at once. #1384 writes this into
+    the runbook: keep a rollback short, and do not import during it unless it cannot wait.
   - **The contract step (#1388)** reconciles the rows out of step in a background service at API
     start, off the startup path, like `TranslationFileFormatUpgradeService`. It is idempotent. For
     each such row, with `U` = its `UpdatedAt` as read:
@@ -399,7 +403,7 @@ back.
        author: add a proposal with that text, author `SubmittedById`, created at `U`, origin
        "backfill" (the time is approximate). A waiting proposal becomes "replaced", and the new one
        waits.
-    2. If the status as read is `Approved`, at most one of these applies, decided by
+    2. If the status as read is `Approved`, the first of these that fits applies, decided by
        `ApprovedById` at `U`: the proposal from step 1 is approved at once; or, with no live text,
        the waiting proposal whose text equals `TranslatedText` is approved (the previous revision
        approved a `Draft` row); or, when the live text equals `TranslatedText`, the flag says "Do
@@ -410,18 +414,18 @@ back.
     3. The status: `Approved` when the status as read is `Approved`. Any other row with a live text
        becomes `NeedsReview`. A row with no live text and a waiting proposal becomes `NeedsReview`
        when `PreviousSourceText` is set and (the status as read is `NeedsReview`, or the flag says
-       "Do ponownego sprawdzenia"), and `Draft` otherwise. A row with no Polish keeps its status. `PreviousSourceText`
-       stays as read.
+       "Do ponownego sprawdzenia"), and `Draft` otherwise. A row with no Polish keeps its status.
+       `PreviousSourceText` stays as read.
     4. `TranslatedText`, `SubmittedById` and `ApprovedById` follow the proposals by the rules
        above. The stamp moves.
 
     So no row joins or leaves the set of `Approved` rows, and an `Approved` row keeps its text:
     `polish.txt` stays byte-identical, and the reconcile rebuilds nothing. On the safe side, what
-    the final row cannot show is not recovered, and this is an accepted cost: an old approval that
-    a later old save replaced, the saves between, an approval again after an English change that
-    the previous revision's own import made, and an old approve of a row that was already
-    approved. The history then misses those approvals, although every approval is a row in it
-    (#1345): the final row holds no trace of them.
+    the final row cannot show is not recovered, and this is an accepted cost. For example: an old
+    approval that a later old save replaced, the saves between, an approval again after an English
+    change that the previous revision's own import made, and an old approve of a row that was
+    already approved. The history then misses those approvals, although every approval is a row
+    in it (#1345): the final row holds no trace of them.
   - **The deploy-window exception to the status rules.** A row that the previous revision left
     unpublished while its proposals hold a live text shows "Do ponownego sprawdzenia" until someone
     approves it again, also when its English did not change. The final row cannot show whether the
@@ -489,15 +493,17 @@ back.
 - [ ] Every row with Polish or a proposal that the previous revision wrote during the deploy or
       after a rollback, a write that changes only the status included, takes no save, approve,
       reject or withdraw from the new revision until #1388 has reconciled it (the import still
-      writes it), and those links are hidden. The cases: it approves a
-      `Draft` row whose text equals the waiting proposal; it saves the same text on an approved
+      writes it), and those links are hidden. The cases: it approves a `Draft` row whose text
+      equals the waiting proposal; it saves the same text on an approved
       row; it saves the same text on a backfilled "Do ponownego sprawdzenia" row; it approves again
       a "Do ponownego sprawdzenia" row; it saves on a row with no proposal; its import touches a
-      row with proposals; a write lands while the backfill runs.
-- [ ] After #1388, every row with Polish has a proposal for its current text, a row the previous
-      revision left unpublished is not published, an approved row whose text already matches its
-      live proposal gets no new proposal, and `polish.txt` is byte-identical before and after the
-      reconcile.
+      row with proposals; a write lands while the backfill runs. A row with no Polish and no
+      proposal is never frozen, also after the imports of both revisions wrote it.
+- [ ] After #1388, every row with Polish has a proposal for its current text, and a row the
+      previous revision left unpublished is not published. An approved row whose text already
+      matches its live proposal, by the same author, and that was not in "Do ponownego sprawdzenia"
+      at its last stamp, gets no new proposal; an approval again by the previous revision gets its
+      copy. `polish.txt` is byte-identical before and after the reconcile.
 - [ ] The previous app revision keeps working against the migrated schema (the N-1 proof,
       ADR-0024).
 - [ ] Account erasure leaves proposals in place under "Usunięte konto"; the data export lists the

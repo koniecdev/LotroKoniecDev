@@ -107,8 +107,6 @@ internal static partial class ApiProblemCopy
                 "Nieprawidłowy identyfikator fragmentu.",
             ["Translations.Validation"] =
                 "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.",
-            ["Translations.UnsupportedLanguage"] =
-                "Ten język nie jest obsługiwany — dostępny jest wyłącznie polski.",
             ["Translations.SaveBudgetExhausted"] =
                 "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.",
             ["Translations.OverwriteBudgetExhausted"] =

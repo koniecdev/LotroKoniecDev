@@ -57,7 +57,7 @@ public sealed class TranslationListLoaderTests
     }
 
     [Fact]
-    public async Task LoadAsync_WithNoFilters_QueriesTheAdvertisedTranslationsHrefWithLangAndDefaultPaging()
+    public async Task LoadAsync_WithNoFilters_QueriesTheAdvertisedTranslationsHrefWithDefaultPagingAndNoLanguage()
     {
         TranslationListLoader loader = CreateLoader(EmptyPage(), out StubHttpMessageHandler handler);
 
@@ -67,7 +67,7 @@ public sealed class TranslationListLoaderTests
         handler.LastRequest!.Method.ShouldBe(HttpMethod.Get);
         string requestUri = handler.LastRequest.RequestUri!.ToString();
         requestUri.ShouldStartWith($"{ResolvedTranslationsUri}?");
-        requestUri.ShouldContain("lang=pl");
+        requestUri.ShouldNotContain("lang=");
         requestUri.ShouldContain("page=1");
         requestUri.ShouldContain($"pageSize={TranslationListQuery.DefaultPageSize}");
     }

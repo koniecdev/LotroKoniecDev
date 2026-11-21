@@ -57,13 +57,14 @@ the engine version of the copy. A one-run environment variable can override some
 ## A longer ticket clock: 360 minutes (#1501)
 
 The engine stops a ticket's run after `LOOP_TICKET_TIMEOUT_MIN` minutes (default 240, `LOOP.md` →
-"Knobs"). A ticket stopped late has spent most of its cost and opens no PR, so its work is paid
-for twice. Since the code review runs on Fable (#1318), a review round takes 15 to 30 minutes and
-the gates about 10 more after each fix, so a ticket that opens a PR takes 1.5 to 3.5 hours on
-Linux. So `/backlog` prints the launcher with `LOOP_TICKET_TIMEOUT_MIN=360`. It is an environment
-variable of the engine, not a key of `scripts/claude-loop.conf`: when you start the loop by hand,
-put it in front of the command yourself. The worker's start line in the console shows the clock a
-run got (`timeout=360m`).
+"Knobs"). A ticket stopped late has spent most of its cost and opens no PR, so its work is paid for
+twice. Since the code review runs on Fable (#1318), a review round takes 15 to 30 minutes and the
+gates about 10 more after each fix, so a ticket that opens a PR takes 1.5 to 3.5 hours on Linux. So
+`/backlog` prints the launcher with `LOOP_TICKET_TIMEOUT_MIN=360`. It is an environment variable of
+the engine, not a key of `scripts/claude-loop.conf`: when you start the loop by hand, put it in
+front of the command yourself. A run started without it has a 240-minute clock that its worker
+cannot see: the worker never stops itself for time, and the engine ends a long ticket as `timeout`,
+with no report. The worker's start line in the console shows the clock a run got (`timeout=360m`).
 
 The worker must also know its clock. #1494 (and earlier #1376, #687 and #905) was stopped by the
 engine and shows as `timeout`. #1488 ($79, three rounds and an APPROVE done, one second-pass fix

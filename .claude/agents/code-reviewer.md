@@ -336,7 +336,6 @@ Severities:
 - **Minor** — style inconsistency, naming, optional improvement. Nice to fix. Never wrong behaviour a user would see that this diff adds, changes or makes reachable, even when it looks rare or your numbers are rough: that is Major at least, because a later ticket for it costs far more than one more round now (#1501: a window taller than a laptop screen was rated Minor, and it took a ticket of its own).
 - **Note** — observation, not actionable. FYI only.
 
-
 In round 3, the brief says so and lists every commit made since round 1's review, plus the files any
 conflicted rebase since then resolved. Add one line right after the findings table: `Fix-made
 defects: none`, or `Fix-made defects:` followed by the `#` of each Critical or Major whose defect

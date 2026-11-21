@@ -48,7 +48,6 @@ public sealed class ChangeEmailSuccessStyleTests : E2ETestBase
         await AuthActions.RegisterAsync(Page, Fixture, user);
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
-        await AuthActions.AcceptCookieBannerAsync(Page);
 
         // Act
         string newEmail = TestUser.CreateRandomEmail();

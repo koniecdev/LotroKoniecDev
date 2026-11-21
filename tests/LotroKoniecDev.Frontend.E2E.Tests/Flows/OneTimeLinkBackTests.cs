@@ -228,7 +228,6 @@ public sealed class OneTimeLinkBackTests : E2ETestBase
         await AuthActions.RegisterAsync(Page, Fixture, user);
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
-        await AuthActions.AcceptCookieBannerAsync(Page);
         return user;
     }
 }

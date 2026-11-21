@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 using Microsoft.Playwright;
 using Shouldly;
@@ -5,14 +6,18 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// LEGAL-04 in a real browser: the banner works with JavaScript off, and on a phone-sized screen it stays at
-/// the bottom edge and leaves the footer's legal links reachable (#672). No account needed.
+/// The cookie notice in a real browser: it closes with no request, so nothing on the page is lost, and it
+/// shows on the first page only (#1339). On a phone-sized screen it stays at the bottom edge and leaves the
+/// footer's legal links reachable (#672). No account needed.
 /// </summary>
 public sealed class CookieConsentBannerTests : E2ETestBase
 {
-    private const string BannerLabel = "Informacja o plikach cookie";
-    private const string AcceptButtonName = "Akceptuję";
+    private const string NoticeLabel = "Informacja o plikach cookie";
+    private const string CloseButtonName = "Rozumiem";
+    private const string SearchLabel = "Wyszukaj";
+    private const string TypedSearch = "Mithril";
     private const string TermsLinkName = "Regulamin";
+    private const string TermsHeading = "Regulamin serwisu";
     private const string PrivacyPolicyLinkName = "Polityka prywatności";
     private const int PhoneViewportWidth = 390;
     private const int PhoneViewportHeight = 844;
@@ -21,49 +26,75 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     {
     }
 
-    [Fact]
-    public async Task Banner_shows_for_new_visitor_and_accepting_without_javascript_hides_it_across_navigation()
+    /// <summary>
+    /// The reported bug: closing the notice reloaded the page and cleared what the visitor had ticked or typed.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Closing_the_notice_sends_no_request_and_keeps_what_the_visitor_typed(bool javaScriptEnabled)
     {
-        // Arrange: a dedicated JS-less context: the acceptance path must be pure SSR.
-        await using IBrowserContext jsLessContext = await Fixture.Browser.NewContextAsync(new BrowserNewContextOptions
-        {
-            IgnoreHTTPSErrors = true,
-            JavaScriptEnabled = false,
-            ViewportSize = new ViewportSize { Width = 1366, Height = 900 }
-        });
-        jsLessContext.SetDefaultTimeout(20_000);
-        IPage page = await jsLessContext.NewPageAsync();
+        // Arrange
+        await using IBrowserContext context = await NewDesktopContextAsync(javaScriptEnabled);
+        IPage page = await context.NewPageAsync();
+        await page.GotoAsync($"{Fixture.FrontendBaseUrl}/translations");
+        ILocator notice = page.GetByRole(AriaRole.Dialog, new() { Name = NoticeLabel });
+        await notice.WaitForAsync();
+        ILocator search = page.GetByLabel(SearchLabel, new() { Exact = true });
+        await search.FillAsync(TypedSearch);
+        string urlBeforeClosing = page.Url;
+        ConcurrentQueue<string> requests = WatchRequestsThatCouldReplaceThePage(page);
 
-        await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
-        ILocator banner = page.GetByRole(AriaRole.Region, new() { Name = BannerLabel });
-        await banner.WaitForAsync();
+        // Act
+        await page.GetByRole(AriaRole.Button, new() { Name = CloseButtonName, Exact = true }).ClickAsync();
+        await notice.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Hidden });
 
-        await page.GotoAsync($"{Fixture.FrontendBaseUrl}/regulamin");
-        (await banner.IsVisibleAsync()).ShouldBeTrue();
-
-        await page.GetByRole(AriaRole.Button, new() { Name = AcceptButtonName, Exact = true }).ClickAsync();
-        await banner.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached });
-
-        page.Url.ShouldContain("/regulamin");
-
-        await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
-        (await banner.IsVisibleAsync()).ShouldBeFalse();
+        // Assert
+        requests.ShouldBeEmpty();
+        page.Url.ShouldBe(urlBeforeClosing);
+        (await search.InputValueAsync()).ShouldBe(TypedSearch);
     }
 
     /// <summary>
-    /// #672: a bar in the normal flow would pass the reachability test below while scrolling the consent
-    /// notice out of sight, so this is checked separately.
+    /// The notice only informs, so the page that shows it already stores the cookie. With JavaScript on the
+    /// footer link is an enhanced navigation, which patches the page instead of loading it.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Notice_shows_on_the_first_page_only_even_when_the_visitor_never_closes_it(bool javaScriptEnabled)
+    {
+        // Arrange
+        await using IBrowserContext context = await NewDesktopContextAsync(javaScriptEnabled);
+        IPage page = await context.NewPageAsync();
+        await page.GotoAsync($"{Fixture.FrontendBaseUrl}/");
+        ILocator notice = page.GetByRole(AriaRole.Dialog, new() { Name = NoticeLabel });
+        await notice.WaitForAsync();
+
+        // Act
+        await page.GetByRole(AriaRole.Contentinfo)
+            .GetByRole(AriaRole.Link, new() { Name = TermsLinkName, Exact = true })
+            .ClickAsync();
+        await page.GetByRole(AriaRole.Heading, new() { Name = TermsHeading, Level = 1 }).WaitForAsync();
+
+        // Assert
+        (await notice.IsVisibleAsync()).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// #672: a bar in the normal flow would pass the reachability test below while scrolling the cookie notice
+    /// out of sight, so this is checked separately.
     /// </summary>
     [Fact]
-    public async Task Banner_on_a_phone_viewport_stays_pinned_to_the_bottom_edge_while_the_page_can_still_scroll()
+    public async Task Notice_on_a_phone_viewport_stays_pinned_to_the_bottom_edge_while_the_page_can_still_scroll()
     {
         await using IBrowserContext phoneContext = await NewPhoneContextAsync();
         IPage page = await OpenTermsPageAsync(phoneContext);
-        ILocator banner = page.GetByRole(AriaRole.Region, new() { Name = BannerLabel });
-        await banner.WaitForAsync();
+        ILocator notice = page.GetByRole(AriaRole.Dialog, new() { Name = NoticeLabel });
+        await notice.WaitForAsync();
 
         // The terms page is far taller than the viewport, so an in-flow bar would be below the fold.
-        LocatorBoundingBoxResult bar = await banner.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult bar = await notice.RequireBoundingBoxAsync();
 
         (bar.Y + bar.Height).ShouldBe(PhoneViewportHeight, 1d);
     }
@@ -74,12 +105,12 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     /// on only to scroll and measure.
     /// </summary>
     [Fact]
-    public async Task Banner_on_a_phone_viewport_leaves_the_legal_footer_links_reachable_at_the_end_of_the_page()
+    public async Task Notice_on_a_phone_viewport_leaves_the_legal_footer_links_reachable_at_the_end_of_the_page()
     {
         await using IBrowserContext phoneContext = await NewPhoneContextAsync();
         IPage page = await OpenTermsPageAsync(phoneContext);
-        ILocator banner = page.GetByRole(AriaRole.Region, new() { Name = BannerLabel });
-        await banner.WaitForAsync();
+        ILocator notice = page.GetByRole(AriaRole.Dialog, new() { Name = NoticeLabel });
+        await notice.WaitForAsync();
         ILocator footer = page.GetByRole(AriaRole.Contentinfo);
         ILocator termsLink = footer.GetByRole(AriaRole.Link, new() { Name = TermsLinkName, Exact = true });
         ILocator privacyPolicyLink = footer.GetByRole(AriaRole.Link, new() { Name = PrivacyPolicyLinkName, Exact = true });
@@ -89,7 +120,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
 
         // Assert: the whole footer ends up above the bar, and the trial click's hit-target check fails if
         // anything is drawn over a link.
-        LocatorBoundingBoxResult bar = await banner.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult bar = await notice.RequireBoundingBoxAsync();
         LocatorBoundingBoxResult footerBox = await footer.RequireBoundingBoxAsync();
         LocatorBoundingBoxResult termsBox = await termsLink.RequireBoundingBoxAsync();
         LocatorBoundingBoxResult privacyPolicyBox = await privacyPolicyLink.RequireBoundingBoxAsync();
@@ -102,25 +133,54 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// #672: no space may stay reserved for a bar that is gone. A footer padded for the bar would fail this.
+    /// #672: no space may stay reserved for a bar that is gone. A footer padded for the bar would fail this,
+    /// and so would a closed dialog that a display rule keeps on screen.
     /// </summary>
     [Fact]
-    public async Task Accepting_on_a_phone_viewport_leaves_the_footer_flush_with_the_end_of_the_page()
+    public async Task Closing_on_a_phone_viewport_leaves_the_footer_flush_with_the_end_of_the_page()
     {
         await using IBrowserContext phoneContext = await NewPhoneContextAsync();
         IPage page = await OpenTermsPageAsync(phoneContext);
-        ILocator banner = page.GetByRole(AriaRole.Region, new() { Name = BannerLabel });
-        await banner.WaitForAsync();
+        ILocator notice = page.GetByRole(AriaRole.Dialog, new() { Name = NoticeLabel });
+        await notice.WaitForAsync();
 
-        await page.GetByRole(AriaRole.Button, new() { Name = AcceptButtonName, Exact = true }).ClickAsync();
-        await banner.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached });
-        await page.WaitForLoadStateAsync();
+        await page.GetByRole(AriaRole.Button, new() { Name = CloseButtonName, Exact = true }).ClickAsync();
+        await notice.WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Hidden });
         await page.WaitForFontsAsync();
         await ScrollToBottomAsync(page);
 
         LocatorBoundingBoxResult footerBox = await page.GetByRole(AriaRole.Contentinfo).RequireBoundingBoxAsync();
 
         (footerBox.Y + footerBox.Height).ShouldBe(PhoneViewportHeight, 1d);
+    }
+
+    /// <summary>
+    /// A form post, a reload or a script call would show up here. Images and fonts the page loads late would
+    /// not replace it, so they do not count.
+    /// </summary>
+    private static ConcurrentQueue<string> WatchRequestsThatCouldReplaceThePage(IPage page)
+    {
+        ConcurrentQueue<string> requests = new();
+        page.Request += (_, request) =>
+        {
+            if (request.IsNavigationRequest || request.Method is not "GET" || request.ResourceType is "fetch" or "xhr")
+            {
+                requests.Enqueue($"{request.Method} {request.Url}");
+            }
+        };
+        return requests;
+    }
+
+    private async Task<IBrowserContext> NewDesktopContextAsync(bool javaScriptEnabled)
+    {
+        IBrowserContext context = await Fixture.Browser.NewContextAsync(new BrowserNewContextOptions
+        {
+            IgnoreHTTPSErrors = true,
+            JavaScriptEnabled = javaScriptEnabled,
+            ViewportSize = new ViewportSize { Width = 1366, Height = 900 }
+        });
+        context.SetDefaultTimeout(20_000);
+        return context;
     }
 
     /// <summary>

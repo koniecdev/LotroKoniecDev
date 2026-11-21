@@ -31,9 +31,6 @@ public sealed class AccountGdprSelfServiceTests : E2ETestBase
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
 
-        // Accept the cookie banner first, or its bar would cover the form buttons this flow clicks.
-        await AuthActions.AcceptCookieBannerAsync(Page);
-
         // "Moje konto" is the privacy policy's wording.
         await Page.GetByTestId("nav-account").ClickAsync();
         await Page.GetByTestId("account-export").WaitForAsync(LongWait);

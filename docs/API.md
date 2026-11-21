@@ -113,9 +113,11 @@ the data is public game text). Every state change needs a login. On every authen
 middleware creates the caller's TMS `Translator` profile if it is missing (ADR-0004, amended
 2026-06-24); write handlers also do it before they stamp the author.
 
-**Roles** (`AuthConstants.Roles`): `Admin` (reviewer — approves, imports, registers versions) and
-`Translator` (edits Polish). A self-registered user gets **`Translator`**; the seeded admin gets
-`Admin`. **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC `openid email profile
+**Roles** (`AuthConstants.Roles`): `Admin` (approves, imports, registers versions), `Translator`
+(edits Polish) and `Reviewer` (Recenzent, #1488: a trusted translator, always next to `Translator`;
+for now it only lifts the limits — 300 requests a minute per account and no daily save budget — and
+cannot approve until #1368). A self-registered user gets **`Translator`**; the seeded admin gets
+`Admin`; only the admin gives or takes away `Reviewer` (§7.2). **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC `openid email profile
 roles offline_access`).
 
 ### 2.3 Request headers the client should send
@@ -134,7 +136,7 @@ Both APIs turn the limiter off in Development and Testing. Elsewhere:
 
 | API | Policy | Limit | Applies to |
 |---|---|---|---|
-| `tms-api` | `fixed-by-ip` | 100 / min | every other endpoint. The limiter runs before authentication, so a call refused with 401 or 403 also spends the bucket (#829) |
+| `tms-api` | `fixed-by-ip` | 100 / min per address; 300 / min per account for a token with `Reviewer` or `Admin` (#1488) | every other endpoint. The limiter runs after authentication and before authorization, so a call refused with 401 or 403 also spends the bucket (#829), and only a checked token can pick an account bucket (ADR-0054 amendment of 2026-11-21) |
 | `tms-api` | `translation-file-download` | 5 / min | `GET translation-files/{lang}` only, in place of `fixed-by-ip` (#697, ADR-0064). Every call counts, a 304 and a 400 included, because the limiter answers before the endpoint knows the result |
 | `auth-api` | `fixed-by-ip` | 20 / min | the `auth/*` group by default |
 | `auth-api` | `auth-endpoint-limit` | 10 / min | `connect/*`, `auth/confirm-email`, `auth/reset-password`, `auth/account/cancel-deletion`, `GET auth/account/data-export`, and the four link-landing pages (`ConfirmEmail`, `ConfirmEmailChange`, `RevertEmailChange`, `CancelDeletion`) |
@@ -167,7 +169,7 @@ who rotates IP addresses gets a fresh IP budget every time (ADR-0055). It is key
 | E-mail change | 3 / 15 min per inbox of the **new** address, whichever account asks | before the link is queued | 429 `Auth.EmailChangeRecipientThrottled` |
 | Current-password confirmation | 10 / 15 min per account (change password, change e-mail, delete, GDPR export) | before the password check | 429 `Auth.PasswordConfirmationThrottled` |
 | Account deletion schedule | 3 / h per account (#811) | last check before the schedule is saved | 429 `Auth.DeletionScheduleThrottled` |
-| Translation save (`tms-api`, non-admins only) | 1,000 saves per account per rolling 24 h; of those, 100 on a row that already has Polish (ADR-0072) | after the row is loaded, before the text changes | 429 `Translations.SaveBudgetExhausted`, or `Translations.OverwriteBudgetExhausted` when only the second budget is spent |
+| Translation save (`tms-api`, plain translators only: not `Admin`, not `Reviewer`) | 1,000 saves per account per rolling 24 h; of those, 100 on a row that already has Polish (ADR-0072) | after the row is loaded, before the text changes | 429 `Translations.SaveBudgetExhausted`, or `Translations.OverwriteBudgetExhausted` when only the second budget is spent |
 
 A silent refusal keeps the neutral "if the account exists" answer, so it cannot reveal a recent
 request. The `auth-api` budgets live in process memory, so two running containers would mean two
@@ -337,6 +339,9 @@ The sign-in UI is server-rendered Razor Pages: `/Account/Login`, `/Account/Regis
 | `POST` | `auth/account/change-email` | bearer token | `ChangeEmailRequest { newEmail, currentPassword }` — **starts** an e-mail change (ADR-0048). Nothing on the account changes yet: a warning goes to the old address, then a verification link (24 h) to the new one. The answer is the same for any new address (#860): if it already has an account, its owner gets a notice instead of the link, and a reserved address (#684) gets nothing. Confirming happens on `/Account/ConfirmEmailChange` (GET shows the form, POST applies). Then the old address gets a 14-day link to `/Account/RevertEmailChange`, which restores the address and clears the password |
 | `GET` | `auth/account/data-export` | bearer token | `AccountDataExportResponse` — the **account representation** the "Moje konto" page renders, with the account's links. Not the GDPR export: it leaves out the contact details (`phoneNumber` is always `null` here) |
 | `POST` | `auth/account/data-export` | bearer token | `DownloadAccountDataRequest { password }` → **200** `AccountDataExportResponse` without links — the **GDPR Art. 15 export**, contact details included, only behind the current password (#690, ADR-0052). Wrong password → **400** `Auth.InvalidCurrentPassword`, none sent → **400** `Auth.ExportPasswordRequired`. Every attempt that reaches the password check is written to the audit log |
+| `GET` | `auth/admin/accounts?page=` | admin token (`AdminToken` policy) | `AccountListResponse { items, page, pageSize, totalCount }` — 50 accounts a page, ordered by username, erased accounts left out (#1488). Each `AccountSummaryResponse { userId, username, email, roles, deletionScheduledAt }` carries the role change its state allows. A page below 1 → **400** `Auth.AccountListPageInvalid` |
+| `PUT` | `auth/admin/accounts/{accountId}/reviewer` | admin token | gives `Reviewer` next to `Translator` → **204**, then revokes every session of that account (#1488). Already a reviewer → **204**, nothing changes. An account that is an admin, has no `Translator` or has a deletion scheduled → **422** `Auth.ReviewerRoleNotAllowed`; unknown id → **404** |
+| `DELETE` | `auth/admin/accounts/{accountId}/reviewer` | admin token | takes `Reviewer` away → **204**, then revokes every session of that account. Never refused for the account's state; an account without the role → **204**, nothing changes |
 | `GET` | `/` | anonymous | discovery document (links into the account flows) |
 
 `RegisterRequest`: `{ username, email, password, acceptedPrivacyPolicy, acceptedTermsOfService }`.
@@ -440,8 +445,8 @@ the line breaks (CR and LF) at its end; spaces and breaks inside the text stay (
 amendment of 2026-11-21). The translator is taken from the **token**, never
 the body. Editing an `Approved` row moves it to `Draft`, which takes it out of the file until someone
 approves it again. A soft-removed row → **422** (`TranslationEntity.CannotEditRemoved`); unknown
-fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are. A caller who is not an
-admin spends the per-account save budget (§2.4, ADR-0072): past it → **429**
+fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are. A caller who is neither
+an admin nor a reviewer spends the per-account save budget (§2.4, ADR-0072): past it → **429**
 (`Translations.SaveBudgetExhausted`; `Translations.OverwriteBudgetExhausted` when only the budget for
 rows that already have Polish is spent, so a row with no Polish still saves). A refused save changes
 nothing and spends nothing.
@@ -668,7 +673,10 @@ Rels on resources and collections:
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 
 Discovery: `self`, `register` and `forgot-password` for an anonymous caller, `export-account-data` for
-a logged-in one. Account representation: `self`, `download-account-data`, `change-password`,
+a logged-in one, and `accounts` (GET `auth/admin/accounts`) for the admin alone, because the link
+factory replays the endpoint's policy. Account list (#1488): `self`, `previous-page`, `next-page`; on
+each account `grant-reviewer` (PUT) while it holds `Translator`, not `Admin`, not `Reviewer`, with no
+deletion scheduled, and `remove-reviewer` (DELETE) while it holds `Reviewer`. Account representation: `self`, `download-account-data`, `change-password`,
 `change-email`, `delete-account`, and `resend-email-confirmation` while the e-mail is unconfirmed.
 `download-account-data` (POST `auth/account/data-export`) is the password-gated GDPR export and is not
 in discovery (ADR-0052). While a deletion is scheduled the account representation emits only `self`,

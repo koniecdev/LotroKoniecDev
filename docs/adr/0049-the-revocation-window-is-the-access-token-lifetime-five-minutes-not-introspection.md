@@ -1,8 +1,9 @@
 # ADR-0049: The revocation window is the access-token lifetime — five minutes, not introspection
 
 **Status:** Accepted (amended 2026-09-27 by #848 — a refresh now also checks the security stamp;
-2026-10-07 by #1025 — the lifetime has a floor of two minutes; and 2026-10-11 by #933 — the TMS
-allows no clock skew and accepts only access tokens; see the amendments below)
+2026-10-07 by #1025 — the lifetime has a floor of two minutes; 2026-10-11 by #933 — the TMS
+allows no clock skew and accepts only access tokens; and 2026-11-21 by #1488 — a changed role set ends
+the refresh too; see the amendments below)
 **Date:** 2026-08-21
 **Decision-makers:** Solo maintainer
 **Related:** #686 (SEC-08, the defect), #701 (QA-FE-24 S03 TC06/TC07, where a tester hit it), ADR-0048 (the e-mail-change undo this protects), ADR-0041 (no API gateway), ADR-0031 (deletion grace period), `OpenIddictSettings`, `IUserSessionRevoker`, `SecurityStampCookieValidator`, `CookieTokenRefresher`, `DeadSessionRegistry`
@@ -227,3 +228,30 @@ can be as little as 60 seconds, the first call already carries an expired token.
 
 **Reopen this amendment when** the auth server and the TMS stop sharing a machine. Then allow a few
 seconds of skew, never the library's five minutes, and count those seconds in the window.
+
+## Amendment (2026-11-21, #1488): a changed role set ends the refresh too
+
+The admin now gives and takes away the Reviewer role (#1488), and the ticket asks that the person is
+signed out after a change, so the website signs in again with the new roles. The website keeps the
+roles it signed in with: they key its cached discovery document, and a refresh updates only the
+tokens. `GrantReviewerRole` and `RemoveReviewerRole` call `RevokeAllAsync` after a real change, but
+that is best effort.
+
+So the code exchange and every refresh now also compare the token's `role` claims with the account's
+current roles, as ordinal sets, in `TokenEndpoint.FindUserStillAllowedAsync`. On a mismatch they answer
+`invalid_grant` and log an Information line (event 2398, the #977 rule: the normal result of an
+admin's change). This follows the #848 stamp check: the roles are already in every sign-in principal,
+and OpenIddict keeps them in the code and the refresh token. A refresh no longer picks up a changed
+role, which it did since the M2-03 lift; a role change now ends the session instead. Today only the
+admin's role change and erasure write roles, and an erased account is refused earlier, so the deploy
+signs nobody out.
+
+The stamp is not rotated on a role change. A new stamp would break the links already mailed to the
+account (the cancel-deletion and e-mail-change links) and end the sign-in server's cookie, which this
+change does not need. So signing in again is one click while that cookie lives (30 minutes, sliding),
+and needs the password after it.
+
+Tests: `TokenEndpointTests` (a refresh after a role change in the database is refused; signing in again
+issues every role), `TokenRefreshRefusalLoggingTests` and `TokenCodeExchangeRefusalLoggingTests` (the
+`RolesChanged` rows), `AccountAdministrationEndpointTests` (a grant and a removal revoke the tokens and
+keep the stamp).

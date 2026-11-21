@@ -6,7 +6,8 @@ moved the TMS limiter before authentication, noted in the TMS amendment; amended
 "Amendment: an IPv6 client is its /64"; amended 2026-09-27 — see "Amendment: the refused-call warning
 names the visitor too"; 2026-09-28 — #900 made introspection POST only (ADR-0061), noted in that
 amendment; 2026-11-14 — #697 added a second TMS policy keyed through the resolver, noted in the TMS
-amendment)
+amendment; amended 2026-11-21 — see "Amendment: a Reviewer or the Admin counts per account on the TMS
+API")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -315,7 +316,9 @@ have put every page on the 429 copy. The decision above now covers the TMS API t
   The policy metadata is now always on the endpoint group, and `UseRateLimiter` is the one switch.
 - This amendment left the TMS limiter after authentication, so a request refused with 401 was not
   counted. #829 (2026-09-24) moved it before authentication, as on the auth API: a request refused
-  with 401 or 403 now spends the bucket too (`RefusedCallsRateLimitingTests`).
+  with 401 or 403 now spends the bucket too (`RefusedCallsRateLimitingTests`). #1488 (2026-11-21)
+  moved it to between authentication and authorization, which keeps both guarantees (see its
+  amendment below).
 - #697 (2026-11-14) gave the translation file download its own policy, `translation-file-download`
   (5 calls a minute, ADR-0064 amendment), so `fixed-by-ip` is no longer the TMS API's one policy. It
   keys through the resolver too: the landing-page download reaches the endpoint from the frontend
@@ -424,6 +427,49 @@ the connection, the connection is in the line either way; on the auth API a wron
 warned); the auth API's `AuthorizationLoggingMiddlewareTests` (the 403 line, which no auth endpoint
 reaches today, and no warning for a 401 without a real endpoint, since #900);
 `RateLimitPartitionKeyResolverTests` on both APIs (an IPv6 visitor's whole address).
+
+## Amendment: a Reviewer or the Admin counts per account on the TMS API (2026-11-21, #1488)
+
+Regular translators hit the TMS limit of 100 requests a minute: one translated row costs about seven
+or eight requests (the editor, the panel of rows with the same text, the save, the reload, the list).
+The owner ruled in #1488: plain accounts keep 100 a minute per address, because raising it for
+everyone would give the same room to every new account and every bot. A **Reviewer** (Recenzent, a
+role only the admin gives) gets **300 a minute, counted per account**. The admin gets the same room,
+because the admin can do all a reviewer can (spec 0014).
+
+- **The TMS limiter now runs between `UseAuthentication` and `UseAuthorization`.** Authentication only
+  sets `HttpContext.User`: the API registers JwtBearer alone, with no events, and JwtBearer writes no
+  response while it authenticates. The 401 and 403 answers come from authorization, so they still
+  spend the bucket, and a call over the limit still stops before translator provisioning. Both
+  guarantees of #829 hold (`RefusedCallsRateLimitingTests`). Before #829 the limiter sat after
+  authorization, which is the only reason it missed the 401s then.
+- **`RequestRateLimitPartitioner` picks the bucket of `fixed-by-ip`.** An authenticated principal
+  with Reviewer or Admin and a GUID `sub` gets the key `account:{sub}` and 300 permits. Every other
+  caller keeps the resolver's key and 100 permits, so the rest of this ADR is unchanged for them. An
+  `account:` key can never equal an address key (an IPv4 text, an IPv6 /64 or `unknown`). The policy
+  keeps its name; renaming it would touch every reference and buys nothing.
+- **Only a checked token can name an account.** A failed authentication leaves the user anonymous,
+  so an expired, unsigned or forged token lands in the address bucket. The partition never reads the
+  bearer itself (the reason ADR-0053 Alternative C gave stays true).
+- **Accepted cost.** Every request, one over the limit included, now pays the token's signature
+  check before the limiter can refuse it. It is a local check with cached keys. Unproven, because it
+  is library behaviour: while tms-api has never loaded the sign-in server's metadata (just after a
+  start, with the sign-in server down), a well-formed token may make it try to load it, and before
+  this change one address could cause at most 100 such tries a minute. Accepted, because the window
+  exists only right after a start. Loading the metadata at start was rejected: it would make the
+  TMS start depend on the sign-in server.
+- **Rejected: an address-only limiter before authentication on top.** It would cap two reviewers
+  behind one address below their 300 each, or it would need a second, higher number kept in step.
+- **100 and 300 stay constants in the code**, like the 100 before and the download's 5 (ADR-0064).
+  The owner set 300 in the ticket. Trade-off: changing either needs a release and a prod promotion,
+  while the ADR-0072 numbers are settings because the owner tunes them per box.
+- **A removed role keeps its room until the access token expires**, at most five minutes
+  (ADR-0049). The removal also ends the person's sessions (ADR-0049 amendment of 2026-11-21).
+
+Tests: `TranslationSystem.API.Tests.Unit` — `RequestRateLimitPartitionerTests`;
+`TranslationSystem.API.Tests.Integration` — `TrustedRoleRateLimitingTests` (a Reviewer and the Admin
+pass 100 and stop after 300, a plain translator stops after 100, two reviewers behind one address each
+get 300, a reviewer's calls leave the address bucket whole) and `RefusedCallsRateLimitingTests`.
 
 ## References
 

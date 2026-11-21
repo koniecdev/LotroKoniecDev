@@ -27,7 +27,7 @@ public sealed class CookieConsentBannerTests : E2ETestBase
     }
 
     /// <summary>
-    /// The reported bug: closing the notice reloaded the page and cleared what the visitor had ticked or typed.
+    /// A reload would clear what the visitor ticked or typed, so closing must send no request (#1339).
     /// </summary>
     [Theory]
     [InlineData(false)]

@@ -5,6 +5,7 @@ using LotroKoniecDev.Frontend.Settings;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Net.Http.Headers;
 using NSubstitute;
 
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Shared;
@@ -54,8 +55,18 @@ public sealed class CookieConsentTests : BunitContext
         setCookie.ShouldContain("httponly", Case.Insensitive);
         setCookie.ShouldContain("path=/", Case.Insensitive);
         setCookie.ShouldContain("samesite=lax", Case.Insensitive);
-        // A session cookie would show the notice again after a browser restart.
-        setCookie.ShouldContain("expires=", Case.Insensitive);
+    }
+
+    [Fact]
+    public void Render_WhenCookieAbsent_KeepsTheCookieForAYear()
+    {
+        // The privacy policy says "ważne rok". A session cookie would show the notice again after a browser
+        // restart.
+        Render<CookieConsent>();
+
+        SetCookieHeaderValue setCookie = SetCookieHeaderValue.Parse(_httpContext.Response.Headers.SetCookie.ToString());
+        TimeSpan lifetime = setCookie.Expires.ShouldNotBeNull() - DateTimeOffset.UtcNow;
+        lifetime.TotalDays.ShouldBeInRange(364, 367);
     }
 
     [Theory]

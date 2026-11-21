@@ -150,8 +150,10 @@ back.
   does today, and leaves a waiting proposal waiting.
 - **A removed row (soft removal, spec 0001)** takes no new proposals, as today. Its proposals and
   live text are kept, so a restored row comes back with them.
-- **Import writes no proposals.** An import changes the English only, so the history does not grow
-  with imports. (#50 feared 780k history rows per import; that cannot happen in this model.)
+- **Import writes no proposals.** An import changes only the English and the status (wiki
+  `Mechanizm-diff`), so the history does not grow with imports. (#50 feared 780k history rows per
+  import; that cannot happen in this model.) From #1421 the import also gives "Nie do tłumaczenia"
+  to a row with no Polish (see the status rules below).
 - **Account erasure (ADR-0065).** Proposals and rejection reasons stay, credited to the profile that
   becomes "Usunięte konto". The data export of a translator includes their proposals and their own
   decisions: the proposals they approved or rejected, with the reasons they wrote (today's export
@@ -159,18 +161,30 @@ back.
 - **The daily save budget (ADR-0072) stays.** A save on a row that already has Polish, live or
   waiting, still counts as an overwrite. ADR-0072 allows deleting the overwrite budget once the
   review flow ships; that is a separate decision.
-- **The status keeps its four values.** A new `TranslationStatus` value would break the previous
-  app revision, which reads the status as a string (ADR-0023).
-  - **`NeedsReview` wins.** A row in "Do ponownego sprawdzenia" keeps that status through saves,
-    rejects and withdraws, until an approval clears it. So stale Polish never goes back into
-    `polish.txt` under changed English (ADR-0047). This replaces spec 0001's rule that a save on
-    `NeedsReview` gives `Draft`. Such a row with nothing live and nothing waiting (its proposal was
-    rejected or withdrawn) stays "Do ponownego sprawdzenia", also shown as "Odrzucone" while its
-    latest proposal is rejected; the next save gives it a proposal to approve.
+- **This spec adds no status value.** A new `TranslationStatus` value would break the previous app
+  revision, which reads the status as a string (ADR-0023). The fifth status, "Nie do tłumaczenia"
+  (`NothingToTranslate`), comes with #1421, which plans that step itself.
+  - In this spec, a row **has Polish** when it has a live text or a waiting proposal.
+  - A row in "Nie do tłumaczenia" has no live text and no waiting proposal. It takes no save (wiki
+    `Mechanizm-diff`), and it is outside the proposal status rules below. The admin's manual status
+    change (#1422) is refused on a row with Polish, and it goes into the history (see "History").
+    Whichever of #1384 and #1421 lands second adapts its code to the other.
+  - **`NeedsReview` wins while the row has Polish.** A row in "Do ponownego sprawdzenia" keeps that
+    status through saves, rejects and withdraws, as long as it has Polish, until an approval clears
+    it. So stale Polish never goes back into `polish.txt` under changed English (ADR-0047). This
+    replaces spec 0001's rule that a save on `NeedsReview` gives `Draft`.
+  - **A row that loses its last Polish** (its only proposal was rejected or withdrawn, and nothing
+    is live) becomes `Untranslated`, because "Do ponownego sprawdzenia" means that Polish exists
+    (`Mechanizm-diff`). Its `PreviousSourceText` is cleared, because there is nothing left to
+    compare (`Mechanizm-diff`: the column is filled only when there is something to compare). It
+    shows "Odrzucone" while its latest proposal is rejected (Q8). The cost: a translator who writes
+    that text again no longer sees the old English panel.
   - Any other row takes its status from the proposals: a live text is `Approved`, shown with
     "change waiting" while a proposal waits; no live text and a waiting proposal is `Draft`
     ("waiting for review"); no live text and nothing waiting is `Untranslated`, shown as
     "Odrzucone" while its latest proposal is rejected.
+  - No code may assume that `PreviousSourceText` is set on a `NeedsReview` row: the deploy window
+    below can leave a `NeedsReview` row without it.
 - **Dates** in the history and on rejections are shown in Polish time, like every other date.
 - **Who may do what.**
   - A translator proposes, withdraws their own waiting proposal, and reads the history of every
@@ -193,8 +207,16 @@ back.
     never appear for its author. `withdraw` appears only on a waiting proposal, and only for its
     author. The role rule lives in the policy; the author rules are state rules (the proposal's
     author is or is not the caller), so they live in the link factory (#1368).
-- **Length.** A proposal keeps the current limit (32767, ADR-0043). A rejection reason has its own
-  limit: 1000 characters.
+- **Length.** A proposal keeps the current limit (32767, ADR-0043), with a `CHECK` constraint on the
+  proposal table like the one on `Translations` (ADR-0043 §2), because the set-based paths skip the
+  validator. A rejection reason has its own limit: 1000 characters.
+- **Trailing line breaks (#1476, owner decision of 2026-11-18).** On a save, a pattern save and an
+  AI upload, the domain removes the run of CR and LF characters at the end of the text when the
+  row's English does not end with a line break. It does this before its own empty and length
+  guards, and the proposal stores the trimmed text. `UpsertTranslation.Validator` stays as #1476
+  leaves it: it counts the text as sent. A set-based path compares each row with that row's own
+  English. #1476 lands before #1384, so its one-off cleaning of the saved rows runs before the
+  backfill turns them into proposals. After that, a proposal's text never changes (ADR-0073 §1).
 
 ## Contract
 
@@ -320,6 +342,11 @@ back.
       origin "backfill", and `polish.txt` is byte-identical to the one before the migration.
 - [ ] A save on a row in "Do ponownego sprawdzenia" keeps the row in that status and its old Polish
       out of `polish.txt` until an approval.
+- [ ] A row in "Do ponownego sprawdzenia" that loses its last Polish (a reject or a withdraw, with
+      nothing live) becomes `Untranslated`, its `PreviousSourceText` is cleared, and it shows
+      "Odrzucone" after a reject.
+- [ ] A save whose text ends with line breaks, on a row whose English does not, stores the proposal
+      without them (#1476).
 - [ ] A row the previous revision wrote during the deploy takes no write from the new revision
       until #1388 has reconciled it, and after #1388 its text has a proposal.
 - [ ] The previous app revision keeps working against the migrated schema (the N-1 proof,

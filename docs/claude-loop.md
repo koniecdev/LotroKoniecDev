@@ -65,13 +65,15 @@ variable of the engine, not a key of `scripts/claude-loop.conf`: when you start 
 put it in front of the command yourself. The worker's start line in the console shows the clock a
 run got (`timeout=360m`).
 
-The worker must also know its clock. In the week to 2026-11-21, #1494 (and earlier #1376, #687 and
-#905) was stopped by the engine and shows as `timeout`. But #1488 ($79, three rounds and an APPROVE
-done, one second-pass fix left) and #695 ($74) ended themselves as `blocked` at 208 and 191
-minutes, because each session believed it had 240 minutes. So `/work-ticket` reads the clock from
-its own environment and never from memory or a document, and a session that stops itself for time
-ends `BLOCKED` with `CATEGORY: out-of-time`, not as a failed review. The prefix goes when the engine carries
-the value itself. Split a ticket that would not fit, rather than raising the clock again.
+The worker must also know its clock. #1494 (and earlier #1376, #687 and #905) was stopped by the
+engine and shows as `timeout`. #1488 ($79, three rounds and an APPROVE done, one second-pass fix
+left) and #695 ($74) stopped themselves as `blocked` at 208 and 191 minutes, because their
+240-minute clock was close. With 360, a session that still assumes 240 would stop far too early, so
+`/work-ticket` reads its clock from its own environment, never from memory or a document, and a
+session that stops itself for time ends `BLOCKED` with `CATEGORY: out-of-time`, not as a failed
+review. The engine still labels it `loop-blocked` and asks for input, like any block: remove the
+label to queue the ticket again. The prefix goes when the engine carries the value itself. Split a
+ticket that would not fit, rather than raising the clock again.
 
 ## A new engine version
 

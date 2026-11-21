@@ -333,13 +333,9 @@ Then produce a structured review table:
 Severities:
 - **Critical** — incorrect behavior, data loss, architecture violation, missing test for key path, or an edge case reachable from outside our trust boundary (API body / browser input / imported file / CLI arg / DAT bytes / third-party service) that crashes or silently misbehaves; and every Critical of Phase 0: a gate red on the reviewed commit, a test project or guard the author did not run, or a tree that is not the reviewed commit. Must fix before merge.
 - **Major** — significant code smell, a reachable edge case handled but untested (or unhandled on an internal path), unintended scope creep. Should fix.
-- **Minor** — style inconsistency, naming, optional improvement. Nice to fix. Never wrong behaviour a user would see, even when it looks rare or your numbers are rough: that is Major at least (Critical when the Critical line fits), because a later ticket for it costs far more than one more round now (#1501: a window taller than a laptop screen was rated Minor, and it took a ticket of its own). An older defect is the one exception (below).
+- **Minor** — style inconsistency, naming, optional improvement. Nice to fix. Never wrong behaviour a user would see that this diff adds, changes or makes reachable, even when it looks rare or your numbers are rough: that is Major at least, because a later ticket for it costs far more than one more round now (#1501: a window taller than a laptop screen was rated Minor, and it took a ticket of its own).
 - **Note** — observation, not actionable. FYI only.
 
-An older defect (already on `main` before the diff, not made reachable by it, and not another case
-of the class the ticket names) is written as `Minor (older defect)`, whatever it does, with the action
-"file it as an older defect" (`/ticket` step 7, bucket 2): it never blocks this diff, the hard rules
-below included. A Phase 0 Critical is never an older defect.
 
 In round 3, the brief says so and lists every commit made since round 1's review, plus the files any
 conflicted rebase since then resolved. Add one line right after the findings table: `Fix-made

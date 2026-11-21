@@ -3,8 +3,8 @@ using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 namespace LotroKoniecDev.AuthSystem.API.Tests.Integration.Tests.Auth;
 
 /// <summary>
-/// The privacy policy is legal text, so the owner sets its wording. These lines carry the owner's rulings
-/// on #1073 and #688.
+/// The privacy policy is legal text, so the owner sets its wording. These lines pin the wording his rulings
+/// and reviews settled, so a later edit cannot drop one unnoticed.
 /// </summary>
 public sealed class PrivacyPolicyPageTests : EndpointsTestBase
 {
@@ -19,6 +19,7 @@ public sealed class PrivacyPolicyPageTests : EndpointsTestBase
     [InlineData("przechowujemy poza dostawcą bazy przez <strong>30 dni</strong> od jej utworzenia")]
     [InlineData("dane kont usuniętych po jej utworzeniu usuwamy ponownie, zanim wrócą do serwisu")]
     [InlineData("wyłącznie do odtworzenia danych po awarii lub nadużyciu oraz do okresowego sprawdzenia, że da się je odtworzyć")]
+    [InlineData("<strong>Cookie informacji o plikach cookie</strong> — zapamiętuje, że w tej przeglądarce wyświetliliśmy już informację o plikach cookie")]
     public async Task PrivacyPolicyPage_ShouldStateTheOwnersRuling_WhenAccessed(string statement)
     {
         // Act
@@ -33,6 +34,8 @@ public sealed class PrivacyPolicyPageTests : EndpointsTestBase
     [InlineData("zaszyfrowane hasło")]
     [InlineData("wycofasz zgodę")]
     [InlineData("obejmuje okres do <strong>6 godzin</strong> wstecz")]
+    [InlineData("Cookie zgody na pliki cookie")]
+    [InlineData("zapoznałeś się z informacją o plikach cookie")]
     public async Task PrivacyPolicyPage_ShouldNotMakeAClaimTheSiteDoesNotKeep_WhenAccessed(string claim)
     {
         // Act

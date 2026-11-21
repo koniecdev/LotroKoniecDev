@@ -7,7 +7,8 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.Migrations
     /// <summary>
     /// Data-only cleaning for #1476: removes the trailing line breaks that a translator's Enter key left
     /// on saved Polish, where the English does not end with one. It is the same rule as
-    /// <c>TrailingLineBreaks</c> in the domain, so the text the translator meant does not change.
+    /// <c>TranslationSource.RemoveTrailingLineBreaksFrom</c> in the domain, so the text the translator
+    /// meant does not change.
     /// </summary>
     /// <remarks>
     /// MIGRATION-SAFETY: acknowledged. This rewrites existing data and Down() cannot undo it. Only the

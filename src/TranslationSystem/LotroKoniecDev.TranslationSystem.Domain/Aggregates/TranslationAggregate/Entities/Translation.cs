@@ -1,7 +1,6 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Guards;
 using LotroKoniecDev.SharedKernel.Monads;
-using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
@@ -101,7 +100,7 @@ public sealed class Translation : AggregateRoot<TranslationId>
     /// of the distributed set until it is approved again (spec 0001); <see cref="PreviousSourceText"/>
     /// stays until approve clears it. The guards are programmer-error checks on the text as sent;
     /// <c>UpsertTranslation.Validator</c> gives the translator the message (#598). The stored text loses
-    /// the trailing line breaks that <see cref="TrailingLineBreaks"/> removes (#1476).
+    /// the trailing line breaks that <see cref="TranslationSource.RemoveTrailingLineBreaksFrom"/> removes (#1476).
     /// </summary>
     public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {
@@ -110,7 +109,7 @@ public sealed class Translation : AggregateRoot<TranslationId>
             translatedText.Length, DatFormatConstants.MaxTranslatedTextLength, nameof(translatedText));
         Ensure.NotEmpty(submittedBy);
 
-        TranslatedText = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(translatedText, Source);
+        TranslatedText = Source.RemoveTrailingLineBreaksFrom(translatedText);
         SubmittedById = submittedBy;
         Status = TranslationStatus.Draft;
         UpdatedAt = now;

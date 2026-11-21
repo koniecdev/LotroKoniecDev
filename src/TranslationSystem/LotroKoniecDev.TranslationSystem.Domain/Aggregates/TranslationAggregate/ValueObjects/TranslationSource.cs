@@ -14,6 +14,21 @@ public sealed class TranslationSource : ValueObject
     public string? ArgsOrder { get; }
     public string? ArgsId { get; }
 
+    /// <summary>
+    /// Removes the line breaks a translator adds by pressing Enter at the end of the Polish, unless this
+    /// English ends with one (#1476, ADR-0039 §6). Spaces, tabs, the typed two characters <c>\n</c> and
+    /// breaks inside the text stay. A text of only line breaks comes back empty, so the caller refuses a
+    /// blank text first.
+    /// </summary>
+    public string RemoveTrailingLineBreaksFrom(string translatedText)
+    {
+        ArgumentNullException.ThrowIfNull(translatedText);
+
+        return Text.EndsWith('\r') || Text.EndsWith('\n')
+            ? translatedText
+            : translatedText.TrimEnd('\r', '\n');
+    }
+
     public static Result<TranslationSource> Create(string text, string? argsOrder, string? argsId)
     {
         // An empty fragment is valid game content, so only null is refused, and the parser never

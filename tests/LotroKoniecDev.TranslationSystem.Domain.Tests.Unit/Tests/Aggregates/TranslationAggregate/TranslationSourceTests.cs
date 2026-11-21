@@ -5,6 +5,8 @@ namespace LotroKoniecDev.TranslationSystem.Domain.Tests.Unit.Tests.Aggregates.Tr
 
 public sealed class TranslationSourceTests
 {
+    private const string EnglishWithoutABreak = "Show all";
+
     [Fact]
     public void Create_WithTextAndArgs_ShouldSucceed()
     {
@@ -68,4 +70,105 @@ public sealed class TranslationSourceTests
         // Assert: NULL and absent collapse to the same value.
         first.ShouldBe(second);
     }
+
+    [Theory]
+    [InlineData("Pokaż wszystko\r\n", "Pokaż wszystko")]
+    [InlineData("tekst\n", "tekst")]
+    [InlineData("tekst\r", "tekst")]
+    [InlineData("tekst\r\n\r\n", "tekst")]
+    [InlineData("tekst\n\r", "tekst")]
+    [InlineData("tekst \r\n", "tekst ")]
+    [InlineData("tekst\t\n", "tekst\t")]
+    [InlineData("tekst\\n\r\n", "tekst\\n")]
+    [InlineData("\r\n", "")]
+    public void RemoveTrailingLineBreaksFrom_WhenTheEnglishHasNoTrailingBreak_ShouldRemoveOnlyTheTrailingBreaks(
+        string polish, string expected)
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = source.RemoveTrailingLineBreaksFrom(polish);
+
+        // Assert
+        result.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("tekst")]
+    [InlineData("tekst ")]
+    [InlineData("tekst\\n")]
+    [InlineData("pierwsza\r\ndruga")]
+    [InlineData("\r\ntekst")]
+    public void RemoveTrailingLineBreaksFrom_WhenThePolishHasNoTrailingBreak_ShouldKeepItAsTyped(string polish)
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = source.RemoveTrailingLineBreaksFrom(polish);
+
+        // Assert
+        result.ShouldBe(polish);
+    }
+
+    [Fact]
+    public void RemoveTrailingLineBreaksFrom_WithBreaksAtBothEnds_ShouldRemoveOnlyTheOneAtTheEnd()
+    {
+        // Arrange: only the end is the Enter key's mark, so a trim from both sides would change the text.
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = source.RemoveTrailingLineBreaksFrom("\ntekst\r\n");
+
+        // Assert
+        result.ShouldBe("\ntekst");
+    }
+
+    [Theory]
+    [InlineData("Line one\n")]
+    [InlineData("Line one\r")]
+    [InlineData("Line one\r\n")]
+    public void RemoveTrailingLineBreaksFrom_WhenTheEnglishEndsWithABreak_ShouldKeepThePolishBreak(string english)
+    {
+        // Arrange
+        TranslationSource source = Source(english);
+
+        // Act
+        string result = source.RemoveTrailingLineBreaksFrom("Linia pierwsza\r\n");
+
+        // Assert
+        result.ShouldBe("Linia pierwsza\r\n");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Line one\\n")]
+    [InlineData("Line one ")]
+    public void RemoveTrailingLineBreaksFrom_WhenTheEnglishEndsWithoutARealBreak_ShouldRemoveThePolishBreak(string english)
+    {
+        // Arrange: the game writes its line break as the two characters \n, which is text, not a break.
+        TranslationSource source = Source(english);
+
+        // Act
+        string result = source.RemoveTrailingLineBreaksFrom("Linia pierwsza\r\n");
+
+        // Assert
+        result.ShouldBe("Linia pierwsza");
+    }
+
+    [Fact]
+    public void RemoveTrailingLineBreaksFrom_WithNullText_ShouldThrow()
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        Action remove = () => source.RemoveTrailingLineBreaksFrom(null!);
+
+        // Assert
+        remove.ShouldThrow<ArgumentNullException>();
+    }
+
+    private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;
 }

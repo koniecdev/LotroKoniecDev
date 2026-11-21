@@ -826,7 +826,8 @@ The text must not be empty and must fit the DAT (32,767 UTF-16 code units, ADR-0
 placeholder check on the frontend is **advisory**: if the Polish has a different number of
 placeholders than the English, the editor warns but still lets you save. The API stores the text
 as typed, with one exception: when the English does not end with a line break, the line breaks a
-translator's Enter key left at the end of the Polish are removed (#1476, `TrailingLineBreaks`).
+translator's Enter key left at the end of the Polish are removed (#1476,
+`TranslationSource.RemoveTrailingLineBreaksFrom`).
 
 **Approving.** `POST /api/v1/translations/{id}/approve` (admin only) calls `Approve(...)`: fails
 without Polish text, fails on a removed row; otherwise sets **Approved**, stamps `ApprovedById`,

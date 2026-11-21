@@ -192,9 +192,10 @@ the game shows the extra CR LF, and with the rule it never reaches the game.
 - When the English does not end with CR or LF, the save removes the whole run of CR and LF at the end
   of the Polish, silently. Spaces, tabs, the typed two characters `\n` and breaks inside the text
   stay. When the English does end with a break, the Polish break is kept.
-- The rule is one domain function, `TrailingLineBreaks.RemoveUnlessSourceEndsWithOne`, which
-  `Translation.ProvideTranslation` calls. Today that is the only path that stores Polish. Every new
-  one must call the same function, the proposals of #1384 included.
+- The rule is one domain method, `TranslationSource.RemoveTrailingLineBreaksFrom`, on the English
+  value that decides it. `Translation.ProvideTranslation` calls it on its own `Source`. Today that is
+  the only path that stores Polish. Every new one must call the same method, the proposals of #1384
+  included: a proposal does not hold the English, so its path calls it on `Translation.Source`.
 - The checks count the text as sent: `UpsertTranslation.Validator` cannot see the English, so its
   empty and length checks run before the trim, like the domain guards. A text of only line breaks was
   already refused as empty. Removing breaks only makes a text shorter, so nothing the checks let

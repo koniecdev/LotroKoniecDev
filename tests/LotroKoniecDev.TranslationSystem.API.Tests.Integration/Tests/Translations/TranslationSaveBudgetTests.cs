@@ -335,6 +335,46 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
         (await CountLedgerRowsAsync()).ShouldBe(0);
     }
 
+    [Fact]
+    public async Task Upsert_AsAReviewer_ShouldNeverBeRefusedNorSpendTheBudget()
+    {
+        // Arrange: a reviewer keeps Translator, which the save endpoint asks for (#1488).
+        await SeedDraftAsync(1, "Alfa");
+        await SeedDraftAsync(2, "Beta");
+        await SeedUntranslatedAsync(3);
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 1, overwriteLimit: 1);
+        using HttpClient client = ReviewerClient(host, Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage first = await SaveAsync(client, 1);
+        HttpResponseMessage second = await SaveAsync(client, 2);
+        HttpResponseMessage third = await SaveAsync(client, 3);
+
+        // Assert
+        first.StatusCode.ShouldBe(HttpStatusCode.OK);
+        second.StatusCode.ShouldBe(HttpStatusCode.OK);
+        third.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CountLedgerRowsAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Upsert_AsAReviewerReplacingPolish_ShouldStillWriteTheLineTheTotalAlertCounts()
+    {
+        // Arrange: a reviewer has no budget, so only the all-accounts overwrite alert sees its saves
+        // (ADR-0072 §6, amended by #1488).
+        await SeedDraftAsync(1, "Alfa");
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 1, overwriteLimit: 1);
+        using HttpClient client = ReviewerClient(host, Guid.NewGuid());
+
+        // Act
+        (await SaveAsync(client, 1)).StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        // Assert
+        CapturingLoggerFactory.LogEntry entry = OverwriteEntries().ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Information);
+        entry.Message.ShouldStartWith(TranslationSaveBudgetLogText.OverwrittenPrefix);
+    }
+
     public TranslationSaveBudgetTests(TranslationSystemApiFactory factory)
     {
         _factory = factory;
@@ -382,6 +422,16 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
 
     private static HttpClient AdminClient(WebApplicationFactory<Program> host, Guid subject)
         => AuthorizedClient(host, AuthConstants.Roles.Admin, subject);
+
+    private static HttpClient ReviewerClient(WebApplicationFactory<Program> host, Guid subject)
+    {
+        HttpClient client = host.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+                subject, AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer));
+        return client;
+    }
 
     private static HttpClient AuthorizedClient(WebApplicationFactory<Program> host, string role, Guid subject)
     {

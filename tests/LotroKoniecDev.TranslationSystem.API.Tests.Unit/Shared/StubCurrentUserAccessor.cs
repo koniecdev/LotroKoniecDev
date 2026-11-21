@@ -30,5 +30,5 @@ internal sealed class StubCurrentUserAccessor : ICurrentUserAccessor
     public IEnumerable<string> Roles => [];
     public bool IsAuthenticated => MaybeIdentityId.HasValue;
     public bool IsInRole(string role) => _isAdmin && role == AuthConstants.Roles.Admin;
-    public bool HasOnlyRegularUserPrivileges() => !_isAdmin;
+    public bool HasDailySaveBudget() => !_isAdmin;
 }

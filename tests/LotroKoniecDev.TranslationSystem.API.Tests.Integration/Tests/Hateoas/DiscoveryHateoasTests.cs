@@ -92,11 +92,29 @@ public sealed class DiscoveryHateoasTests
     }
 
     [Fact]
+    public async Task Discovery_AsReviewer_ShouldAddTheTranslatorRelsAndNoAdminRel()
+    {
+        // Arrange: a reviewer cannot approve yet, so no bulk-approve (#1488, #1368).
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+                Guid.NewGuid(), AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer));
+
+        // Act
+        DiscoveryResponse response = await GetDiscoveryAsync(client);
+
+        // Assert
+        response.Links.Select(link => link.Rel).OrderBy(rel => rel)
+            .ShouldBe(AnonymousRels.Concat(TranslatorOnlyRels).Order());
+    }
+
+    [Fact]
     public async Task Discovery_WithAnUnrecognizedRole_ShouldSeeOnlyWhatAnAuthenticatedCallerMayReach()
     {
         // Arrange: clears RequireAuthenticatedUser but no role policy, the case a hand-written role check
         // in the factory would get wrong.
-        using HttpClient client = ClientForRole("Reviewer");
+        using HttpClient client = ClientForRole("NotARole");
 
         // Act
         DiscoveryResponse response = await GetDiscoveryAsync(client);

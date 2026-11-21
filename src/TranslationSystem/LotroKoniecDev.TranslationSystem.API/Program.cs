@@ -223,7 +223,9 @@ try
         .ValidateOnStart();
     builder.Services.AddSingleton<IValidateOptions<FrontendCallerSettings>, FrontendCallerSettingsValidator>();
     builder.Services.AddSingleton<RateLimitPartitionKeyResolver>();
+    builder.Services.AddSingleton<RequestRateLimitPartitioner>();
 
+    // The name is older than the account keys: a Reviewer or the Admin counts per account (#1488).
     const string rateLimitPolicy = "fixed-by-ip";
 
     builder.Services.AddRateLimiter(options =>
@@ -231,13 +233,7 @@ try
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
         options.AddPolicy(rateLimitPolicy, httpContext =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                partitionKey: httpContext.RequestServices.GetRequiredService<RateLimitPartitionKeyResolver>().Resolve(httpContext),
-                factory: _ => new FixedWindowRateLimiterOptions
-                {
-                    PermitLimit = 100,
-                    Window = TimeSpan.FromMinutes(1)
-                }));
+            httpContext.RequestServices.GetRequiredService<RequestRateLimitPartitioner>().Partition(httpContext));
 
         // The translation file is the one anonymous answer that costs real bandwidth, and a real client
         // asks once per launch. A 304 counts too, because the limiter decides before the endpoint knows
@@ -312,7 +308,14 @@ try
         : productionCorsPolicy;
     app.UseCors(corsPolicy);
 
-    // Before authentication (#829): a limiter after it would never count the 401s, and a call over the
+    // Around authentication and authorization, so it sees the 401s and 403s they answer themselves
+    // (#854).
+    app.UseAuthorizationLogging();
+
+    app.UseAuthentication();
+
+    // After authentication, so a signed token with a trusted role can pick its account's bucket (#1488).
+    // Before authorization, which answers the 401s and 403s, so those still count (#829). A call over the
     // limit stops before translator provisioning can write. After routing, so it can read the policy.
     // RateLimiting:ForceEnable lets a test host see a real 429.
     bool rateLimiterOffByEnvironment = app.Environment.IsDevelopment() || app.Environment.IsTesting();
@@ -321,11 +324,6 @@ try
         app.UseRateLimiter();
     }
 
-    // Around authentication and authorization, so it sees the 401s and 403s they answer themselves
-    // (#854).
-    app.UseAuthorizationLogging();
-
-    app.UseAuthentication();
     app.UseAuthorization();
 
     // Creates the caller's Translator on the first authenticated request (ADR-0004, amended

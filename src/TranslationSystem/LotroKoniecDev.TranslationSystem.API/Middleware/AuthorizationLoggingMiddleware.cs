@@ -4,8 +4,8 @@ using LotroKoniecDev.TranslationSystem.API.Services.RateLimiting;
 namespace LotroKoniecDev.TranslationSystem.API.Middleware;
 
 /// <summary>
-/// Logs both the client the rate limiter resolves and the connection's own address, because a leaked
-/// frontend key could choose the first (ADR-0054, amended by #854).
+/// Logs both the client address the rate limiter's resolver reads and the connection's own address,
+/// because a leaked frontend key could choose the first (ADR-0054, amended by #854).
 /// </summary>
 internal sealed partial class AuthorizationLoggingMiddleware
 {

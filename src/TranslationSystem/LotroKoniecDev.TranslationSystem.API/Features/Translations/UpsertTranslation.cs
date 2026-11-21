@@ -136,7 +136,7 @@ internal sealed partial class UpsertTranslation : IEndpoint
             // Only an approved row leaves the distributed set, so only then is a rebuild needed.
             bool wasApproved = previousStatus is TranslationStatus.Approved;
             bool replacesPolish = translation.TranslatedText is not null;
-            bool isBudgeted = _currentUserAccessor.HasOnlyRegularUserPrivileges();
+            bool isBudgeted = _currentUserAccessor.HasDailySaveBudget();
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
             if (isBudgeted)

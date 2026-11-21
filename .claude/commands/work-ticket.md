@@ -37,7 +37,8 @@ everything that matters must be committed and pushed.
 
 ## The loop (do not skip steps)
 
-1. **Pull the ticket.** `gh issue view $ARGUMENTS --json number,title,state,labels,body,comments`
+1. **Pull the ticket.** Run `date +%s` first ("Your clock" under "Scope & safety"), then
+   `gh issue view $ARGUMENTS --json number,title,state,labels,body,comments`
    — one call returning title, labels, body (Context / Depends on / Tasks / Acceptance criteria)
    and the `comments` array (later comments override the body). **Never use `-c/--comments`** — it
    replaces the default view with a comments-only one, so a comment-free issue prints nothing and
@@ -237,6 +238,18 @@ everything that matters must be committed and pushed.
   version, which is done by hand) → STOP, return `BLOCKED` (category: mis-scope) and name the
   change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
+- **Your clock.** The loop stops this run after `LOOP_TICKET_TIMEOUT_MIN` minutes, counted from the
+  run's start. Read it with `printenv LOOP_TICKET_TIMEOUT_MIN`. When it prints no number or fails,
+  you do not know your clock, so never end the run for time until a resume gives you `minutes_left`
+  (a session started by hand has no clock). Run `date +%s` as your first command and keep the
+  number: that is your start. After a resume, run `date +%s` again: the prompt's `minutes_left`
+  counts from that moment, and it runs a little high, so keep a few minutes' margin. Never take the
+  number from memory, a document or an earlier run: the line `/backlog` prints starts runs with 360
+  (`docs/claude-loop.md` → "A longer ticket clock"). Before you end a run `BLOCKED` for lack of time
+  (`CATEGORY: out-of-time`), run `date +%s` again and work out the minutes left (before any resume:
+  the clock minus the minutes since your start; after a resume: `minutes_left` minus the minutes
+  since that resume). Stop only when the step that is left cannot fit. Its `QUESTIONS` name the step
+  that was left, the minutes it needs, the branch and its commits (#1501).
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 
@@ -250,6 +263,7 @@ The loop may resume this session with a prompt of one line of facts, such as
 - Background runs are off. If you were waiting for something (the test suite, a CodeQL check),
   run it again now in the foreground, with a Bash timeout long enough for it and at most
   `bash_max_timeout_ms` ms.
+- Run `date +%s` first: `minutes_left` counts from now ("Your clock" under "Scope & safety").
 - The loop stops this session in about `minutes_left` minutes. Finish the steps that are still
   open (commit, push, step 9 on the body file, the PR, CodeQL) and end with the `STATUS: DONE` or
   `STATUS: BLOCKED` block below, with nothing after it. A resume changes no rule: you still never
@@ -289,7 +303,7 @@ LESSONS: <one line, or "none">
 
 ```
 STATUS: BLOCKED
-CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | pr-closed | pr-state-unknown
+CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | out-of-time | pr-closed | pr-state-unknown
 QUESTIONS:
 - <the exact 3-5 questions or the specific blocker the user must resolve>
 ```

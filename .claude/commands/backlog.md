@@ -52,8 +52,10 @@ Without ticket numbers and without `-n N` (N above zero), the loop would take ev
 so the launcher refuses that: ask which tickets instead of printing a line.
 
 Write out one line in a `bash` block, with the launcher's full path so that it works from any
-folder: `<MAIN>/scripts/claude/start-loop.sh <arguments>`. Whichever copy of the launcher runs, it
-hands the run over to the copy on `origin/main`, so any copy that exists will do:
+folder: `LOOP_TICKET_TIMEOUT_MIN=360 <MAIN>/scripts/claude/start-loop.sh <arguments>`. Every
+launcher line this command prints, from any copy below, starts with `LOOP_TICKET_TIMEOUT_MIN=360`
+(`docs/claude-loop.md` → "A longer ticket clock"). Whichever copy of the launcher runs, it hands
+the run over to the copy on `origin/main`, so any copy that exists will do:
 
 - `<MAIN>/scripts/claude/start-loop.sh`;
 - if the main checkout is on a branch older than the launcher, the copy in the loop's own checkout,
@@ -116,7 +118,9 @@ Then stop. **Do not run the command** — not in the background, not in the fore
    - The copy has a `[conductor] done:` line: the conductor printed its table above it. Use that
      table. When tickets were left (an early stop, or `-n` cut a list short), a
      `[conductor] not started: …` line follows the `done:` line, with those tickets and the
-     launcher line that starts them: relay it as it is.
+     launcher line that starts them: relay it, with `LOOP_TICKET_TIMEOUT_MIN=<m>` in front of the
+     launcher command in it, where `<m>` is the run's own clock (the `timeout=<m>m` of its worker
+     start lines in the copy) when it is above 360, and 360 otherwise.
    - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
      prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
      last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,

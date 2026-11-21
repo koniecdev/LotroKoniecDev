@@ -135,7 +135,7 @@ validator.
 | Make a PR body, report or comment readable for a non-native reader | **`/b2-english <PR# / comment URL / file>`**; `/ticket` and `/work-ticket` run it on the PR body before `gh pr create`, so a PR opens with its final text (#1083) |
 | Touch the `\|\|` translation file (parser, serializer, a column) | `README.md` → "Translation file format", the rules digest below, ADRs 0039/0042/0043/0047; golden fixtures on both sides; the format changes only via ADR |
 | **File** an issue, label one, or title one | `docs/labels.md` *before* `gh issue create`: the five axes, the title convention, the three-signal epic rule and one bug class per ticket. It is shared 1:1 with the maintainer's other repo; a change in one is ported to the other in the same session |
-| Run the backlog autonomously (Loop mode) | **`scripts/claude/start-loop.sh <numbers>` in a plain terminal**, never from a session (#969); **`/backlog <numbers>`** prints that line, `/backlog` after the run reports the roll-up. Manual: `scripts/claude/LOOP.md`; this repo's settings: `docs/claude-loop.md` |
+| Run the backlog autonomously (Loop mode) | **`LOOP_TICKET_TIMEOUT_MIN=360 scripts/claude/start-loop.sh <numbers>` in a plain terminal**, never from a session (#969); **`/backlog <numbers>`** prints that line, `/backlog` after the run reports the roll-up. Manual: `scripts/claude/LOOP.md`; this repo's settings: `docs/claude-loop.md` |
 | Merge reviewed PRs | **`/merge-train`**: merges only PRs the owner approved by assigning themselves after the last push, and fixes an approved PR's conflicts itself (ADR-0060) |
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behaviour, vnum, translation survival, launch flow | **don't**: empirically settled in `docs/knowledge-base/` (start at its README) |
@@ -179,7 +179,7 @@ gh issue develop <n> --checkout                        # create + checkout the l
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
 
 # Backlog loop — start it in a plain TERMINAL, never from a Claude Code session (#969). Manual: scripts/claude/LOOP.md
-scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
+LOOP_TICKET_TIMEOUT_MIN=360 scripts/claude/start-loop.sh 123 130 131  # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
 touch .claude/backlog-loop.lock/stop-after-running     # from the main checkout: finish the running tickets, start no new ones (#1050); Ctrl-C stops them too
 scripts/claude/next-ticket.sh                          # print the next READY ticket
 

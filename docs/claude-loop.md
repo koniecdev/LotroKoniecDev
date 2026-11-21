@@ -21,7 +21,8 @@ This page holds only what this repository decides for itself.
 1. In an ordinary session, pick the tickets, for example every open `type-bug` + `area-auth`
    ticket that touches different files. `/preflight` helps.
 2. Start the loop **in a plain terminal**, never from a Claude Code session (#969):
-   `scripts/claude/start-loop.sh 812 830 842`, by its full path from another folder.
+   `LOOP_TICKET_TIMEOUT_MIN=360 scripts/claude/start-loop.sh 812 830 842`, by its full path from
+   another folder ("A longer ticket clock" below says why).
    `/backlog 812 830 842` prints that line for you. To let the running tickets finish and start
    nothing new, `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout (#1050).
 3. Read each PR. When you are happy with one, **assign yourself**: that is the approval, because
@@ -52,6 +53,28 @@ the engine version of the copy. A one-run environment variable can override some
 | `skip_issues` | `85` | The forum watcher, cut to post-MVP (ADR-0030); work it only by naming it. |
 | `gh_user` | `koniecdev` | The machine's active `gh` account may be one that cannot write here. |
 | `claude_config_dir` | `.claude-account1` | The Claude account the sessions run on. |
+
+## A longer ticket clock: 360 minutes (#1501)
+
+The engine stops a ticket's run after `LOOP_TICKET_TIMEOUT_MIN` minutes (default 240, `LOOP.md` →
+"Knobs"). A ticket stopped late has spent most of its cost and opens no PR, so its work is paid for
+twice. Since the code review runs on Fable (#1318), a review round takes 15 to 30 minutes and the
+gates about 10 more after each fix, so a ticket that opens a PR takes 1.5 to 3.5 hours on Linux. So
+`/backlog` prints the launcher with `LOOP_TICKET_TIMEOUT_MIN=360`. It is an environment variable of
+the engine, not a key of `scripts/claude-loop.conf`: when you start the loop by hand, put it in
+front of the command yourself. A run started without it has a 240-minute clock that its worker
+cannot see: the worker never stops itself for time, and the engine ends a long ticket as `timeout`,
+with no report. The worker's start line in the console shows the clock a run got (`timeout=360m`).
+
+The worker must also know its clock. #1494 (and earlier #1376, #687 and #905) was stopped by the
+engine and shows as `timeout`. #1488 ($79, three rounds and an APPROVE done, one second-pass fix
+left) and #695 ($74) stopped themselves as `blocked` at 208 and 191 minutes, because their
+240-minute clock was close. With 360, a session that still assumes 240 would stop far too early, so
+`/work-ticket` reads its clock from its own environment, never from memory or a document, and a
+session that stops itself for time ends `BLOCKED` with `CATEGORY: out-of-time`, not as a failed
+review. The engine still labels it `loop-blocked` and asks for input, like any block: remove the
+label to queue the ticket again. The prefix goes when the engine carries the value itself. Split a
+ticket that would not fit, rather than raising the clock again.
 
 ## A new engine version
 

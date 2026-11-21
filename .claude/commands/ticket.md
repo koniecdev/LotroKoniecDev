@@ -430,7 +430,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     - "read-only: Phase 0's gate run is the one thing you run in this folder; any other probe runs
       in a throwaway worktree";
     - the bar: Critical/Major as `code-reviewer.md` defines them, its hard rule on untested
-      unhappy paths included; wording and taste are Minor and do not block APPROVE;
+      unhappy paths included; wording and taste anywhere, text a user sees included, are Minor and do
+      not block APPROVE; only text a user sees that is wrong (false, misleading or broken) is visible
+      wrong behaviour (`code-reviewer.md` → Severities);
     - in round 3, "this is round 3", every commit made since round 1's review as it is on `HEAD`
       now (found again by subject after a rebase), and the files each conflicted rebase since round
       1 resolved, so the report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);

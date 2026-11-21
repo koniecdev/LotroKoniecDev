@@ -53,6 +53,19 @@ the engine version of the copy. A one-run environment variable can override some
 | `gh_user` | `koniecdev` | The machine's active `gh` account may be one that cannot write here. |
 | `claude_config_dir` | `.claude-account1` | The Claude account the sessions run on. |
 
+## A longer ticket clock: 360 minutes (#1501)
+
+The engine stops a ticket's run after `LOOP_TICKET_TIMEOUT_MIN` minutes (default 240, `LOOP.md` →
+"Knobs"). A ticket stopped late has spent most of its cost and opens no PR, so its work is paid
+for twice. Since the code review runs on Fable (#1318), a review round takes 15 to 30 minutes and
+the gates about 10 more after each fix, so a ticket that opens a PR takes 2 to 3.5 hours on Linux.
+In the week to 2026-11-21, three of the most expensive tickets lost their PR to the clock: #1488
+($79, three rounds and an APPROVE done, one second-pass fix left), #695 ($74) and #1494. So
+`/backlog` prints the launcher with `LOOP_TICKET_TIMEOUT_MIN=360`. It is an environment variable of
+the engine, not a key of `scripts/claude-loop.conf`: when you start the loop by hand, put it in
+front of the command yourself. A run the clock still stops shows as `timeout` in the run's table.
+Split a ticket that would not fit, rather than raising the clock again.
+
 ## A new engine version
 
 A change to the loop is made in the engine, never in `scripts/claude/`. It reaches this repository

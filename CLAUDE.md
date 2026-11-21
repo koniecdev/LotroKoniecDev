@@ -179,7 +179,7 @@ gh issue develop <n> --checkout                        # create + checkout the l
 gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ticket; body closes it
 
 # Backlog loop — start it in a plain TERMINAL, never from a Claude Code session (#969). Manual: scripts/claude/LOOP.md
-scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
+LOOP_TICKET_TIMEOUT_MIN=360 scripts/claude/start-loop.sh 123 130 131  # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
 touch .claude/backlog-loop.lock/stop-after-running     # from the main checkout: finish the running tickets, start no new ones (#1050); Ctrl-C stops them too
 scripts/claude/next-ticket.sh                          # print the next READY ticket
 

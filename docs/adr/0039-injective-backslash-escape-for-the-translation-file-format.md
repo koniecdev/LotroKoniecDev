@@ -122,6 +122,11 @@ rewriting a translator's text is a product decision, not a transport one. The tr
 either way. Whether the editor should normalize to LF on submit is left open on purpose — it needs a
 look at how the DAT renders a CR before anyone changes what translators type.
 
+> **Superseded in part by the 2026-11-21 amendment below (#1476):** a run of line breaks at the very
+> end of the Polish is now removed when the English does not end with one. Line breaks inside the
+> text are still kept as typed. The game's own texts hold no real line break at all (the amendment
+> corrects the "bare LF" above).
+
 ## Consequences
 
 ### Good
@@ -129,6 +134,9 @@ look at how the DAT renders a CR before anyone changes what translators type.
 - A translation containing newlines survives approve → artifact → download → patch with its line
   structure intact. The editor already renders source text with `white-space: pre-wrap`, so real
   newlines display correctly with no frontend change.
+
+  > **Amended 2026-11-21 (#1476):** "intact" holds for line breaks inside the text. Trailing ones are
+  > removed at the save when the English has none, so the transport never sees them.
 - Content carrying a literal backslash round-trips byte-exact in both directions.
 - The two parsers now agree on escape sequences, so `ParserContractParityTests` — the drift guard —
   can assert full agreement instead of documenting a deliberate divergence.
@@ -164,3 +172,39 @@ Two smaller edges, both accepted:
   parsers by the parity suite.
 - Escape/unescape is one linear scan over each content field, allocating only when a line actually
   contains an escapable character — irrelevant next to the import's existing per-row work.
+
+## Amendment (2026-11-21) — trailing line breaks are removed at the save
+
+**Ticket:** #1476. **Authority:** the owner's decision of 2026-11-18, written in the ticket. **Supersedes:**
+§6 for the line breaks at the very end of the Polish, and its sentence that the game's own texts use
+a bare LF.
+
+**Why.** Translators press Enter at the end of a text, the textarea sends CR LF, and the save kept
+it. On 2026-11-18 more than a hundred drafts on prod ended with such an invisible break. A read-only
+count on 2026-11-21 found 0 of 792,500 English texts with a real CR or LF anywhere: the game writes
+its line break as the two characters `\n`, which translators copy as text
+(`docs/knowledge-base/grammar-marks-2026-11-16.md`). So a real trailing break in the Polish is never
+something the English has. The owner ruled without the render check §6 asked for: nobody knows how
+the game shows the extra CR LF, and with the rule it never reaches the game.
+
+**What changes.**
+
+- When the English does not end with CR or LF, the save removes the whole run of CR and LF at the end
+  of the Polish, silently. Spaces, tabs, the typed two characters `\n` and breaks inside the text
+  stay. When the English does end with a break, the Polish break is kept.
+- The rule is one domain method, `TranslationSource.RemoveTrailingLineBreaksFrom`, on the English
+  value that decides it. `Translation.ProvideTranslation` calls it on its own `Source`. Today that is
+  the only path that stores Polish. Every new one must call the same method, the proposals of #1384
+  included: a proposal does not hold the English, so its path calls it on `Translation.Source`.
+- The checks count the text as sent: `UpsertTranslation.Validator` cannot see the English, so its
+  empty and length checks run before the trim, like the domain guards. A text of only line breaks was
+  already refused as empty. Removing breaks only makes a text shorter, so nothing the checks let
+  through can break a limit after the trim.
+- The migration `RemoveTrailingLineBreaksFromTranslatedText` cleans the rows already saved this way
+  with the same rule, and keeps status, author, approver and dates. It skips a Polish text that is
+  only whitespace, which a person fixes in the editor.
+
+**What does not change.** The file transport (§1–§5): the escape still carries any CR or LF that is
+stored, and breaks inside the text are still kept as typed. There is no CHECK constraint for the rule:
+the previous revision still saves trailing breaks during a deploy, and an import's source change on
+such a row would hit it (ADR-0023).

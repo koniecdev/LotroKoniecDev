@@ -101,6 +101,8 @@ wersji, bez kopiowania wierszy przy każdym patchu (spec 0001).
   i stempluje tłumacza. Każdy poprzedni status → `Draft`. Edycja wiersza `Approved` wyjmuje go
   z pobieranego pliku do ponownej akceptacji. Tekst dłuższy, niż zmieści DAT, rzuca wyjątek, bo
   to błąd programisty; komunikat dla tłumacza daje `UpsertTranslation.Validator` (ADR-0043).
+  Zapisuje tekst bez końcowych znaków nowej linii, które usuwa
+  `Source.RemoveTrailingLineBreaksFrom` (#1476).
 - `Approve(approvedBy, now)` — zatwierdza do dystrybucji. Wymaga polskiej treści i nieusuniętego
   wiersza. Ustawia `Approved`, stempluje recenzenta, czyści `PreviousSourceText`, zwraca `Result`.
 
@@ -210,10 +212,20 @@ walidują w `Create(...)` przez `Result` i są niezmienne.
 | VO | Plik | Reguła |
 |---|---|---|
 | `FragmentKey` | `…TranslationAggregate/ValueObjects/FragmentKey.cs` | `FileId > 0` i `GossipId >= 0`; tożsamość `(FileId, GossipId)`: `FileId` wskazuje subplik DAT, `GossipId` (8 bajtów) fragment w nim |
-| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039) |
+| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039); `RemoveTrailingLineBreaksFrom` — reguła końcowych nowych linii polskiego (niżej) |
 | `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, od jednego do trzech członów (aneks ADR-0003 z 2026-08-28), max 12 znaków; **forma kanoniczna**: końcowe zera są obcinane, więc `48` = `48.0` = `48.0.0` (ADR-0003) |
 | `DisplayName` | `…TranslatorAggregate/ValueObjects/DisplayName.cs` | niepuste, ≤ **150** znaków (po trim) |
 | `Email` | `…TranslatorAggregate/ValueObjects/Email.cs` | niepuste, ≤ **250**, regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`; opcjonalny na `Translator` |
+
+**Końcowe nowe linie polskiego (#1476, ADR-0039, poprawka z 2026-11-21).**
+`TranslationSource.RemoveTrailingLineBreaksFrom(translatedText)` to reguła dla każdej ścieżki, która
+zapisuje polski. Leży na angielskim VO, bo to angielski decyduje, czy nowa linia zostaje. Tłumacz,
+który na końcu tekstu wciśnie Enter, wysyła CR LF, a teksty gry nigdy nie kończą się prawdziwą nową
+linią. Gdy angielski nie kończy się CR ani LF, metoda usuwa cały ciąg CR i LF z końca polskiego.
+Spacje, tabulatory, wpisane dwa znaki `\n` i nowe linie w środku tekstu zostają. Dziś woła ją tylko
+`ProvideTranslation` (na własnym `Source`); każda nowa ścieżka zapisu polskiego (np. propozycje
+z #1384, które nie trzymają angielskiego) woła ją na `Translation.Source`. Tekst z samych nowych linii
+wraca pusty, więc wołający najpierw odrzuca pusty tekst.
 
 Strongly-typed ID (`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId`)
 leżą w `TranslationSystem.Primitives`; `IdentityId` (wspólny z Auth) leży w

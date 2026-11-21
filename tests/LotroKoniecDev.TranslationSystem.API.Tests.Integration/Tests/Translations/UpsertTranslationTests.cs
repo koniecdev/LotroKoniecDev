@@ -14,6 +14,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Ent
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
@@ -160,6 +161,59 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Upsert_WithOnlyLineBreaks_ShouldReturn400()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "\r\n"));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Upsert_WithEnterAtTheEnd_ShouldStoreTheTextWithoutTheLineBreak()
+    {
+        // Arrange: a textarea sends Enter as CR LF, and the English never ends with a break (#1476).
+        TranslationId id = await SeedAsync(gossipId: 1, source: "Show all", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "Pokaż wszystko\r\n"));
+        HttpResponseMessage readBack = await client.GetAsync($"{Route}/{id.Value}");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        saved.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
+        readBack.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationDetailResponse? stored = await readBack.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        stored.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
+    }
+
+    [Fact]
+    public async Task Upsert_WhenTheEnglishEndsWithALineBreak_ShouldKeepThePolishLineBreak()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, source: "Line one\n", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "Linia pierwsza\r\n"));
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        saved.ShouldNotBeNull().TranslatedText.ShouldBe("Linia pierwsza\r\n");
+    }
+
+    [Fact]
     public async Task Upsert_WithTextLongerThanTheDatAllows_ShouldReturn400()
     {
         // Arrange: the patcher could never write this row, so the API refuses it (#598).
@@ -235,7 +289,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         ApprovedThenRemoved,
     }
 
-    private async Task SeedAsync(int gossipId, string source, SeedStatus status, string? polish = null)
+    private async Task<TranslationId> SeedAsync(int gossipId, string source, SeedStatus status, string? polish = null)
     {
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
@@ -261,6 +315,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
 
         dbContext.Translations.Add(row);
         await dbContext.SaveChangesAsync();
+        return row.Id;
     }
 
     private async Task RebuildArtifactAsync()

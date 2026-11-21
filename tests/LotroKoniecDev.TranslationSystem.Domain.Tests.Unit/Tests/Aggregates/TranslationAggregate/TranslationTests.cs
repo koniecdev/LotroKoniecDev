@@ -211,6 +211,50 @@ public sealed class TranslationTests
     }
 
     [Fact]
+    public void ProvideTranslation_TextEndingWithEnter_ShouldStoreItWithoutTheLineBreak()
+    {
+        // Arrange: the browser sends a textarea's Enter as CR LF (#1476).
+        Translation translation = CreateUntranslated();
+
+        // Act
+        translation.ProvideTranslation("Pokaż wszystko\r\n", Submitter, Changed);
+
+        // Assert
+        translation.TranslatedText.ShouldBe("Pokaż wszystko");
+    }
+
+    [Fact]
+    public void ProvideTranslation_WhenTheEnglishEndsWithALineBreak_ShouldKeepThePolishLineBreak()
+    {
+        // Arrange
+        Translation translation = Translation.CreateUntranslated(
+            Key(), Source("Line one\n"), IntroducedVersion, Created).Value;
+
+        // Act
+        translation.ProvideTranslation("Linia pierwsza\r\n", Submitter, Changed);
+
+        // Assert
+        translation.TranslatedText.ShouldBe("Linia pierwsza\r\n");
+    }
+
+    [Theory]
+    [InlineData("\r\n")]
+    [InlineData("\n")]
+    public void ProvideTranslation_TextOfOnlyLineBreaks_ShouldThrowAndLeaveTheRowUntouched(string lineBreaks)
+    {
+        // Arrange: the validator refuses it first; this guard backs it up.
+        Translation translation = CreateUntranslated();
+
+        // Act
+        Action provide = () => translation.ProvideTranslation(lineBreaks, Submitter, Changed);
+
+        // Assert
+        provide.ShouldThrow<ArgumentException>();
+        translation.TranslatedText.ShouldBeNull();
+        translation.Status.ShouldBe(TranslationStatus.Untranslated);
+    }
+
+    [Fact]
     public void ProvideTranslation_OnNeedsReviewRow_ShouldReturnToDraftAndKeepPreviousSource()
     {
         // Arrange: re-translating an invalidated row keeps the old English until approve clears it.

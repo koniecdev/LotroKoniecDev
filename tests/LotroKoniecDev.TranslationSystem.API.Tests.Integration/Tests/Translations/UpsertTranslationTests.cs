@@ -160,6 +160,58 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Upsert_WithOnlyLineBreaks_ShouldReturn400()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, source: "One", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "\r\n"));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Upsert_WithEnterAtTheEnd_ShouldStoreTheTextWithoutTheLineBreak()
+    {
+        // Arrange: a textarea sends Enter as CR LF, and the English never ends with a break (#1476).
+        await SeedAsync(gossipId: 1, source: "Show all", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "Pokaż wszystko\r\n"));
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        TranslationDetailResponse? readBack = await client.GetFromJsonAsync<TranslationDetailResponse>(
+            $"{Route}/{saved.ShouldNotBeNull().Id.Value}", JsonOptions);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        saved.TranslatedText.ShouldBe("Pokaż wszystko");
+        readBack.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
+    }
+
+    [Fact]
+    public async Task Upsert_WhenTheEnglishEndsWithALineBreak_ShouldKeepThePolishLineBreak()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, source: "Line one\n", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "Linia pierwsza\r\n"));
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        saved.ShouldNotBeNull().TranslatedText.ShouldBe("Linia pierwsza\r\n");
+    }
+
+    [Fact]
     public async Task Upsert_WithTextLongerThanTheDatAllows_ShouldReturn400()
     {
         // Arrange: the patcher could never write this row, so the API refuses it (#598).

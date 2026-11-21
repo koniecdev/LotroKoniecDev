@@ -10,8 +10,8 @@ public sealed class CookieConsentCookieTests
     [InlineData("   ", false)]
     [InlineData("true", true)]
     [InlineData("anything", true)]
-    public void IsAccepted_TreatsAnyNonBlankValueAsConsent(string? cookieValue, bool expected)
+    public void WasShown_TreatsAnyNonBlankValueAsShown(string? cookieValue, bool expected)
     {
-        CookieConsentCookie.IsAccepted(cookieValue).ShouldBe(expected);
+        CookieConsentCookie.WasShown(cookieValue).ShouldBe(expected);
     }
 }

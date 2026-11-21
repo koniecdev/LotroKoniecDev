@@ -5,9 +5,12 @@
 @inject IOptions<AuthSystemSettings> AuthSystemOptions
 @inject IHttpContextAccessor HttpContextAccessor
 
-@if (!_accepted)
+@* The notice only informs, because every cookie we set is strictly necessary. So it shows once: the page
+   that shows it also sets the cookie, and the browser closes it with no request, so nothing typed or ticked
+   on the page is lost (#1339). A cookie that needs consent would break this. *@
+@if (_shown)
 {
-    <div class="cookie-bar" role="region" aria-label="Informacja o plikach cookie">
+    <dialog class="cookie-bar" open aria-label="Informacja o plikach cookie">
         <div class="container cookie-bar-inner">
             <div class="cookie-bar-copy">
                 <span class="cookie-bar-ico" aria-hidden="true">
@@ -22,37 +25,32 @@
                     <a href="@PrivacyPolicyCookiesUrl" target="_blank" rel="noopener">polityce prywatności</a>.
                 </p>
             </div>
-            <form class="cookie-bar-form" method="post" action="@CookieConsentEndpointsExtensions.AcceptPath">
-                <AntiforgeryToken/>
-                <input type="hidden" name="returnPath" value="@CurrentPath()"/>
-                <button type="submit" class="btn btn-primary">Akceptuję</button>
+            <form class="cookie-bar-form" method="dialog">
+                <button type="submit" class="btn btn-primary">Rozumiem</button>
             </form>
         </div>
-    </div>
+    </dialog>
 }
 
 @code {
-    private bool _accepted;
+    private bool _shown;
 
     private string PrivacyPolicyCookiesUrl =>
         $"{AuthSystemOptions.Value.BaseUrl.TrimEnd('/')}/Account/PrivacyPolicy#cookies";
 
+    // It runs in the layout's first render pass, before a streamed page writes its first byte.
     protected override void OnInitialized()
     {
-        string? cookieValue = HttpContextAccessor.HttpContext?.Request.Cookies[CookieConsentCookie.Name];
-        _accepted = CookieConsentCookie.IsAccepted(cookieValue);
-    }
-
-    private string CurrentPath()
-    {
         HttpContext? httpContext = HttpContextAccessor.HttpContext;
-        if (httpContext is null)
+        _shown = !CookieConsentCookie.WasShown(httpContext?.Request.Cookies[CookieConsentCookie.Name]);
+        if (!_shown || httpContext is null || httpContext.Response.HasStarted)
         {
-            return "/";
+            return;
         }
 
-        string path = httpContext.Request.Path.HasValue ? httpContext.Request.Path.Value! : "/";
-        string queryString = httpContext.Request.QueryString.Value ?? string.Empty;
-        return $"{path}{queryString}";
+        httpContext.Response.Cookies.Append(
+            CookieConsentCookie.Name,
+            CookieConsentCookie.Value,
+            CookieConsentCookie.BuildOptions(httpContext.Request.IsHttps));
     }
 }

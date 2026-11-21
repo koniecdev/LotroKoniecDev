@@ -5,7 +5,6 @@ using LotroKoniecDev.Frontend.Components;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
-using LotroKoniecDev.Frontend.Infrastructure.CookieConsent;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
 using LotroKoniecDev.Frontend.Infrastructure.Security;
 using LotroKoniecDev.Frontend.Settings;
@@ -228,7 +227,6 @@ try
     app.MapAuthEndpoints();
     app.MapImportExportEndpoints();
     app.MapAccountEndpoints();
-    app.MapCookieConsentEndpoints();
     app.MapRazorComponents<App>();
 
     await app.RunAsync();

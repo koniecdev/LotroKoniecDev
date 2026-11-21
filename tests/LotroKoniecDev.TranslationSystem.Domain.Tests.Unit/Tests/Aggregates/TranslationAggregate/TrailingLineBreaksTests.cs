@@ -19,7 +19,16 @@ public sealed class TrailingLineBreaksTests
     [InlineData("\r\n", "")]
     public void RemoveUnlessSourceEndsWithOne_WhenTheEnglishHasNoTrailingBreak_ShouldRemoveOnlyTheTrailingBreaks(
         string polish, string expected)
-        => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(polish, Source(EnglishWithoutABreak)).ShouldBe(expected);
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(polish, source);
+
+        // Assert
+        result.ShouldBe(expected);
+    }
 
     [Theory]
     [InlineData("tekst")]
@@ -28,36 +37,84 @@ public sealed class TrailingLineBreaksTests
     [InlineData("pierwsza\r\ndruga")]
     [InlineData("\r\ntekst")]
     public void RemoveUnlessSourceEndsWithOne_WhenThePolishHasNoTrailingBreak_ShouldKeepItAsTyped(string polish)
-        => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(polish, Source(EnglishWithoutABreak)).ShouldBe(polish);
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(polish, source);
+
+        // Assert
+        result.ShouldBe(polish);
+    }
 
     [Fact]
     public void RemoveUnlessSourceEndsWithOne_WithBreaksAtBothEnds_ShouldRemoveOnlyTheOneAtTheEnd()
-        // Only the end is the Enter key's mark, so a trim from both sides would change the text.
-        => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("\ntekst\r\n", Source(EnglishWithoutABreak)).ShouldBe("\ntekst");
+    {
+        // Arrange: only the end is the Enter key's mark, so a trim from both sides would change the text.
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        string result = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("\ntekst\r\n", source);
+
+        // Assert
+        result.ShouldBe("\ntekst");
+    }
 
     [Theory]
     [InlineData("Line one\n")]
     [InlineData("Line one\r")]
     [InlineData("Line one\r\n")]
     public void RemoveUnlessSourceEndsWithOne_WhenTheEnglishEndsWithABreak_ShouldKeepThePolishBreak(string english)
-        => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("Linia pierwsza\r\n", Source(english)).ShouldBe("Linia pierwsza\r\n");
+    {
+        // Arrange
+        TranslationSource source = Source(english);
+
+        // Act
+        string result = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("Linia pierwsza\r\n", source);
+
+        // Assert
+        result.ShouldBe("Linia pierwsza\r\n");
+    }
 
     [Theory]
     [InlineData("")]
     [InlineData("Line one\\n")]
     [InlineData("Line one ")]
     public void RemoveUnlessSourceEndsWithOne_WhenTheEnglishEndsWithoutARealBreak_ShouldRemoveThePolishBreak(string english)
-        // The game writes its line break as the two characters \n, which is text, not a break.
-        => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("Linia pierwsza\r\n", Source(english)).ShouldBe("Linia pierwsza");
+    {
+        // Arrange: the game writes its line break as the two characters \n, which is text, not a break.
+        TranslationSource source = Source(english);
+
+        // Act
+        string result = TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("Linia pierwsza\r\n", source);
+
+        // Assert
+        result.ShouldBe("Linia pierwsza");
+    }
 
     [Fact]
     public void RemoveUnlessSourceEndsWithOne_WithNullText_ShouldThrow()
-        => Should.Throw<ArgumentNullException>(
-            () => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(null!, Source(EnglishWithoutABreak)));
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        Action remove = () => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne(null!, source);
+
+        // Assert
+        remove.ShouldThrow<ArgumentNullException>();
+    }
 
     [Fact]
     public void RemoveUnlessSourceEndsWithOne_WithNullSource_ShouldThrow()
-        => Should.Throw<ArgumentNullException>(() => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("tekst", null!));
+    {
+        // Act
+        Action remove = () => TrailingLineBreaks.RemoveUnlessSourceEndsWithOne("tekst", null!);
+
+        // Assert
+        remove.ShouldThrow<ArgumentNullException>();
+    }
 
     private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;
 }

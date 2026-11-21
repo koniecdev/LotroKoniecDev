@@ -14,6 +14,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.Ent
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslatorAggregate.ValueObjects;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.WriteDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
@@ -178,20 +179,21 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     public async Task Upsert_WithEnterAtTheEnd_ShouldStoreTheTextWithoutTheLineBreak()
     {
         // Arrange: a textarea sends Enter as CR LF, and the English never ends with a break (#1476).
-        await SeedAsync(gossipId: 1, source: "Show all", SeedStatus.Untranslated);
+        TranslationId id = await SeedAsync(gossipId: 1, source: "Show all", SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
         // Act
         HttpResponseMessage response = await client.PutAsJsonAsync(
             Route, new UpsertTranslationRequest(FileId, 1, "Pokaż wszystko\r\n"));
-        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
-        TranslationDetailResponse? readBack = await client.GetFromJsonAsync<TranslationDetailResponse>(
-            $"{Route}/{saved.ShouldNotBeNull().Id.Value}", JsonOptions);
+        HttpResponseMessage readBack = await client.GetAsync($"{Route}/{id.Value}");
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
-        saved.TranslatedText.ShouldBe("Pokaż wszystko");
-        readBack.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        saved.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
+        readBack.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationDetailResponse? stored = await readBack.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+        stored.ShouldNotBeNull().TranslatedText.ShouldBe("Pokaż wszystko");
     }
 
     [Fact]
@@ -287,7 +289,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         ApprovedThenRemoved,
     }
 
-    private async Task SeedAsync(int gossipId, string source, SeedStatus status, string? polish = null)
+    private async Task<TranslationId> SeedAsync(int gossipId, string source, SeedStatus status, string? polish = null)
     {
         using IServiceScope scope = _factory.Services.CreateScope();
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
@@ -313,6 +315,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
 
         dbContext.Translations.Add(row);
         await dbContext.SaveChangesAsync();
+        return row.Id;
     }
 
     private async Task RebuildArtifactAsync()

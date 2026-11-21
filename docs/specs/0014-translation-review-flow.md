@@ -8,7 +8,9 @@
   reason) and the review points of #1332. Implementation tickets: #1384 (every save is a proposal)
   first. Once #1384 runs on prod: #1388 (its contract step) and #1386 (the wiki's "coming" mark).
   After #1388: #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw).
-  #1368 (Reviewer role, the author rule) after #50 and #1345.
+  #1368 (the Reviewer's right to approve, the author rule) after #50 and #1345. The Reviewer role
+  itself, the admin page that gives it, and its limits come earlier, in #1488, which needs nothing
+  from this spec (owner decision of 2026-11-21: #1368 split).
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
   (authorization-aware links), ADR-0047 (source digest), ADR-0065 (account erasure), ADR-0023
   (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one hijacked translator
@@ -168,7 +170,7 @@ back.
     row.
   - A reviewer does what a translator does, approves or rejects other people's proposals, and
     restores older versions.
-  - The admin does what a reviewer does, and grants or removes the Reviewer role (#1368).
+  - The admin does what a reviewer does, and grants or removes the Reviewer role (#1488).
   - Nobody approves or rejects their own text that has never been live (the exception for a text
     that was live is above).
   - Owner principle (2026-11-13), the reason reviewers restore too: the admin is never the only
@@ -371,7 +373,8 @@ All answers below are the owner's, given on 2026-11-13.
 
 ## Assumptions
 
-- One language (Polish) and three roles (Translator, Reviewer, Admin; #1368).
+- One language (Polish) and three roles (Translator, Reviewer, Admin). #1488 adds the Reviewer
+  role; it may approve from #1368 on.
 - #1368 depends on #50, which this spec covers: the owner wants the history before more people can
   approve. So the first implementation tickets may land while only the admin approves. The rules
   are written for three roles; each ticket applies the roles that exist when it lands.

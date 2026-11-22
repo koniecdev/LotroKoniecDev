@@ -1059,7 +1059,7 @@ The trade-off (we own security updates and key management) is accepted; Part 12,
 - **Rate limits**: per client address on both APIs, plus per-inbox and per-account budgets for
   mail and password checks (ADR-0053, ADR-0055, ADR-0057). The frontend forwards the visitor's
   address with a shared key, so all signed-in users do not share one bucket (ADR-0054). On the TMS
-  API a Reviewer or the admin counts per account instead, at 300 a minute (#1488). The full table:
+  API a Reviewer counts per account instead, at 300 a minute, and the admin has no limit (#1488). The full table:
   [API.md §2.4](API.md#24-rate-limiting). The auth API's limiter runs *before* authentication; the
   TMS API's runs after authentication and before authorization, so a refused call is still counted
   but only a checked token can pick an account bucket.

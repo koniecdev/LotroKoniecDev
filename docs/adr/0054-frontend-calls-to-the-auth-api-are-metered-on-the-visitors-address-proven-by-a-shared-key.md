@@ -6,8 +6,8 @@ moved the TMS limiter before authentication, noted in the TMS amendment; amended
 "Amendment: an IPv6 client is its /64"; amended 2026-09-27 — see "Amendment: the refused-call warning
 names the visitor too"; 2026-09-28 — #900 made introspection POST only (ADR-0061), noted in that
 amendment; 2026-11-14 — #697 added a second TMS policy keyed through the resolver, noted in the TMS
-amendment; amended 2026-11-21 — see "Amendment: a Reviewer or the Admin counts per account on the TMS
-API")
+amendment; amended 2026-11-21 — see "Amendment: a Reviewer counts per account on the TMS API, and the
+admin has no limit")
 **Date:** 2026-09-22
 **Decision-makers:** Solo maintainer (ticket #819)
 **Related:** AuthSystem.API (`Program.cs` rate-limit policies, `Services/RateLimiting`, `Settings`),
@@ -428,14 +428,15 @@ warned); the auth API's `AuthorizationLoggingMiddlewareTests` (the 403 line, whi
 reaches today, and no warning for a 401 without a real endpoint, since #900);
 `RateLimitPartitionKeyResolverTests` on both APIs (an IPv6 visitor's whole address).
 
-## Amendment: a Reviewer or the Admin counts per account on the TMS API (2026-11-21, #1488)
+## Amendment: a Reviewer counts per account on the TMS API, and the admin has no limit (2026-11-21, #1488)
 
 Regular translators hit the TMS limit of 100 requests a minute: one translated row costs about seven
 or eight requests (the editor, the panel of rows with the same text, the save, the reload, the list).
 The owner ruled in #1488: plain accounts keep 100 a minute per address, because raising it for
 everyone would give the same room to every new account and every bot. A **Reviewer** (Recenzent, a
-role only the admin gives) gets **300 a minute, counted per account**. The admin gets the same room,
-because the admin can do all a reviewer can (spec 0014).
+role only the admin gives) gets **300 a minute, counted per account**. The **admin has no per-minute
+limit** on the TMS API (owner decision of 2026-11-22 on #1488): the owner runs scripted work through
+the admin account.
 
 - **The TMS limiter now runs between `UseAuthentication` and `UseAuthorization`.** Authentication only
   sets `HttpContext.User`: the API registers JwtBearer alone, with no events, and JwtBearer writes no
@@ -444,7 +445,9 @@ because the admin can do all a reviewer can (spec 0014).
   guarantees of #829 hold (`RefusedCallsRateLimitingTests`). Before #829 the limiter sat after
   authorization, which is the only reason it missed the 401s then.
 - **`RequestRateLimitPartitioner` picks the bucket of `fixed-by-ip`.** An authenticated principal
-  with Reviewer or Admin and a GUID `sub` gets the key `account:{sub}` and 300 permits. Every other
+  with Admin and a GUID `sub` gets a partition with no limiter (`RateLimitPartition.GetNoLimiter`,
+  key `account:{sub}`). One with Reviewer and not Admin gets the key `account:{sub}` and 300 permits.
+  Every other
   caller keeps the resolver's key and 100 permits, so the rest of this ADR is unchanged for them. An
   `account:` key can never equal an address key (an IPv4 text, an IPv6 /64 or `unknown`). The policy
   keeps its name; renaming it would touch every reference and buys nothing.
@@ -463,13 +466,17 @@ because the admin can do all a reviewer can (spec 0014).
 - **100 and 300 stay constants in the code**, like the 100 before and the download's 5 (ADR-0064).
   The owner set 300 in the ticket. Trade-off: changing either needs a release and a prod promotion,
   while the ADR-0072 numbers are settings because the owner tunes them per box.
+- **Accepted risk: a stolen admin token is not slowed down.** It can already approve, import and
+  delete game versions, and it already has no daily save budget (ADR-0072), so the per-minute limit
+  was never what protected the data. The token lives five minutes (ADR-0049).
 - **A removed role keeps its room until the access token expires**, at most five minutes
   (ADR-0049). The removal also ends the person's sessions (ADR-0049 amendment of 2026-11-21).
 
 Tests: `TranslationSystem.API.Tests.Unit` — `RequestRateLimitPartitionerTests`;
-`TranslationSystem.API.Tests.Integration` — `TrustedRoleRateLimitingTests` (a Reviewer and the Admin
-pass 100 and stop after 300, a plain translator stops after 100, two reviewers behind one address each
-get 300, a reviewer's calls leave the address bucket whole) and `RefusedCallsRateLimitingTests`.
+`TranslationSystem.API.Tests.Integration` — `TrustedRoleRateLimitingTests` (a Reviewer passes 100 and
+stops after 300, the admin passes 400, a plain translator stops after 100, two reviewers behind one
+address each get 300, a reviewer's or the admin's calls leave the address bucket whole) and
+`RefusedCallsRateLimitingTests`.
 
 ## References
 

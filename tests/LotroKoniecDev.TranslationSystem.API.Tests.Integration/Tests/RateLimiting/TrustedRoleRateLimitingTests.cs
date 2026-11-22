@@ -6,9 +6,9 @@ using Microsoft.Extensions.Configuration;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimiting;
 
 /// <summary>
-/// Pins the account buckets of #1488: a token with Reviewer or Admin counts per account at 300 a minute,
-/// and every other caller still counts per address at 100. Each test has its own host, so its own
-/// buckets. In Testing <c>X-Forwarded-For</c> names the caller.
+/// Pins the account buckets of #1488: a token with Reviewer counts per account at 300 a minute, the admin
+/// has no limit, and every other caller still counts per address at 100. Each test has its own host, so
+/// its own buckets. In Testing <c>X-Forwarded-For</c> names the caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class TrustedRoleRateLimitingTests : IAsyncLifetime
@@ -17,7 +17,7 @@ public sealed class TrustedRoleRateLimitingTests : IAsyncLifetime
     private const int AddressBucket = 100;
 
     /// <summary>Must match <c>RequestRateLimitPartitioner</c>.</summary>
-    private const int TrustedAccountBucket = 300;
+    private const int ReviewerBucket = 300;
 
     private const string ForwardedForHeader = "X-Forwarded-For";
     private const string GameVersionsPath = "/api/v1/game-versions";
@@ -32,24 +32,59 @@ public sealed class TrustedRoleRateLimitingTests : IAsyncLifetime
 
     public Task DisposeAsync() => Task.CompletedTask;
 
-    [Theory]
-    [InlineData(AuthConstants.Roles.Reviewer)]
-    [InlineData(AuthConstants.Roles.Admin)]
-    public async Task GetGameVersions_AsATrustedRole_ShouldPassTheAddressLimitAndStopAfterItsOwnBucket(string trustedRole)
+    [Fact]
+    public async Task GetGameVersions_AsAReviewer_ShouldPassTheAddressLimitAndStopAfterItsOwnBucket()
     {
         // Arrange
         using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
         using HttpClient client = limitedHost.CreateClient();
         const string callerAddress = "203.0.113.80";
-        string token = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
-            Guid.NewGuid(), AuthConstants.Roles.Translator, trustedRole);
-        await SpendOkCallsAsync(client, callerAddress, token, TrustedAccountBucket);
+        string reviewer = ReviewerToken();
+        await SpendOkCallsAsync(client, callerAddress, reviewer, ReviewerBucket);
 
         // Act
-        using HttpResponseMessage overTheLimit = await GetAsync(client, callerAddress, token);
+        using HttpResponseMessage overTheLimit = await GetAsync(client, callerAddress, reviewer);
 
         // Assert
         overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
+    public async Task GetGameVersions_AsTheAdmin_ShouldPassEveryBucket()
+    {
+        // Arrange: well past the reviewer's bucket, so no fixed limit is left to hit.
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        const string callerAddress = "203.0.113.84";
+        string admin = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            Guid.NewGuid(), AuthConstants.Roles.Translator, AuthConstants.Roles.Admin);
+        await SpendOkCallsAsync(client, callerAddress, admin, ReviewerBucket + AddressBucket);
+
+        // Act
+        using HttpResponseMessage nextCall = await GetAsync(client, callerAddress, admin);
+
+        // Assert
+        nextCall.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetGameVersions_AfterTheAdminsCalls_ShouldLeaveTheAddressBucketWhole()
+    {
+        // Arrange: the admin's calls never spend the address bucket it shares.
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        const string sharedAddress = "203.0.113.85";
+        string admin = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            Guid.NewGuid(), AuthConstants.Roles.Translator, AuthConstants.Roles.Admin);
+        await SpendOkCallsAsync(client, sharedAddress, admin, AddressBucket + 50);
+        string translator = TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator);
+        await SpendOkCallsAsync(client, sharedAddress, translator, AddressBucket - 1);
+
+        // Act
+        using HttpResponseMessage lastAddressPermit = await GetAsync(client, sharedAddress, translator);
+
+        // Assert
+        lastAddressPermit.StatusCode.ShouldBe(HttpStatusCode.OK);
     }
 
     [Fact]
@@ -78,7 +113,7 @@ public sealed class TrustedRoleRateLimitingTests : IAsyncLifetime
         const string sharedAddress = "203.0.113.82";
         string firstReviewer = ReviewerToken();
         string secondReviewer = ReviewerToken();
-        await SpendOkCallsAsync(client, sharedAddress, firstReviewer, TrustedAccountBucket);
+        await SpendOkCallsAsync(client, sharedAddress, firstReviewer, ReviewerBucket);
         using HttpResponseMessage bucketSpent = await GetAsync(client, sharedAddress, firstReviewer);
         bucketSpent.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
 

@@ -446,7 +446,10 @@ the admin account.
   authorization, which is the only reason it missed the 401s then.
 - **`RequestRateLimitPartitioner` picks the bucket of `fixed-by-ip`.** An authenticated principal
   with Admin and a GUID `sub` gets a partition with no limiter (`RateLimitPartition.GetNoLimiter`,
-  key `account:{sub}`). One with Reviewer and not Admin gets the key `account:{sub}` and 300 permits.
+  key `admin:{sub}`). One with Reviewer and not Admin gets the key `account:{sub}` and 300 permits.
+  The two prefixes differ on purpose: the framework keeps one limiter per key, built by the first
+  request that brings it, so one account with a role changed by hand would otherwise keep the
+  limiter of the role that called first.
   Every other
   caller keeps the resolver's key and 100 permits, so the rest of this ADR is unchanged for them. An
   `account:` key can never equal an address key (an IPv4 text, an IPv6 /64 or `unknown`). The policy

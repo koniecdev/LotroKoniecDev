@@ -313,7 +313,8 @@ try
 
     app.UseAuthentication();
 
-    // After authentication, so a signed token with Reviewer or Admin can pick its own bucket (#1488).
+    // After authentication, so a signed token's role can pick the caller's bucket, or no limit for the
+    // admin (#1488).
     // Before authorization, which answers the 401s and 403s, so those still count (#829). A call over the
     // limit stops before translator provisioning can write. After routing, so it can read the policy.
     // RateLimiting:ForceEnable lets a test host see a real 429.

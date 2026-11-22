@@ -17,6 +17,9 @@ internal sealed class RequestRateLimitPartitioner
 
     private const string AccountKeyPrefix = "account:";
 
+    // Its own prefix, because the limiter kept for a key is built by the first request that brings it.
+    private const string AdminKeyPrefix = "admin:";
+
     // MapInboundClaims is off, so the OpenIddict claim name arrives unchanged.
     private const string SubjectClaimType = "sub";
 
@@ -50,16 +53,14 @@ internal sealed class RequestRateLimitPartitioner
         if (user.Identity?.IsAuthenticated is true
             && Guid.TryParse(user.FindFirstValue(SubjectClaimType), out Guid accountId))
         {
-            string accountKey = AccountKeyPrefix + accountId.ToString("D");
-
             if (user.IsInRole(AuthConstants.Roles.Admin))
             {
-                return (accountKey, null);
+                return (AdminKeyPrefix + accountId.ToString("D"), null);
             }
 
             if (user.IsInRole(AuthConstants.Roles.Reviewer))
             {
-                return (accountKey, ReviewerPermitLimit);
+                return (AccountKeyPrefix + accountId.ToString("D"), ReviewerPermitLimit);
             }
         }
 

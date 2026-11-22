@@ -241,8 +241,8 @@ translators only": the budget applies to an account that holds neither Admin nor
 - **Saves made while exempt are not in the ledger.** A Reviewer whose role is taken away starts with
   a full budget.
 - **Context and Alternative A said the limiter runs before authentication (#829).** Since #1488 it
-  runs after authentication and before authorization, and it counts a Reviewer or the admin per
-  account (ADR-0054 amendment of 2026-11-21). Alternative A's reason no longer holds as written. The
+  runs after authentication and before authorization; it counts a Reviewer per account and sets no
+  limit for the admin (ADR-0054 amendment of 2026-11-21). Alternative A's reason no longer holds as written. The
   budget stays in the handler anyway: a per-minute limiter cannot keep a 24-hour count that survives
   a restart (§3), and plain accounts stay per address by the owner's ruling.
 

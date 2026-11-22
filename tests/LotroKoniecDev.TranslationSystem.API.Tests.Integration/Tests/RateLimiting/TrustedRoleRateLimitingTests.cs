@@ -68,6 +68,51 @@ public sealed class TrustedRoleRateLimitingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetGameVersions_AsTheAdminAfterTheSameAccountSpentItsReviewerBucket_ShouldPass()
+    {
+        // Arrange: a role changed by hand gives one account tokens of both kinds while tms-api runs.
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        const string callerAddress = "203.0.113.86";
+        Guid accountId = Guid.NewGuid();
+        string reviewer = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            accountId, AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer);
+        string admin = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            accountId, AuthConstants.Roles.Translator, AuthConstants.Roles.Admin);
+        await SpendOkCallsAsync(client, callerAddress, reviewer, ReviewerBucket);
+        using HttpResponseMessage bucketSpent = await GetAsync(client, callerAddress, reviewer);
+        bucketSpent.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+
+        // Act
+        using HttpResponseMessage adminCall = await GetAsync(client, callerAddress, admin);
+
+        // Assert
+        adminCall.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetGameVersions_AsAReviewerAfterTheSameAccountCalledAsTheAdmin_ShouldStopAfterItsBucket()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> limitedHost = CreateRateLimitedHost();
+        using HttpClient client = limitedHost.CreateClient();
+        const string callerAddress = "203.0.113.87";
+        Guid accountId = Guid.NewGuid();
+        string admin = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            accountId, AuthConstants.Roles.Translator, AuthConstants.Roles.Admin);
+        string reviewer = TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            accountId, AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer);
+        await SpendOkCallsAsync(client, callerAddress, admin, 1);
+        await SpendOkCallsAsync(client, callerAddress, reviewer, ReviewerBucket);
+
+        // Act
+        using HttpResponseMessage overTheLimit = await GetAsync(client, callerAddress, reviewer);
+
+        // Assert
+        overTheLimit.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+    }
+
+    [Fact]
     public async Task GetGameVersions_AfterTheAdminsCalls_ShouldLeaveTheAddressBucketWhole()
     {
         // Arrange: the admin's calls never spend the address bucket it shares.

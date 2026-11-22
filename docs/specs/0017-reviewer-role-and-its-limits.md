@@ -111,7 +111,8 @@ Reviewer works without hitting the limits meant for fresh accounts.
 - **Token endpoint:** code exchange and refresh refuse with `invalid_grant` when the token's `role`
   claims and the account's roles differ as sets.
 - **TMS API:** the limiter runs between authentication and authorization; `fixed-by-ip` gives a
-  checked token with `Admin` and a GUID `sub` a partition with no limiter, keys one with `Reviewer`
+  checked token with `Admin` and a GUID `sub` a partition with no limiter under `admin:{sub}`, keys
+  one with `Reviewer`
   and a GUID `sub` as `account:{sub}` with 300 permits, and keys every other caller as before with
   100. `UpsertTranslation` spends the save budget only when
   `ICurrentUserAccessor.HasDailySaveBudget()` is true (neither `Admin` nor `Reviewer`).

@@ -10,7 +10,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Services.RateLim
 
 /// <summary>
 /// Pins the bucket of the general per-minute limit (#1488): a signed token with Reviewer counts per account
-/// at 300, the admin has no limit, and every other caller keeps the address key of ADR-0054 at 100.
+/// at 300, the admin has no limit under a key of its own, and every other caller keeps the address key of
+/// ADR-0054 at 100.
 /// </summary>
 public sealed class RequestRateLimitPartitionerTests
 {
@@ -49,8 +50,27 @@ public sealed class RequestRateLimitPartitionerTests
         (string key, int? permitLimit) = partitioner.Choose(httpContext);
 
         // Assert
-        key.ShouldBe($"account:{AccountId}");
+        key.ShouldBe($"admin:{AccountId}");
         permitLimit.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Choose_ForOneAccountAsAdminAndAsReviewer_GivesEachRoleItsOwnKey()
+    {
+        // Arrange: a role changed by hand gives one account tokens of both kinds, and the limiter kept
+        // for a key is built by the first request that brings it.
+        RequestRateLimitPartitioner partitioner = CreatePartitioner();
+        HttpContext asAdmin = ContextFor(
+            AuthenticatedUser(AccountId.ToString(), AuthConstants.Roles.Translator, AuthConstants.Roles.Admin));
+        HttpContext asReviewer = ContextFor(
+            AuthenticatedUser(AccountId.ToString(), AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer));
+
+        // Act
+        string adminKey = partitioner.Choose(asAdmin).Key;
+        string reviewerKey = partitioner.Choose(asReviewer).Key;
+
+        // Assert
+        adminKey.ShouldNotBe(reviewerKey);
     }
 
     [Fact]

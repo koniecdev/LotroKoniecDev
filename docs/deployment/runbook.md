@@ -422,7 +422,8 @@ Brevo**, in the Brevo account whose SMTP key the box uses. Since 2026-11-20 both
 | `_dmarc` | TXT `v=DMARC1; p=none; rua=mailto:rua@dmarc.brevo.com` | reports only for now; #1505 makes it stricter |
 
 There is no SPF record of ours. Brevo sends from its own return-path domain, so DMARC passes on the
-DKIM signature alone. There is no MX record either, so a reply to our mail bounces (#1487).
+DKIM signature alone. There is no MX record either, so a reply to our mail goes to the web server,
+which takes no mail, and bounces only after the sender's retries (#1487).
 
 **Never use a single sender.** Brevo can also verify one address instead of a domain. Do not use
 that: with the old Gmail single sender, Brevo sent our mail from a `…brevosend.com` address with no
@@ -450,9 +451,10 @@ Brevo shows the domain as authenticated. Only *then* change `Email__SenderEmail`
 and `GF_SMTP_FROM_ADDRESS` in `/opt/obs/.env` (Grafana runs on the staging box), as `deploy`, never
 as root ([Gotchas](#gotchas)). Recreate the
 containers, because a plain `restart` keeps the old value:
-`docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api` and
-`docker compose -f compose.observability.yaml up -d --force-recreate grafana`. Then run the check
-below for both senders.
+`cd /opt/lotro && docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api`
+on each box, and
+`ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml up -d --force-recreate grafana'`.
+Then run the check below for both senders.
 
 **The check after any change of sender, Brevo account or DNS.** `smoke.sh` and the health probes
 cannot see this; only delivery proves delivery.
@@ -489,14 +491,18 @@ it as **Delivered** in Brevo's log: the password reset does not prove Grafana's 
    send failed when the last attempt fails, or on 3101 or 3102. 3101 carries the server's refusal
    text. Line 2282 means a resend failed. Line 2624 means the person tried to sign in while
    unconfirmed. Do not search by the full address: the logs mask it (`a***@wp.pl`). No failure line
-   usually means Brevo took the mail. For a mail from the outbox, also check
+   usually means Brevo took the mail, unless the mail never left the outbox. For a mail from the
+   outbox, check that no row waits
+   (`SELECT count(*) FROM authsystem."OutboxMessages" WHERE "ProcessedOn" IS NULL`), that the
+   broker is up ([Message broker](#message-broker-rabbitmq)), and
    [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq).
    When step 1 finds no account, or Loki shows nothing for its id, the app may not have sent the
    mail at all: a request over the mail budget of that inbox is logged only with the masked address
    (2273 sign-up, 2283 resend, 2712 password reset). Search for the masked form then.
 3. Brevo: **Transactional → Email → Logs**, search for the full address (a part of the address finds
-   nothing). A soft bounce means the receiving server refused it. **Delivered** means the server took
-   it; only the person's inbox can show a move to spam or a drop.
+   nothing). A soft bounce means the receiving server refused it this time. A hard bounce or
+   **Blocked** means the address is refused for good or blocked by Brevo: go to step 4. **Delivered**
+   means the server took it; only the person's inbox can show a move to spam or a drop.
 4. Brevo: **Settings → Transactional emails → Blocked or unsubscribed contacts**. Brevo blocks an
    address after a spam report, repeated bounces or an unsubscribe, for one sender or for all (the
    "From sender" column). Brevo adds a `List-Unsubscribe` header to every transactional mail and the

@@ -67,10 +67,12 @@ Reviewer works without hitting the limits meant for fresh accounts.
   account that already is a Reviewer, or a removal on one that is not, answers 204 and changes,
   revokes and logs nothing.
 - **Overlapping calls are safe too.** When a retry runs while the first call is still saving, the
-  second write fails. A fresh read of the roles then decides: the target state is there, so the
-  answer is 204, the winner already ended the sessions, and an Information line says so (event 2793).
-  With the target state missing, an Identity refusal answers 500 `Auth.ReviewerRoleChangeFailed` and
-  logs an Error (event 2792), and a database error goes on to the global error handler (500).
+  second write fails, and so does a save the database retries after its commit answer was lost. A
+  fresh read of the roles then decides. With the target state there, the call goes on as a real
+  change: 204, the sessions revoked (again, if the other call did it) and the Information line
+  naming the admin. The two causes cannot be told apart, so neither gets a line of its own. With the
+  target state missing, an Identity refusal answers 500 `Auth.ReviewerRoleChangeFailed` and logs an
+  Error (event 2792), and a database error goes on to the global error handler (500).
 - **100 and 300 stay constants in the code,** like the 100 before. Changing one needs a release.
 - **No security stamp change on a role change.** A new stamp would break links already mailed to the
   account (cancel deletion, e-mail change undo) and end the sign-in server's cookie. Instead the token
@@ -85,14 +87,14 @@ Reviewer works without hitting the limits meant for fresh accounts.
 - **A removed role keeps its room until the access token expires,** at most five minutes (ADR-0049).
   Saves made while exempt are not in the save ledger, so the person starts with a full budget.
 - **The list** shows display name (username), e-mail and roles, 50 accounts a page, ordered by
-  username, with previous and next page links. Erased accounts are left out; a deletion-scheduled one
-  is listed with a "Usunięcie zaplanowane" badge and only the removal link when it holds the role.
+  username ignoring case, with previous and next page links. Erased accounts are left out; a
+  deletion-scheduled one is listed with a "Usunięcie zaplanowane" badge and only the removal link
+  when it holds the role.
 - **Where the page is:** linked from "Moje konto" only when the auth root offers the `accounts` rel,
   which it does for the admin alone. No menu link.
 - **Logs:** each real change writes an Information line naming the admin and the account (events
-  2790/2791); a refused refresh after a role change writes an Information line (event 2398), and so
-  does a call that lost to an overlapping one (event 2793). All are the normal result of an admin's
-  action (#977).
+  2790/2791); a refused refresh after a role change writes an Information line (event 2398). Both are
+  the normal result of an admin's action (#977).
 
 ## Contract
 
@@ -102,8 +104,7 @@ Reviewer works without hitting the limits meant for fresh accounts.
     `self`, `previous-page`, `next-page`, and per account `grant-reviewer` (PUT) or `remove-reviewer`
     (DELETE). A page below 1 → 400 `Auth.AccountListPageInvalid`.
   - `PUT auth/admin/accounts/{accountId}/reviewer` → 204; 422 `Auth.ReviewerRoleNotAllowed`; 500
-    `Auth.ReviewerRoleChangeFailed`; 404
-    `Auth.UserNotFound`.
+    `Auth.ReviewerRoleChangeFailed`; 404 `Auth.UserNotFound`.
   - `DELETE auth/admin/accounts/{accountId}/reviewer` → 204; 500 `Auth.ReviewerRoleChangeFailed`; 404
     `Auth.UserNotFound`.
   - Discovery: rel `accounts` for the admin only (the link factory replays the policy).

@@ -1478,11 +1478,24 @@ if grep -qE '^STATUS:[[:space:]]*BLOCKED' <<< "$result"; then
     gh label create loop-blocked --color e36209 \
         --description "claude-loop: needs human input" --force >/dev/null 2>&1 || true
     gh issue edit "$ISSUE" --add-label loop-blocked >/dev/null 2>&1 || true
-    comment="$(printf '🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.\n\n%s' \
-        "${result:0:4000}")"
-    gh issue comment "$ISSUE" --body "$comment" >/dev/null 2>&1 || true
+    blocked_header='🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.'
+    # The whole message goes on the issue, with no cut of the loop's own: a cut once ended the
+    # questions mid-sentence. Standard input, because one long argument can pass the system's limit.
+    if gh_error="$(gh issue comment "$ISSUE" --body-file - <<< "$blocked_header"$'\n\n'"$result" 2>&1 >/dev/null)"; then
+        blocked_log="BLOCKED — questions posted on the issue, labeled loop-blocked"
+    else
+        # GitHub can refuse a comment, for one that is too long too. The message stays in $OUT,
+        # and the note says where, by names only: the issue may be public, the path is local.
+        refused="${gh_error%%$'\n'*}"
+        note="GitHub refused the worker's final message. The full text is in \`ticket-$ISSUE.json\` in the loop's run folder \`$(basename -- "$RUN_DIR")\`."
+        if gh issue comment "$ISSUE" --body-file - <<< "$blocked_header"$'\n\n'"$note" >/dev/null 2>&1; then
+            blocked_log="BLOCKED — GitHub refused the questions (${refused:-no error text}); a note on the issue points to $OUT"
+        else
+            blocked_log="BLOCKED — GitHub refused the questions and the note (${refused:-no error text}); the questions are only in $OUT"
+        fi
+    fi
     finish
-    log "BLOCKED — questions posted on the issue, labeled loop-blocked"
+    log "$blocked_log"
     exit 2
 fi
 

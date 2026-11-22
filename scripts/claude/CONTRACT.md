@@ -9,7 +9,7 @@ A change to anything below changes the contract. Then the engine's `LOOP_CONTRAC
 line in the same pull request that brings the new engine version. Nothing checks that a changed
 line here came with a new number: whoever changes the engine bumps it.
 
-**Contract version: 2.**
+**Contract version: 3.**
 
 ## 1. Files a repository holds
 
@@ -118,10 +118,13 @@ transcript even when it later rebases its worktree onto a newer `main`:
 ## 4. What the engine reads from the session
 
 - **The verdict**: a line of the final message that starts with `STATUS: BLOCKED` or
-  `STATUS: DONE`. `BLOCKED` wins when both are there. A `BLOCKED` message is posted on the issue,
-  cut to its first 4000 characters, under the line
+  `STATUS: DONE`. `BLOCKED` wins when both are there. A `BLOCKED` message is posted on the issue
+  whole, under the line
   `🤖 **claude-loop: BLOCKED** — needs your input before the loop retries this ticket.`, and the
-  issue gets the label `loop-blocked`.
+  issue gets the label `loop-blocked`. When GitHub refuses that comment, a short note under the
+  same line names `ticket-<n>.json` and the run folder, where the message stays (section 5). When
+  GitHub refuses the note too, nothing is posted. The worker's last line says which of the three
+  happened; the outcome is `blocked` and the exit code `2` in all of them.
 - **The ticket's PR**, in this order (only the first `https://github.com/<owner>/<name>/pull/<k>`
   link of the final message is read, and every PR must be in `repo`, not from a fork, with a head
   branch that starts with `<n>-`):

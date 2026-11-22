@@ -4,7 +4,7 @@
 # file and calls load_loop_config first. The settings file is read line by line and never run.
 
 # The contract version this engine speaks (CONTRACT.md). A repository's settings must name it.
-LOOP_CONTRACT=2
+LOOP_CONTRACT=3
 
 # Every key of scripts/claude-loop.conf, each one required.
 LOOP_CONFIG_KEYS="contract repo gh_user claude_config_dir provenance_gate trusted_associations trusted_logins require_private red_main_workflow code_scanning e2e_image_label skip_labels skip_titles skip_issues"

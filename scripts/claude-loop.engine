@@ -1,4 +1,4 @@
 # The engine version that scripts/claude/ is a copy of, written by the engine's tools/sync.sh.
 # Never edit it by hand: scripts/claude/verify-copy.sh checks the copy against it.
-commit=3a004f0fe9abd4f1b1b6588da10586e206a8c11e
-tree=3691b405a7ead2e1a1c02b1270fdbb9fa8ac8a2e
+commit=8d50970c1e58a99c8677a5afc8f7bc99fed1b393
+tree=41cea9e3d6a86d0ceb64e8f6191d7f86b2318ba4

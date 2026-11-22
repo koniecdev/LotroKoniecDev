@@ -66,10 +66,11 @@ stopped themselves early, at 208 and 191 minutes, to beat the clock. A stuck ses
 seen.
 
 If a worker does get stuck, the other tickets keep running, but the nap after a usage limit, a stop
-request, the table and the end of the run all wait for it. End it with `kill <pid>`
-(`scripts/claude/LOOP.md` → "Troubleshooting"): the worker saves its work on a branch, and the
-conductor counts the ticket as failed. `/ticket` treats an unfinished worker's `.meta` as the
-loop's for 24 hours only (#1309), so kill a worker that runs longer than that before you run
+request, the table and the end of the run all wait for it. End it as `scripts/claude/LOOP.md` →
+"Troubleshooting" says (`kill` the worker, not its watchdog): the worker saves its work on a
+branch, and the conductor counts the ticket as failed. `/ticket` treats an unfinished worker's
+`.meta` as the loop's only for 24 hours after the file last changed, which is the worker's start or
+its last resume (#1309). So stop a worker that is still running 24 hours after that before you run
 `/ticket` on its ticket. A `LOOP_TICKET_TIMEOUT_MIN` left in a shell or an old launcher line
 changes nothing.
 

@@ -34,7 +34,6 @@ public sealed class OneTimeLinkReloadTests : E2ETestBase
         await AuthActions.RegisterAsync(Page, Fixture, user);
         await AuthActions.ConfirmEmailAsync(Page, Fixture, user);
         await AuthActions.LoginAsync(Page, Fixture, user);
-        await AuthActions.AcceptCookieBannerAsync(Page);
         string newEmail = TestUser.CreateRandomEmail();
         await AuthActions.RequestEmailChangeAsync(Page, user, newEmail);
         string confirmLink = await MailpitClient.WaitForLinkAsync(

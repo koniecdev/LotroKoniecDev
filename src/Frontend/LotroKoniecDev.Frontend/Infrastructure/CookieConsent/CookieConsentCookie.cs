@@ -3,6 +3,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.CookieConsent;
 internal static class CookieConsentCookie
 {
     internal const string Name = ".lotrokoniecdev.cookie-consent";
+    internal const string Value = "true";
 
     // HttpOnly: only the server reads it. Secure follows the request scheme, so the cookie still works on
     // the plain-http dev profile. It carries nothing sensitive.
@@ -16,5 +17,5 @@ internal static class CookieConsentCookie
         Path = "/"
     };
 
-    internal static bool IsAccepted(string? cookieValue) => !string.IsNullOrWhiteSpace(cookieValue);
+    internal static bool WasShown(string? cookieValue) => !string.IsNullOrWhiteSpace(cookieValue);
 }

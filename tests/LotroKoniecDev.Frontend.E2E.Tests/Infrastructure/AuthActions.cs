@@ -61,18 +61,7 @@ internal static class AuthActions
         await page.GetByRole(AriaRole.Button, new() { Name = Buttons.Logout, Exact = true }).WaitForAsync(LongWait);
     }
 
-    /// <summary>
-    /// So the banner never covers the controls a flow clicks. Call once after the first frontend page load
-    /// of a fresh browser context.
-    /// </summary>
-    public static async Task AcceptCookieBannerAsync(IPage page)
-    {
-        await page.GetByRole(AriaRole.Button, new() { Name = "Akceptuję", Exact = true }).ClickAsync();
-        await page.GetByRole(AriaRole.Region, new() { Name = "Informacja o plikach cookie" })
-            .WaitForAsync(new LocatorWaitForOptions { State = WaitForSelectorState.Detached, Timeout = 30_000 });
-    }
-
-    /// <summary>The caller must be signed in with the cookie banner already accepted.</summary>
+    /// <summary>The caller must be signed in.</summary>
     public static async Task RequestEmailChangeAsync(IPage page, TestUser user, string newEmail)
     {
         await page.GetByTestId("nav-account").ClickAsync();
@@ -84,10 +73,7 @@ internal static class AuthActions
         await page.GetByTestId("change-email-submit").ClickAsync();
     }
 
-    /// <summary>
-    /// Ends on the signed-out "deletion scheduled" page. The caller must be signed in with the cookie
-    /// banner already accepted.
-    /// </summary>
+    /// <summary>Ends on the signed-out "deletion scheduled" page. The caller must be signed in.</summary>
     public static async Task ScheduleDeletionAsync(IPage page, string password)
     {
         await page.GetByTestId("nav-account").ClickAsync();

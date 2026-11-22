@@ -1626,9 +1626,18 @@ main:has(> .home-banner) {
    of flow, so nothing reserved space for it and it sat on top of the end of the document, burying the
    footer's legal links at maximum scroll. In flow as the last child of the .app column it reserves
    exactly the height its copy wraps to, so the footer always comes to rest above it, and it is still
-   pinned to the bottom edge while anything is left to scroll. Accepted means not rendered at all, so
-   nothing is left reserved behind it. */
+   pinned to the bottom edge while anything is left to scroll.
+   The bar is a <dialog> (#1339). The first block undoes the browser's own dialog style, which centres
+   and shrinks it. Never set display here: the browser hides a closed dialog with display: none, so
+   nothing is left reserved behind it, and any display value here would keep it on screen. */
 .cookie-bar {
+    inset-inline: auto;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+
     position: sticky;
     bottom: 0;
     z-index: 60;

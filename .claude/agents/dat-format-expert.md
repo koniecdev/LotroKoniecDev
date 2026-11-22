@@ -55,7 +55,8 @@ Critical format facts:
 - **Piece lengths are CHARACTER counts, not byte counts** — bytes on disk = `count * 2` (UTF-16LE,
   `Encoding.Unicode`). Mixing this up corrupts every following offset.
 - `<--DO_NOT_TOUCH!-->` (`DatFileConstants.PieceSeparator`) is the **piece boundary** in exported
-  text: N+1 pieces ⇔ N argument slots. A translation must keep the same piece count; translators
+  text: N+1 pieces ⇔ N argument slots (true on all 792,500 exported rows, checked 2026-11-22 in
+  #1437). A translation must keep the same piece count; translators
   reorder arguments via `args_order`, never by editing the marker.
 - `args_order`/`args_id` columns: `NULL` or `1-2-3` — **1-indexed in the file, 0-indexed
   internally** (`Fragment.TryReorderArgRefs` takes 0-indexed source positions and returns `false`
@@ -115,7 +116,8 @@ and link it in its README index.
    hand-rolling byte arrays in tests).
 4. **Char counts vs byte counts** — see format facts; this is the #1 corruption source.
 5. **Piece count is immutable per fragment** during patching: a translation with a different
-   marker count than the original is invalid input (skip + warn), not a crash.
+   marker count than the original is invalid input (skip + warn), not a crash. `PatchingService`
+   checks `Fragment.FitsPieceCount` (pieces = `ArgRefs.Count` + 1) after the ADR-0047 guard (#1437).
 6. **No new NuGet packages** for binary work — `BinaryReader`/`BinaryWriter` + `Encoding.Unicode`
    are the toolset. And never any Mediator/MediatR (ADR-0001).
 7. Big-O matters here: exports iterate ~10⁵ fragments — keep per-fragment allocations flat

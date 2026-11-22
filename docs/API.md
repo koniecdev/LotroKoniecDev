@@ -445,7 +445,10 @@ the line breaks (CR and LF) at its end; spaces and breaks inside the text stay (
 amendment of 2026-11-21). The translator is taken from the **token**, never
 the body. Editing an `Approved` row moves it to `Draft`, which takes it out of the file until someone
 approves it again. A soft-removed row → **422** (`TranslationEntity.CannotEditRemoved`); unknown
-fragment → **404**. Placeholders (`<--DO_NOT_TOUCH!-->`) are stored as they are. A caller who is neither
+fragment → **404**. `translatedText` must hold exactly as many `<--DO_NOT_TOUCH!-->` placeholders as
+the row's current English, never its previous English: otherwise → **400**
+(`TranslationEntity.TranslatedText.PlaceholderCountMismatch`), because the patcher cuts the text on
+the placeholder and the game puts an argument into each cut (#1437). A caller who is neither
 an admin nor a reviewer spends the per-account save budget (§2.4, ADR-0072): past it → **429**
 (`Translations.SaveBudgetExhausted`; `Translations.OverwriteBudgetExhausted` when only the budget for
 rows that already have Polish is spent, so a row with no Polish still saves). A refused save changes

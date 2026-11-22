@@ -64,12 +64,29 @@ internal sealed class ListTranslations : IEndpoint
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
+                string term = query.Search.Trim();
+
                 // LOTRO source text contains both % and _, so they must match themselves.
-                string pattern = $"%{EscapeLike(query.Search.Trim())}%";
+                string pattern = $"%{EscapeLike(term)}%";
+
+                // Numbers appear in game texts too, so an id match only adds rows to the text match (#1406).
+                // EF drops the comparisons whose value is null, so a text term keeps the plain text query.
+                TranslationSearchIds ids = TranslationSearchTermParser.Parse(term);
+                int? fileId = ids.FileId;
+                long? gossipId = ids.GossipId;
+                int? pairFileId = ids.PairFileId;
+                long? pairGossipId = ids.PairGossipId;
+
                 filtered = filtered.Where(translation =>
                     EF.Functions.ILike(translation.SourceText, pattern, LikeEscapeCharacter)
                     || translation.TranslatedText != null
-                       && EF.Functions.ILike(translation.TranslatedText, pattern, LikeEscapeCharacter));
+                       && EF.Functions.ILike(translation.TranslatedText, pattern, LikeEscapeCharacter)
+                    || fileId != null && translation.FileId == fileId
+                    || gossipId != null && translation.GossipId == gossipId
+                    || pairFileId != null
+                       && pairGossipId != null
+                       && translation.FileId == pairFileId
+                       && translation.GossipId == pairGossipId);
             }
 
             if (query.ConflictsOnly)

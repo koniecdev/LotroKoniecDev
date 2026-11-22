@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -24,6 +25,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translati
 public sealed class ListTranslationsTests : IAsyncLifetime
 {
     private const int FileId = 620756992;
+    private const int OtherFileId = 620756993;
+    private const int ThirdFileId = 620756994;
     private const string SeederDisplayName = "Seed Author";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions JsonOptions =
@@ -151,6 +154,194 @@ public sealed class ListTranslationsTests : IAsyncLifetime
 
         // Assert
         page.Items.Single().GossipId.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task List_WithAFileIdAsSearch_ShouldListEveryLiveRowOfThatFile()
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Frodo"),
+            Row(2, "Samwise"),
+            Row(3, "Gone", removed: true),
+            Row(1, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: FileId.ToString(CultureInfo.InvariantCulture)));
+
+        // Assert
+        page.TotalCount.ShouldBe(2);
+        page.Items.Select(item => (item.FileId, item.GossipId)).ShouldBe([(FileId, 1L), (FileId, 2L)]);
+    }
+
+    [Fact]
+    public async Task List_WithAGossipIdAsSearch_ShouldListItsRowsInEveryFile()
+    {
+        // Arrange
+        await SeedAsync(
+            Row(6396484, "Frodo"),
+            Row(6396485, "Samwise"),
+            Row(6396484, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: "6396484"));
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.GossipId))
+            .ShouldBe([(FileId, 6396484L), (OtherFileId, 6396484L)]);
+    }
+
+    [Fact]
+    public async Task List_WithAGossipIdTooBigForAnInt_ShouldStillMatchIt()
+    {
+        // Arrange: FileId is an int, so only the GossipId column can hold this number.
+        await SeedAsync(Row(2147483648L, "Frodo"), Row(1, "Samwise"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: "2147483648"));
+
+        // Assert
+        page.Items.ShouldHaveSingleItem().GossipId.ShouldBe(2147483648L);
+    }
+
+    [Fact]
+    public async Task List_WithANumberThatIsAlsoInAText_ShouldListTheIdMatchAndTheTextMatch()
+    {
+        // Arrange: game texts carry numbers too, so an id match must never hide a text match.
+        await SeedAsync(Row(100, "Kill wolves"), Row(200, "Reward: 100 silver"), Row(300, "Nothing here"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(new ListTranslationsRequest(Search: "100"));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([100L, 200L]);
+    }
+
+    [Fact]
+    public async Task List_WithANumberPaddedWithSpaces_ShouldTrimItAndMatchTheId()
+    {
+        // Arrange
+        await SeedAsync(Row(6396484, "Frodo"), Row(6396485, "Samwise"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: "  6396484 "));
+
+        // Assert
+        page.Items.ShouldHaveSingleItem().GossipId.ShouldBe(6396484L);
+    }
+
+    [Fact]
+    public async Task List_WithFileIdColonGossipId_ShouldListOnlyThatRow()
+    {
+        // Arrange: one row shares the FileId and one shares the GossipId, so an OR of the two parts fails.
+        await SeedAsync(
+            Row(6396484, "Frodo"),
+            Row(6396485, "Samwise"),
+            Row(6396484, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: $"{FileId}:6396484"));
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        (item.FileId, item.GossipId).ShouldBe((FileId, 6396484L));
+    }
+
+    [Fact]
+    public async Task List_WithFileIdColonGossipIdOfNoRow_ShouldListOnlyTheTextMatches()
+    {
+        // Arrange: no row has the pair, one row has only its FileId, one only its GossipId.
+        await SeedAsync(
+            Row(5, "Frodo"),
+            Row(9, "Gandalf", fileId: OtherFileId),
+            Row(7, $"See {FileId}:9 for details", fileId: ThirdFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync(new ListTranslationsRequest(Search: $"{FileId}:9"));
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        (item.FileId, item.GossipId).ShouldBe((ThirdFileId, 7L));
+    }
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("620756992:3")]
+    public async Task List_WithTheIdOfARemovedRow_ShouldNotListIt(string term)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Frodo"), Row(3, "Gone", removed: true));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(new ListTranslationsRequest(Search: term));
+
+        // Assert
+        page.TotalCount.ShouldBe(0);
+        page.Items.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task List_WithAnIdAndAStatus_ShouldApplyTheStatusOnTopOfTheIdMatch()
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Frodo", TranslationStatus.Draft),
+            Row(2, "Samwise"),
+            Row(3, "Gandalf", TranslationStatus.Draft, fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(new ListTranslationsRequest(
+            Search: FileId.ToString(CultureInfo.InvariantCulture),
+            Status: TranslationStatus.Draft));
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        (item.FileId, item.GossipId).ShouldBe((FileId, 1L));
+    }
+
+    [Fact]
+    public async Task List_WithAnIdAndConflictsOnly_ShouldApplyTheConflictFilterOnTopOfTheIdMatch()
+    {
+        // Arrange: the conflict group spans two files; one row of the searched file has no conflict.
+        await SeedAsync(
+            Translated(1, "Stout-axe[D]", "Topór wojenny"),
+            Translated(2, "Stout-axe[D]", "Krzepki Topornik"),
+            Translated(3, "Dwarf[D]", "Krasnolud"),
+            Translated(1, "Stout-axe[D]", "Wytrzymały topór", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(new ListTranslationsRequest(
+            Search: FileId.ToString(CultureInfo.InvariantCulture),
+            ConflictsOnly: true));
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.GossipId)).ShouldBe([(FileId, 1L), (FileId, 2L)]);
+    }
+
+    [Theory]
+    [MemberData(nameof(TextOnlyTerms))]
+    public async Task List_WithATermThatIsNeitherAPlainNumberNorTheColonForm_ShouldOnlySearchTheText(
+        string term,
+        int decoyFileId,
+        long decoyGossipId)
+    {
+        // Arrange: the decoy carries the ids a lenient parse would read from the term.
+        await SeedAsync(
+            Row(1, $"Quest {term} text", fileId: ThirdFileId),
+            Row(decoyGossipId, "Decoy", fileId: decoyFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(new ListTranslationsRequest(Search: term));
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        (item.FileId, item.GossipId).ShouldBe((ThirdFileId, 1L));
     }
 
     [Fact]
@@ -566,12 +757,44 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         }
     };
 
+    /// <summary>
+    /// A sign, a space, a separator, a number too big for a long, or a bad colon form. <c>-5</c> and
+    /// the numbers too big for their column have no row a wrong parse could match, because ids are
+    /// positive and fit their column; those cases prove only that the text search still runs.
+    /// </summary>
+    public static TheoryData<string, int, long> TextOnlyTerms() => new()
+    {
+        { "+5", 5, 5 },
+        { "-5", 5, 5 },
+        { "1 5", 15, 15 },
+        { "1,000", 1000, 1000 },
+        { "5.0", 5, 5 },
+        { "1.5", 15, 15 },
+        { "9223372036854775808", int.MaxValue, long.MaxValue },
+        { "2147483648:5", int.MaxValue, 5 },
+        { "5:9223372036854775808", 5, long.MaxValue },
+        { "5: 6", 5, 6 },
+        { "5 :6", 5, 6 },
+        { "5:+6", 5, 6 },
+        { "5::6", 5, 6 },
+        { "5:6:7", 5, 6 },
+        { "5:", 5, 5 },
+        { ":5", 5, 5 }
+    };
+
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)
     {
         HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations{queryString}");
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         return (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
     }
+
+    /// <summary>
+    /// Built from the record the website uses, so a <c>+</c> or a space in the search reaches the API as
+    /// typed and is not read as a space.
+    /// </summary>
+    private Task<PaginationResponse<TranslationListItemResponse>> ListAsync(ListTranslationsRequest request) =>
+        ListAsync(QueryHelpers.AddQueryString(string.Empty, request.ToQueryParameters()));
 
     private HttpClient TranslatorClient()
     {
@@ -590,7 +813,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     private Translation Row(
-        int gossipId,
+        long gossipId,
         string source,
         TranslationStatus status = TranslationStatus.Untranslated,
         bool removed = false,
@@ -626,10 +849,11 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         string source,
         string polish,
         bool approve = false,
-        bool removed = false)
+        bool removed = false,
+        int fileId = FileId)
     {
         Translation row = Translation.CreateUntranslated(
-            FragmentKey.Create(FileId, gossipId).Value,
+            FragmentKey.Create(fileId, gossipId).Value,
             TranslationSource.Create(source, null, null).Value,
             _versionId,
             Now).Value;

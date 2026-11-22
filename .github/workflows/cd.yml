@@ -1,4 +1,11 @@
 name: CD
+# The run's own head_sha is main's tip when the run starts, not the commit it tests and deploys, so
+# the run name carries that commit and the CI run that started it. scripts/release.sh finds a
+# commit's CD run by this name (#1440), and scripts/tests/release.tests.sh pins its shape.
+run-name: >-
+  ${{ github.event_name == 'workflow_run'
+  && format('CD for {0} (CI run {1}, attempt {2})', github.event.workflow_run.head_sha, github.event.workflow_run.id, github.event.workflow_run.run_attempt)
+  || format('CD by hand: {0}', inputs.image_tag || github.sha) }}
 
 # Continuous delivery + deployment for the TMS (ADR-0012, amended 2026-06-29 audit 0001 C2,
 # 2026-06-30 audit 0001 H9 + H1 — supply-chain hardening: Trivy image gate + cosign signing + SLSA
@@ -386,3 +393,37 @@ jobs:
       short_sha: ${{ needs.gate.outputs.short_sha }}
       image_tag: ${{ github.event.inputs.image_tag }}
     secrets: inherit
+
+  # Keeps the one open "Next release" issue in step with what prod now runs (#1440). It takes the tag
+  # the rollout resolved, never github.sha: a hand run can roll an older image. The issue is only a
+  # signal, so a failure here never turns a good deploy red (continue-on-error); the job still shows
+  # red, and the next deploy rebuilds the issue. It lives in this workflow because events of the
+  # workflow token start no other workflow.
+  next-release:
+    name: Next release issue
+    needs: deploy-prod
+    if: ${{ !cancelled() && needs.deploy-prod.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read # the checkout and its tags
+      pull-requests: read # each commit's pull request and its closing issues
+      issues: write # open, edit, comment on and close the issue
+    concurrency:
+      group: next-release-issue
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (full history and tags)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Update the "Next release" issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ needs.deploy-prod.outputs.image_tag }}
+          REPO_OWNER: ${{ github.repository_owner }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./scripts/ci/next-release-issue.sh update "$IMAGE_TAG"

@@ -55,7 +55,7 @@ internal static partial class DatabaseSeederExtensions
     {
         RoleManager<ApplicationRole> roleManager = serviceProvider.GetRequiredService<RoleManager<ApplicationRole>>();
 
-        string[] roles = [AuthConstants.Roles.Admin, AuthConstants.Roles.Translator];
+        string[] roles = [AuthConstants.Roles.Admin, AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer];
 
         foreach (string roleName in roles)
         {

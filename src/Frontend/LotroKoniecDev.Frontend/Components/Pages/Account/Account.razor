@@ -7,7 +7,6 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Formatting
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
-@using LotroKoniecDev.SharedKernel.Authorization
 @inject AccountLoader Loader
 
 <PageTitle>Moje konto — lotro-translator.pl</PageTitle>
@@ -100,7 +99,7 @@
                             {
                                 @foreach (string role in auth.Roles)
                                 {
-                                    <span class="badge badge-neutral">@RoleLabel(role)</span>
+                                    <span class="badge badge-neutral">@RoleDisplay.Label(role)</span>
                                 }
                             }
                         </dd>
@@ -189,6 +188,17 @@
                         </a>
                     }
 
+                    @if (_offersAccountAdministration)
+                    {
+                        <a class="action-row" href="/admin/accounts" data-testid="account-administration">
+                            <span class="copy">
+                                <span class="t">Konta i role</span>
+                                <span class="s">Nadawaj i odbieraj rolę Recenzent.</span>
+                            </span>
+                            <span class="chev" aria-hidden="true">›</span>
+                        </a>
+                    }
+
                     @if (_result.Value.Links.HasLink(Rels.DeleteAccount))
                     {
                         <a class="action-row danger" href="/account/delete" data-testid="account-delete">
@@ -209,17 +219,18 @@
 {
     private ApiResult<AccountDataExportResponse>? _result;
 
+    /// <summary>
+    /// Shown only when the auth root offers the <c>accounts</c> rel, which it does for the admin alone
+    /// (#1488).
+    /// </summary>
+    private bool _offersAccountAdministration;
+
     protected override async Task OnInitializedAsync()
     {
         _result = await Loader.LoadExportAsync(CancellationToken.None);
+        _offersAccountAdministration = _result.IsSuccess
+            && await Loader.OffersAccountAdministrationAsync(CancellationToken.None);
     }
-
-    private static string RoleLabel(string role) => role switch
-    {
-        AuthConstants.Roles.Admin => "Administrator",
-        AuthConstants.Roles.Translator => "Tłumacz",
-        _ => role
-    };
 
     private static string FormatDateTime(DateTimeOffset? value) =>
         value is null

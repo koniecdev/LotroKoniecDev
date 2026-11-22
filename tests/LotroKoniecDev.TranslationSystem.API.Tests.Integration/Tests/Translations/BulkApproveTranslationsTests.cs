@@ -163,6 +163,21 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BulkApprove_AsReviewer_ShouldReturn403()
+    {
+        // Arrange: the right to approve comes in #1368, not with the role (#1488).
+        Guid draftId = await SeedAsync(gossipId: 1, SeedStatus.Draft, polish: "Witaj");
+        using HttpClient client = ReviewerClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PostAsJsonAsync(
+            BulkApproveRoute, new BulkApproveTranslationsRequest([draftId]), JsonOptions);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task BulkApprove_AsTranslator_ShouldReturn403()
     {
         // Arrange
@@ -245,6 +260,16 @@ public sealed class BulkApproveTranslationsTests : IAsyncLifetime
         HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin, AuthConstants.Scopes.Api, subject));
+        return client;
+    }
+
+    private HttpClient ReviewerClient(Guid subject)
+    {
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+                subject, AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer));
         return client;
     }
 

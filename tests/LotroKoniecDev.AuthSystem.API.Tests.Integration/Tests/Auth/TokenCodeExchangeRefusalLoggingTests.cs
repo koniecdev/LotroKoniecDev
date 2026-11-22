@@ -15,6 +15,7 @@ using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Bases;
 using LotroKoniecDev.AuthSystem.API.Tests.Integration.Shared.Factories;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Register;
+using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
 using OpenIddict.Abstractions;
@@ -44,7 +45,8 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         DeletionScheduled,
         LockedOut,
         DeletionScheduledAndLockedOut,
-        SecurityStampChanged
+        SecurityStampChanged,
+        RolesChanged
     }
 
     public enum SessionEnd
@@ -59,6 +61,7 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
     [InlineData(AccountChange.LockedOut, EventIds.TokenGrantRefusedLockedOut, "the account is locked out")]
     [InlineData(AccountChange.DeletionScheduledAndLockedOut, EventIds.TokenGrantRefusedDeletionScheduled, "account deletion is scheduled")]
     [InlineData(AccountChange.SecurityStampChanged, EventIds.TokenGrantRefusedStaleSecurityStamp, "the security stamp in the token is not current")]
+    [InlineData(AccountChange.RolesChanged, EventIds.TokenGrantRefusedRolesChanged, "the roles in the token are not the account's current roles")]
     public async Task AuthorizationCodeGrant_WhenTheAccountChangedAfterAuthorize_ShouldLogTheCaseAsInformation(
         AccountChange change,
         int expectedEventId,
@@ -164,6 +167,27 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
         // Arrange
         (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
             ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        using CapturingLoggerFactory loggerFactory = new();
+        await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
+        using HttpClient client = host.CreateClient();
+        (string code, string codeVerifier) = await ObtainAuthorizationCodeAsync(host, user.Email);
+
+        // Act
+        using HttpResponseMessage response = await ExchangeAsync(client, code, codeVerifier);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TokenEndpointEntries(loggerFactory).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task AuthorizationCodeGrant_ForAnUnchangedAccountWithTwoRoles_ShouldLogNothing()
+    {
+        // Arrange: every Reviewer holds two roles, and the role check compares the set the code carries
+        // (#1488).
+        (RegisterRequest user, _) = await UserFactory.RegisterRandomUserWithRequestAsync(
+            ApiClient, Faker, AccountConfirmationEmailSpy, Password);
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, user.Email, AuthConstants.Roles.Reviewer);
         using CapturingLoggerFactory loggerFactory = new();
         await using WebApplicationFactory<Program> host = CreateHost(loggerFactory);
         using HttpClient client = host.CreateClient();
@@ -354,6 +378,9 @@ public sealed partial class TokenCodeExchangeRefusalLoggingTests : EndpointsTest
                 break;
             case AccountChange.SecurityStampChanged:
                 await AccountStateFactory.ChangeSecurityStampAsync(Factory.Services, email);
+                break;
+            case AccountChange.RolesChanged:
+                await AccountStateFactory.AddToRoleAsync(Factory.Services, email, AuthConstants.Roles.Reviewer);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(change), change, null);

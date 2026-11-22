@@ -30,9 +30,7 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
     {
         DateTimeOffset windowStart = savedAt - window;
 
-        await _dbContext.TranslationSaves
-            .Where(translationSave => translationSave.SavedAt <= windowStart)
-            .ExecuteDeleteAsync(cancellationToken);
+        await DeleteExpiredAsync(savedAt, window, cancellationToken);
 
         // A parameter object belongs to one command, so each attempt builds its own.
         await _dbContext.Database.CreateExecutionStrategy().ExecuteAsync(
@@ -56,6 +54,15 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
             .SingleOrDefaultAsync(cancellationToken);
 
         return counts ?? new TranslationSaveCounts(0, 0);
+    }
+
+    public async Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken)
+    {
+        DateTimeOffset windowStart = now - window;
+
+        await _dbContext.TranslationSaves
+            .Where(translationSave => translationSave.SavedAt <= windowStart)
+            .ExecuteDeleteAsync(cancellationToken);
     }
 
     public async Task RemoveAsync(Guid saveId, CancellationToken cancellationToken)

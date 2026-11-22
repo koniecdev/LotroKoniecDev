@@ -1,6 +1,7 @@
 using System.Reflection;
 using FluentValidation;
 using LotroKoniecDev.Frontend.Components.Pages.Account;
+using LotroKoniecDev.Frontend.Components.Pages.AccountAdministration;
 using LotroKoniecDev.Frontend.Components.Pages.Dashboard;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
 using LotroKoniecDev.Frontend.Components.Pages.GameVersions;
@@ -38,6 +39,7 @@ public static class DependencyInjection
             services.AddSingleton<ImportSummaryRedirect>();
             services.AddScoped<GameVersionsLoader>();
             services.AddScoped<AccountLoader>();
+            services.AddScoped<AccountAdministrationLoader>();
 
             return services;
         }

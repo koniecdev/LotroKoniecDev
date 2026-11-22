@@ -296,12 +296,17 @@ protected by process and by tests (`ParserContractParityTests`, `TranslationFile
 
 ### 2.6 People and permissions
 
-Two roles exist (defined once, in `SharedKernel/Authorization/AuthConstants.cs`):
+Three roles exist (defined once, in `SharedKernel/Authorization/AuthConstants.cs`):
 
 - **Translator** — can browse everything, use the editor, and save drafts (`upsert`). Every new
   self-registered account gets this role.
+- **Reviewer** (Recenzent, #1488) — a trusted translator. Only the admin gives or takes it, on the
+  website's "Konta i role" page, and the account keeps Translator. For now it only lifts the limits
+  meant for fresh accounts: 300 TMS requests a minute counted per account, and no daily save budget.
+  The right to approve comes in #1368.
 - **Admin** — everything a Translator can, plus: approve translations (single and bulk), import
-  export files, register and delete game versions. The admin account is seeded at startup.
+  export files, register and delete game versions, give and take the Reviewer role. The admin
+  account is seeded at startup.
 
 A few endpoints are public on purpose: the **translation list** (read-only browsing), the public
 **progress** numbers, the **translation-file download** (players' patchers have no accounts) and
@@ -1053,9 +1058,11 @@ The trade-off (we own security updates and key management) is accepted; Part 12,
   password verification — otherwise it would be a timing oracle.
 - **Rate limits**: per client address on both APIs, plus per-inbox and per-account budgets for
   mail and password checks (ADR-0053, ADR-0055, ADR-0057). The frontend forwards the visitor's
-  address with a shared key, so all signed-in users do not share one bucket (ADR-0054). The full
-  table: [API.md §2.4](API.md#24-rate-limiting). The limiter runs *before* authentication, so junk
-  traffic is counted and rejected cheaply.
+  address with a shared key, so all signed-in users do not share one bucket (ADR-0054). On the TMS
+  API a Reviewer counts per account instead, at 300 a minute, and the admin has no limit (#1488). The full table:
+  [API.md §2.4](API.md#24-rate-limiting). The auth API's limiter runs *before* authentication; the
+  TMS API's runs after authentication and before authorization, so a refused call is still counted
+  but only a checked token can pick an account bucket.
 - Daily background jobs prune expired OpenIddict tokens and old sign-in sessions, so the auth
   tables do not grow forever.
 

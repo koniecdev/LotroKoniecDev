@@ -11,7 +11,9 @@ using LotroKoniecDev.AuthSystem.API.BackgroundServices;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.ExceptionHandlers;
 using LotroKoniecDev.AuthSystem.API.Extensions;
+using LotroKoniecDev.AuthSystem.API.Features.Admin;
 using LotroKoniecDev.AuthSystem.API.Features.Auth;
+using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAdministrationFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAggregateFactories;
 using LotroKoniecDev.AuthSystem.API.Hateoas.DiscoveryFactories;
 using LotroKoniecDev.AuthSystem.API.Middleware;
@@ -26,6 +28,7 @@ using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Services.Sessions;
 using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.Contracts.Features.Admin;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Account;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
@@ -69,6 +72,7 @@ internal static class ApiDependencyInjection
             // Accept values and ours only handles the vendor media type.
             services.AddHateoasInfrastructure();
 
+            services.AddTransient<IAccountAdministrationLinkFactory, AccountAdministrationLinkFactory>();
             services.AddTransient<IAccountAggregateLinkFactory, AccountAggregateLinkFactory>();
             services.AddTransient<IDiscoveryLinkFactory, DiscoveryLinkFactory>();
 
@@ -84,7 +88,10 @@ internal static class ApiDependencyInjection
             services.AddScoped<IQueryHandler<DownloadAccountData.Query, Result<AccountDataExportResponse>>, DownloadAccountData.Handler>();
             services.AddScoped<IQueryHandler<ExportAccountData.Query, Result<AccountDataExportResponse>>, ExportAccountData.Handler>();
             services.AddScoped<ICommandHandler<ForgotPassword.Command, Result>, ForgotPassword.Handler>();
+            services.AddScoped<ICommandHandler<GrantReviewerRole.Command, Result>, GrantReviewerRole.Handler>();
+            services.AddScoped<IQueryHandler<ListAccounts.Query, Result<AccountListResponse>>, ListAccounts.Handler>();
             services.AddScoped<ICommandHandler<RegisterUser.Command, Result>, RegisterUser.Handler>();
+            services.AddScoped<ICommandHandler<RemoveReviewerRole.Command, Result>, RemoveReviewerRole.Handler>();
             services.AddScoped<ICommandHandler<RequestEmailChange.Command, Result>, RequestEmailChange.Handler>();
             services.AddScoped<ICommandHandler<RevertEmailChange.Command, Result<RevertEmailChange.RevertedEmailChange>>, RevertEmailChange.Handler>();
             services.AddScoped<ICommandHandler<ResendEmailConfirmation.Command, Result>, ResendEmailConfirmation.Handler>();

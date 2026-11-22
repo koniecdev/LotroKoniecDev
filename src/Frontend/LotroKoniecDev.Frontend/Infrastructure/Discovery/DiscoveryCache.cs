@@ -148,8 +148,8 @@ internal sealed class DiscoveryCache : IDiscoveryCache
 
     /// <summary>
     /// One entry per account and cookie roles, because the API sends an admin more links (#842). The
-    /// cookie keeps the roles from sign-in, so a role change inside one session shows after at most a day
-    /// (#896).
+    /// cookie keeps the roles from sign-in, but a role change ends the session at its next token renewal
+    /// (#1488), so the next sign-in brings a new key.
     /// </summary>
     /// <returns>
     /// <see langword="null"/> for a session with no subject, whose answer is never cached.

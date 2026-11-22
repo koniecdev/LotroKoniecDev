@@ -10,8 +10,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.RateLimit
 
 /// <summary>
 /// Pins that 401s and 403s count against fixed-by-ip, and that a call over the limit creates no profile
-/// (#829). Each test has its own host, so its own buckets. In Testing <c>X-Forwarded-For</c> names the
-/// caller.
+/// (#829). The limiter runs after authentication but before authorization, which answers them (#1488).
+/// Each test has its own host, so its own buckets. In Testing <c>X-Forwarded-For</c> names the caller.
 /// </summary>
 [Collection("TranslationApi")]
 public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
@@ -97,7 +97,7 @@ public sealed class RefusedCallsRateLimitingTests : IAsyncLifetime
         RefusedToken.Expired => TranslationSystemApiFactory.CreateExpiredAccessToken(),
         RefusedToken.UnknownSigningKey => TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey(),
         RefusedToken.Malformed => "not-a-jwt",
-        RefusedToken.RoleWithoutAccess => TranslationSystemApiFactory.CreateAccessToken("Reviewer"),
+        RefusedToken.RoleWithoutAccess => TranslationSystemApiFactory.CreateAccessToken("NotARole"),
         _ => throw new ArgumentOutOfRangeException(nameof(refusedToken), refusedToken, null)
     };
 

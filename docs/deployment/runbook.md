@@ -261,11 +261,11 @@ both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 | `HealthCheck__Key` | — (the full `/health` is open) | from `HEALTH_CHECK_KEY` | ✅ non-dev | **secret** | The same key and rules as auth-api's `HealthCheck__Key` (ADR-0058); here the full `/health` runs the database check. |
 | `RabbitMq__Host` / `RabbitMq__Username` / `RabbitMq__Password` | `localhost` / `rabbitmq` / `changeme` (appsettings.Development) | `rabbitmq` / `rabbitmq` / from `RABBITMQ_PASSWORD` | ✅ all | **secret** (Password) | The broker and the user auth-api uses: tms-api consumes the `AccountErased` events of ADR-0065 from its own queue `tms.account-erased`. Validated at start, but tms-api **boots and serves with the broker down**: the consumer retries its connection, and the AuthSystem's outbox keeps the event until it is delivered. |
 | `TranslationFileDiskCache__Directory` | — (unset → a private folder per process in the temp folder) | `/tmp/lotro-translation-files` (set in `compose.hetzner.yaml`) | optional | plain | Where full downloads of the translation file are served from (ADR-0064). Fixed in the containers, so a crash restart reuses and sweeps the one copy (about 82 MB at full size) instead of leaving one behind. It must belong to this one process; an empty value stops the boot. |
-| `TranslationSaveBudget__SaveLimit` | — (default `1000`) | from `TMS_SAVE_LIMIT`, default `1000` | optional | plain | Saves one non-admin account may make in the window (ADR-0072, #687). Past it the save is refused with 429. At least 1, or tms-api stops at boot. |
+| `TranslationSaveBudget__SaveLimit` | — (default `1000`) | from `TMS_SAVE_LIMIT`, default `1000` | optional | plain | Saves one plain translator account (not admin, not reviewer) may make in the window (ADR-0072, #687, #1488). Past it the save is refused with 429. At least 1, or tms-api stops at boot. |
 | `TranslationSaveBudget__SaveAlertThreshold` | — (default `500`) | from `TMS_SAVE_ALERT_THRESHOLD`, default `500` | optional | plain | From this save on, every save logs the Warning that the `lotro-translation-save-budget` alert mails. Between 1 and `SaveLimit`. |
 | `TranslationSaveBudget__OverwriteLimit` | — (default `100`) | from `TMS_OVERWRITE_LIMIT`, default `100` | optional | plain | Saves on a row that already has Polish, counted inside the save budget. Past it only such saves are refused; rows with no Polish still save. Raise it for the days after a large game update, when translators correct many rows. At least 1. |
 | `TranslationSaveBudget__OverwriteAlertThreshold` | — (default `50`) | from `TMS_OVERWRITE_ALERT_THRESHOLD`, default `50` | optional | plain | The overwrite Warning, as for saves. Between 1 and `OverwriteLimit`. |
-| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. Rows older than the window are deleted on the next save by a non-admin. |
+| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. Rows older than the window are deleted on the next save, by any account (#1488). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend
@@ -597,9 +597,10 @@ the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough
 moves someone else's account onto your address, with their password, as soon as you click the
 confirm link it mails you, and its undo link can later take the row back, role included (ADR-0048).
 The statements below end any session still open on the row, then grant the role only when all three
-conditions hold. Granting a role does not change the security stamp, so a session that survived
-would get the Admin role at its next refresh or sign-in. Changing the stamp ends both the auth cookie
-and every refresh token (#848); the deletes are a second layer.
+conditions hold. Granting a role does not change the security stamp. A refresh token that survived
+is refused at its next refresh, because its roles no longer match the account's (#1488), but a
+sign-in cookie that survived would get the Admin role at the next sign-in. Changing the stamp
+ends both the auth cookie and every refresh token (#848); the deletes are a second layer.
 
 ```sql
 UPDATE authsystem."Users" SET "SecurityStamp" = gen_random_uuid()::text
@@ -1671,7 +1672,8 @@ keeps a placeholder address, so the finalizer erases it again, with its message 
 system. What the redo does not select stays rewound: an e-mail confirmation and a failed-login
 lockout made after the restore point (harmless; a person may be asked to confirm their address
 again), and anything outside the `Users` columns it copies, such as a role granted or removed by
-hand, or a row deleted by hand. Check such changes against your own notes. A mail that was still
+hand or on the admin's "Konta i role" page (the Reviewer role, #1488), or a row deleted by hand.
+Check such changes against your own notes. A mail that was still
 waiting in the outbox at the restore point goes out again, built from today's account state.
 
 Do not use the export when it may hold the damage: an auth migration of the bad release writes,

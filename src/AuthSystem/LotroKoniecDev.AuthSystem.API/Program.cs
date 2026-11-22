@@ -142,7 +142,8 @@ try
 
     // A plain RequireAuthorization means a user's token, not any valid token (#966).
     builder.Services.AddAuthorizationBuilder()
-        .SetDefaultPolicy(UserTokenPolicy.Policy);
+        .SetDefaultPolicy(UserTokenPolicy.Policy)
+        .AddPolicy(AdminTokenPolicy.Name, AdminTokenPolicy.Policy);
     builder.Services.AddRazorPages()
         .AddMvcOptions(options => options.Filters.Add(new AntiforgeryFailureFilter()));
 

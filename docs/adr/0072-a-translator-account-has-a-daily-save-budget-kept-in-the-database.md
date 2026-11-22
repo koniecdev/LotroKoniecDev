@@ -1,6 +1,6 @@
 # ADR-0072: A translator account has a daily save budget, kept in the database
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-21 — see "Amendment: a Reviewer has no budget either")
 **Date:** 2026-11-13
 **Decision-makers:** Solo maintainer (owner decision recorded in #687, 2026-11-13)
 **Related:** `TranslationSystem.API/Features/Translations/UpsertTranslation.cs`,
@@ -223,6 +223,37 @@ again and spend the same permit.
   `Translators` cascades, unlike the `Restrict` keys on `Translations`: a budget row is not work.
 - After the merge the owner syncs `/opt/obs` on the staging box (runbook, Observability). Setting a
   threshold of 1 in staging's `.env` for a moment proves the rule end to end.
+
+## Amendment: a Reviewer has no budget either (2026-11-21, #1488)
+
+The owner ruled on 2026-11-16 (#1368) and again in #1488: a **Reviewer** (Recenzent), a role only the
+admin gives and takes away, has no daily save budget, like the admin. §1 now reads "for plain
+translators only": the budget applies to an account that holds neither Admin nor Reviewer.
+`ICurrentUserAccessor.HasDailySaveBudget()` decides it and replaces `HasOnlyRegularUserPrivileges()`
+(Implementation Notes). A Reviewer keeps Translator, which the save endpoint asks for.
+
+- **What the alerts see (§6).** A Reviewer, like the admin, writes no `Translation save budget`
+  Warning line, so the per-account rule never fires for one. Its overwrites still write the
+  `Translation overwritten` Information line, which ignores the budget, so the all-accounts rule
+  (`lotro-translation-overwrites-total`, 100 in 24 hours) still counts them. That rule is the one alarm
+  for a stolen Reviewer account with 300 requests a minute and no daily cap. A stolen Reviewer is a
+  sign-in problem, as a stolen admin is (§1).
+- **Saves made while exempt are not in the ledger.** A Reviewer whose role is taken away starts with
+  a full budget.
+- **Every save deletes the expired rows, budgeted or not (§3).** §3 accepted that old rows wait for
+  the next budgeted save. With the role that is no longer a short wait: once every regular translator
+  is a Reviewer, no budgeted save may come for months, and the rows would outlive the 30 days the
+  privacy policy names. A Reviewer's or the admin's save now deletes them as well. Rows still wait
+  when nobody saves at all.
+- **Context and Alternative A said the limiter runs before authentication (#829).** Since #1488 it
+  runs after authentication and before authorization; it counts a Reviewer per account and sets no
+  limit for the admin (ADR-0054 amendment of 2026-11-21). Alternative A's reason no longer holds as
+  written. The budget stays in the handler anyway: a per-minute limiter cannot keep a 24-hour count
+  that survives a restart (§3), and plain accounts stay per address by the owner's ruling.
+
+Tests: `TranslationSaveBudgetTests` (a Reviewer is never refused and spends nothing; its save deletes
+rows older than the window; its overwrite still writes the line the total alert counts),
+`CurrentUserAccessorTests`.
 
 ## References
 

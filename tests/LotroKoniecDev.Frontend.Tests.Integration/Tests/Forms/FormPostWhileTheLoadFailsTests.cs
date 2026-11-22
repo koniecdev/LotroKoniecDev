@@ -70,6 +70,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("/account/change-email", "change-email", "Zmień e-mail")]
     [InlineData("/account/change-password", "change-password", "Zmień hasło")]
     [InlineData("/account/delete", "delete-account", "Usuń konto")]
+    [InlineData("/admin/accounts", $"grant-reviewer-{RowId}", "Konta i role")]
+    [InlineData("/admin/accounts", $"remove-reviewer-{RowId}", "Konta i role")]
     public async Task Post_WhenThePageDataFailsToLoad_ShowsThePageWithTheLoadError(
         string path,
         string formName,
@@ -237,6 +239,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("/game-versions", "delete-not-a-guid")]
     [InlineData($"/editor/{RowId}", "save-translationx")]
     [InlineData("/account/delete", "change-email")]
+    [InlineData("/admin/accounts", "grant-reviewer-not-a-guid")]
     public async Task Post_NamingAFormThePageNeverHas_WhileTheLoadFails_StillGetsTheBadRequest(
         string path,
         string formName)
@@ -381,6 +384,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     private sealed class StubAuthSystem : HttpMessageHandler
     {
         private const string AccountHref = $"{AuthOrigin}/advertised/account";
+        private const string AccountsHref = $"{AuthOrigin}/advertised/accounts";
 
         private readonly HttpStatusCode _accountAnswer;
         private int _writes;
@@ -402,9 +406,13 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
             {
                 $"{AuthOrigin}/" => StubAnswers.HateoasJson(new AuthDiscoveryResponse("auth")
                 {
-                    Links = [new LinkDto(AccountHref, AuthRels.ExportAccountData, "GET")]
+                    Links =
+                    [
+                        new LinkDto(AccountHref, AuthRels.ExportAccountData, "GET"),
+                        new LinkDto(AccountsHref, AuthRels.Accounts, "GET")
+                    ]
                 }),
-                AccountHref => new HttpResponseMessage(_accountAnswer),
+                AccountHref or AccountsHref => new HttpResponseMessage(_accountAnswer),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)
             };
 

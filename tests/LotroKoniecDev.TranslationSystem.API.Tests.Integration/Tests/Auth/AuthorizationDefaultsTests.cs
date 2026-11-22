@@ -203,7 +203,7 @@ public sealed class AuthorizationDefaultsTests
         // Arrange: authenticated, but neither Admin nor Translator.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("NotARole"));
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/game-versions");
@@ -223,7 +223,7 @@ public sealed class AuthorizationDefaultsTests
         // the endpoint runs, so the write route needs no body.
         using HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("NotARole"));
         using HttpRequestMessage request = new(new HttpMethod(method), route);
 
         // Act

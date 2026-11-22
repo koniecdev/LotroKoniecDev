@@ -71,7 +71,7 @@ public sealed class AuthorizationLoggingTests : IAsyncLifetime
         using HttpClient client = host.CreateClient();
         using HttpRequestMessage request = CreateRequest(GameVersionsPath, "203.0.113.81");
         request.Headers.Authorization =
-            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("Reviewer"));
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateAccessToken("NotARole"));
 
         // Act
         using HttpResponseMessage response = await client.SendAsync(request);

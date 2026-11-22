@@ -170,6 +170,13 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject, displayName, email);
 
     /// <summary>
+    /// A token with several roles carries <c>role</c> as a JSON array, as the sign-in server writes it. A
+    /// Reviewer always keeps Translator (#1488).
+    /// </summary>
+    public static string CreateAccessTokenWithRoles(Guid? subject, params string[] roles)
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), subject: subject, roles: roles);
+
+    /// <summary>
     /// The website's token names the auth API next to this one (#1023).
     /// </summary>
     public static string CreateAccessTokenForAudiences(params string[] audiences)
@@ -202,7 +209,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         string displayName = TestUserDisplayName,
         string email = TestUserEmail,
         string[]? audiences = null,
-        string tokenType = AuthConstants.TokenTypes.AccessToken)
+        string tokenType = AuthConstants.TokenTypes.AccessToken,
+        string[]? roles = null)
     {
         JsonWebTokenHandler handler = new();
 
@@ -221,7 +229,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
                 ["sub"] = (subject ?? Guid.NewGuid()).ToString(),
                 ["name"] = displayName,
                 ["email"] = email,
-                ["role"] = role,
+                ["role"] = roles is null ? role : roles,
                 ["scope"] = scope
             }
         };

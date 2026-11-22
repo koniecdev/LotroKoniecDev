@@ -138,6 +138,32 @@ public sealed class AccountTests : BunitContext
     }
 
     [Fact]
+    public void Render_WhenDiscoveryOffersTheAccountList_LinksToTheAdminPage()
+    {
+        // Arrange: the auth root offers this rel to the admin alone (#1488).
+        StubExport(AccountLoaderTests.CreateEnvelope(), new LinkDto("auth/admin/accounts", Rels.Accounts, "GET"));
+
+        // Act
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        // Assert
+        component.Find("[data-testid=account-administration]").GetAttribute("href").ShouldBe("/admin/accounts");
+    }
+
+    [Fact]
+    public void Render_WhenDiscoveryDoesNotOfferTheAccountList_HidesTheAdminLink()
+    {
+        // Arrange
+        StubExport(AccountLoaderTests.CreateEnvelope());
+
+        // Act
+        IRenderedComponent<AccountComponent> component = Render<AccountComponent>();
+
+        // Assert
+        component.FindAll("[data-testid=account-administration]").ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Render_WhenDeletionScheduled_ShowsTheScheduledNotice()
     {
         StubExport(AccountLoaderTests.CreateEnvelope(
@@ -197,11 +223,11 @@ public sealed class AccountTests : BunitContext
             }));
     }
 
-    private void StubExport(AccountDataExportResponse envelope)
+    private void StubExport(AccountDataExportResponse envelope, params LinkDto[] extraDiscoveryLinks)
     {
         AuthDiscoveryResponse discovery = new("LotroKoniecDev.AuthSystem")
         {
-            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET")]
+            Links = [new LinkDto("auth/account/data-export", Rels.ExportAccountData, "GET"), .. extraDiscoveryLinks]
         };
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(discovery));

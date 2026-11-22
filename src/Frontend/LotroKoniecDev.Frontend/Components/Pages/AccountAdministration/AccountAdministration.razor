@@ -1,0 +1,306 @@
+@page "/admin/accounts"
+@attribute [Authorize]
+@using System.Globalization
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.AuthSystem.Contracts.Features.Admin
+@using LotroKoniecDev.AuthSystem.Contracts.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
+@using LotroKoniecDev.Frontend.Infrastructure.Forms
+@using LotroKoniecDev.Frontend.Infrastructure.Formatting
+@using LotroKoniecDev.Frontend.Infrastructure.Hateoas
+@using LotroKoniecDev.Frontend.Infrastructure.HttpClients
+@using LotroKoniecDev.Hateoas.Abstractions
+@inject AccountAdministrationLoader Loader
+@inject NavigationManager Navigation
+
+<PageTitle>Konta i role — lotro-translator.pl</PageTitle>
+
+<section class="container page-head">
+    <div>
+        <h1>Konta i role</h1>
+        <p class="lede">
+            Nadawaj i odbieraj rolę Recenzent. Recenzent może wysłać 300 zapytań na minutę i nie ma dziennego
+            limitu zapisów. Po każdej zmianie ta osoba zostaje wylogowana, a po ponownym zalogowaniu ma nową rolę.
+        </p>
+    </div>
+</section>
+
+<section class="container content-wrap">
+    @if (_accountsProblem is not null)
+    {
+        <div class="error-message" role="alert">
+            <span class="em-ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4"/><path d="M12 17h.01"/>
+                </svg>
+            </span>
+            <div class="em-body">
+                <ApiProblemAlert Problem="@_accountsProblem"
+                                 Fallback="Nie udało się wczytać listy kont."
+                                 HeadlineClass="t"/>
+            </div>
+        </div>
+
+        <PostedFormTarget IsPageForm="IsOwnForm"/>
+    }
+
+    @if (_actionProblem is not null)
+    {
+        <div class="status-message status-error" role="alert">
+            <ApiProblemAlert Problem="@_actionProblem" Fallback="Nie udało się zmienić roli."/>
+        </div>
+    }
+    else if (_actionMessage is not null)
+    {
+        <div class="status-message status-success" role="status">
+            <p>@_actionMessage</p>
+        </div>
+    }
+
+    @if (_accounts is null && _accountsProblem is null)
+    {
+        <div class="loading-indicator">
+            <span class="li-spin"></span> Wczytywanie listy kont…
+        </div>
+    }
+    else if (_accounts is not null)
+    {
+        @* A reload, a double click or a stale tab posts a form the fresh list no longer draws. This lets the
+           post find a form, so the page shows the fresh list instead of Blazor's blank 400 (#1122). *@
+        <PostedFormTarget IsPageForm="IsOwnFormTheListDoesNotDraw"/>
+
+        @if (_accounts.Items.Count == 0)
+        {
+            <div class="empty">
+                <h2>Brak kont</h2>
+                <p>Na tej stronie nie ma żadnego konta.</p>
+            </div>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Nazwa użytkownika</th>
+                            <th scope="col">E-mail</th>
+                            <th scope="col">Role</th>
+                            <th scope="col" class="col-actions"><span class="visually-hidden">Akcje</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (AccountSummaryResponse account in _accounts.Items)
+                        {
+                            @* The server decides which change each account offers (ADR-0040). *@
+                            LinkDto? grantLink = account.Links.FindLink(Rels.GrantReviewer);
+                            LinkDto? removeLink = account.Links.FindLink(Rels.RemoveReviewer);
+                            <tr data-testid="account-row">
+                                <td>@account.Username</td>
+                                <td>@account.Email</td>
+                                <td>
+                                    @foreach (string role in account.Roles)
+                                    {
+                                        <span class="badge badge-neutral">@RoleDisplay.Label(role)</span>
+                                    }
+                                    @if (account.DeletionScheduledAt is not null)
+                                    {
+                                        <span class="badge badge-warning">Usunięcie zaplanowane</span>
+                                    }
+                                </td>
+                                <td class="col-actions">
+                                    @if (grantLink is not null)
+                                    {
+                                        @* The form sets no action, so Blazor writes this address, which draws
+                                           the form again on the post (#1122). *@
+                                        <form method="post" @formname="@GrantFormName(account.UserId)"
+                                              @onsubmit="() => GrantAsync(grantLink.Href)">
+                                            <AntiforgeryToken/>
+                                            <button type="submit" class="btn btn-primary btn-sm">Nadaj rolę Recenzent</button>
+                                        </form>
+                                    }
+                                    @if (removeLink is not null)
+                                    {
+                                        <form method="post" @formname="@RemoveFormName(account.UserId)"
+                                              @onsubmit="() => RemoveAsync(removeLink.Href)">
+                                            <AntiforgeryToken/>
+                                            <button type="submit" class="btn btn-ghost btn-sm">Odbierz rolę Recenzent</button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @* The pager follows the server's links, never the counts (#158). *@
+        @if (_accounts.Links.HasLink(Rels.PreviousPage) || _accounts.Links.HasLink(Rels.NextPage))
+        {
+            <nav class="pager" aria-label="Stronicowanie">
+                @if (_accounts.Links.HasLink(Rels.PreviousPage))
+                {
+                    <a class="btn btn-ghost" href="@PageUri(_accounts.Page - 1)" rel="prev">← Poprzednia</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">← Poprzednia</span>
+                }
+
+                <span class="pager-status">Strona @_accounts.Page</span>
+
+                @if (_accounts.Links.HasLink(Rels.NextPage))
+                {
+                    <a class="btn btn-ghost" href="@PageUri(_accounts.Page + 1)" rel="next">Następna →</a>
+                }
+                else
+                {
+                    <span class="btn btn-ghost is-disabled" aria-disabled="true">Następna →</span>
+                }
+            </nav>
+        }
+    }
+</section>
+
+@code
+{
+    private const string PagePath = "/admin/accounts";
+    private const string GrantFormNamePrefix = "grant-reviewer-";
+    private const string RemoveFormNamePrefix = "remove-reviewer-";
+    private const string ChangedParameter = "changed";
+    private const string GrantedValue = "granted";
+    private const string RemovedValue = "removed";
+
+    private AccountListResponse? _accounts;
+    private ProblemDetails? _accountsProblem;
+    private ProblemDetails? _actionProblem;
+    private string? _actionMessage;
+
+    /// <summary>
+    /// Read as text, so a value that is not a page number shows the first page instead of failing (#1356).
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "page")]
+    private string? Page { get; set; }
+
+    /// <summary>
+    /// Set by the redirect after a change, so the message needs no per-user state on the server. A manual
+    /// reload shows it again, which is harmless.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = ChangedParameter)]
+    private string? Changed { get; set; }
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private int CurrentPage =>
+        int.TryParse(Page, NumberStyles.None, CultureInfo.InvariantCulture, out int page) && page > 1 ? page : 1;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // A post keeps the flag only because the address still has it, so it shows none (#1122).
+        if (PostedForm.NameOf(HttpContext) is null)
+        {
+            _actionMessage = Changed switch
+            {
+                GrantedValue => "Nadano rolę Recenzent. Ta osoba zostanie wylogowana, a po ponownym zalogowaniu będzie miała nową rolę.",
+                RemovedValue => "Odebrano rolę Recenzent. Ta osoba zostanie wylogowana, a po ponownym zalogowaniu nie będzie już jej miała.",
+                _ => null
+            };
+        }
+
+        await LoadAccountsAsync();
+    }
+
+    private async Task LoadAccountsAsync()
+    {
+        ApiResult<AccountListResponse> result = await Loader.ListAccountsAsync(CurrentPage, CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            _accounts = result.Value;
+            _accountsProblem = null;
+        }
+        else
+        {
+            _accounts = null;
+            _accountsProblem = result.ProblemDetails;
+        }
+    }
+
+    private async Task GrantAsync(string grantHref)
+    {
+        ApiResult result = await Loader.GrantReviewerAsync(grantHref, CancellationToken.None);
+        await FinishChangeAsync(result, GrantedValue);
+    }
+
+    private async Task RemoveAsync(string removeHref)
+    {
+        ApiResult result = await Loader.RemoveReviewerAsync(removeHref, CancellationToken.None);
+        await FinishChangeAsync(result, RemovedValue);
+    }
+
+    /// <summary>
+    /// Redirect after a change: a reload is a plain GET and cannot post the form again. A refusal does not
+    /// redirect, so the error stays on screen next to the fresh list.
+    /// </summary>
+    private async Task FinishChangeAsync(ApiResult result, string changedValue)
+    {
+        if (result.IsSuccess)
+        {
+            Navigation.NavigateTo(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{PageUri(CurrentPage)}{(CurrentPage > 1 ? '&' : '?')}{ChangedParameter}={changedValue}"));
+            return;
+        }
+
+        _actionMessage = null;
+        _actionProblem = result.ProblemDetails;
+        await LoadAccountsAsync();
+    }
+
+    private static string PageUri(int page) =>
+        page > 1 ? string.Create(CultureInfo.InvariantCulture, $"{PagePath}?page={page}") : PagePath;
+
+    /// <summary>
+    /// A form name per row: static SSR sends the post to the matching <c>@@formname</c> and rebuilds that
+    /// row's <c>@@onsubmit</c> closure.
+    /// </summary>
+    private static string GrantFormName(Guid accountId) =>
+        string.Create(CultureInfo.InvariantCulture, $"{GrantFormNamePrefix}{accountId}");
+
+    private static string RemoveFormName(Guid accountId) =>
+        string.Create(CultureInfo.InvariantCulture, $"{RemoveFormNamePrefix}{accountId}");
+
+    /// <summary>
+    /// A failed load leaves no row to read the ids from, so a form is known by its name alone (#1122).
+    /// </summary>
+    private static bool IsOwnForm(string formName) =>
+        HasPrefixAndId(formName, GrantFormNamePrefix) || HasPrefixAndId(formName, RemoveFormNamePrefix);
+
+    private bool IsOwnFormTheListDoesNotDraw(string formName) =>
+        IsOwnForm(formName) && !DrawnFormNames().Contains(formName);
+
+    private HashSet<string> DrawnFormNames()
+    {
+        HashSet<string> names = new(StringComparer.Ordinal);
+        foreach (AccountSummaryResponse account in _accounts?.Items ?? [])
+        {
+            if (account.Links.HasLink(Rels.GrantReviewer))
+            {
+                names.Add(GrantFormName(account.UserId));
+            }
+
+            if (account.Links.HasLink(Rels.RemoveReviewer))
+            {
+                names.Add(RemoveFormName(account.UserId));
+            }
+        }
+
+        return names;
+    }
+
+    private static bool HasPrefixAndId(string formName, string prefix) =>
+        formName.StartsWith(prefix, StringComparison.Ordinal)
+        && Guid.TryParse(formName.AsSpan(prefix.Length), out _);
+}

@@ -28,8 +28,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
 /// Stores the translator's Polish on an imported row (spec 0001). It never creates a row: an unknown
-/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A non-admin
-/// spends the per-account save budget of ADR-0072 first.
+/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A plain
+/// translator (neither Admin nor Reviewer) spends the per-account save budget of ADR-0072 first.
 /// </summary>
 internal sealed partial class UpsertTranslation : IEndpoint
 {
@@ -136,7 +136,7 @@ internal sealed partial class UpsertTranslation : IEndpoint
             // Only an approved row leaves the distributed set, so only then is a rebuild needed.
             bool wasApproved = previousStatus is TranslationStatus.Approved;
             bool replacesPolish = translation.TranslatedText is not null;
-            bool isBudgeted = _currentUserAccessor.HasOnlyRegularUserPrivileges();
+            bool isBudgeted = _currentUserAccessor.HasDailySaveBudget();
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
             if (isBudgeted)
@@ -146,6 +146,13 @@ internal sealed partial class UpsertTranslation : IEndpoint
                 {
                     return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
                 }
+            }
+            else
+            {
+                // Without this, rows would wait for a plain translator's save, and there may be none
+                // once every regular translator is a Reviewer (#1488).
+                await _saveLedger.DeleteExpiredAsync(
+                    now, TimeSpan.FromHours(_saveBudgetSettings.Value.WindowHours), cancellationToken);
             }
 
             translation.ProvideTranslation(command.TranslatedText, translatorId, now);

@@ -219,6 +219,39 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetTranslation_AsReviewer_WithPendingPolish_DoesNotAdvertiseApprove()
+    {
+        // Arrange: the editor shows its approve button only for this link (#1488, #1368).
+        Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.NeedsReview));
+
+        // Act
+        TranslationDetailResponse response = await GetHateoasAsync<TranslationDetailResponse>(
+            ReviewerClient(), $"/api/v1/translations/{row.Id.Value}");
+
+        // Assert
+        response.Links.ShouldContain(l => l.Rel == Rels.Upsert);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
+    }
+
+    [Fact]
+    public async Task ListTranslations_AsReviewer_DoesNotAdvertiseApproveNorBulkApprove()
+    {
+        // Arrange
+        Translation row = await SeedAsync(Row(1, "Aragorn", TranslationStatus.NeedsReview));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                ReviewerClient(), "/api/v1/translations");
+
+        // Assert
+        TranslationListItemResponse item = response.Items.First(i => i.Id == row.Id);
+        item.Links.ShouldContain(l => l.Rel == Rels.Upsert);
+        item.Links.ShouldNotContain(l => l.Rel == Rels.Approve);
+        response.Links.ShouldNotContain(l => l.Rel == Rels.BulkApprove);
+    }
+
+    [Fact]
     public async Task ListTranslations_AsTranslator_ItemsDoNotAdvertiseApprove()
     {
         // Arrange
@@ -442,6 +475,16 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     private HttpClient AdminClient() => ClientForRole(AuthConstants.Roles.Admin);
 
     private HttpClient TranslatorClient() => ClientForRole(AuthConstants.Roles.Translator);
+
+    private HttpClient ReviewerClient()
+    {
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+                Guid.NewGuid(), AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer));
+        return client;
+    }
 
     private HttpClient ClientForRole(string role)
     {

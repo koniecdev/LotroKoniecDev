@@ -6,6 +6,12 @@ public static class AuthConstants
     {
         public const string Admin = "Admin";
         public const string Translator = "Translator";
+
+        /// <summary>
+        /// A trusted translator, given and taken away by the admin. For now it only lifts the request and
+        /// save limits; the right to approve comes in #1368.
+        /// </summary>
+        public const string Reviewer = "Reviewer";
     }
 
     public static class Scopes

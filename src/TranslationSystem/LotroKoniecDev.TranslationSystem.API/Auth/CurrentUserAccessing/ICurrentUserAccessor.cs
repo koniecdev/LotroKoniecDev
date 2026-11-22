@@ -13,7 +13,8 @@ internal interface ICurrentUserAccessor
     bool IsInRole(string role);
 
     /// <summary>
-    /// Today only the Admin role can skip every permission check.
+    /// A plain translator's saves spend the daily save budget; the trusted roles are free of it
+    /// (ADR-0072 §1, amended by #1488).
     /// </summary>
-    bool HasOnlyRegularUserPrivileges();
+    bool HasDailySaveBudget();
 }

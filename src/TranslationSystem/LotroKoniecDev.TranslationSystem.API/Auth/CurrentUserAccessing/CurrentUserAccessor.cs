@@ -1,5 +1,4 @@
 using System.Security.Claims;
-using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 
@@ -44,15 +43,5 @@ internal sealed class CurrentUserAccessor : ICurrentUserAccessor
 
     public bool IsInRole(string role) => User?.IsInRole(role) ?? false;
 
-    public bool HasOnlyRegularUserPrivileges()
-    {
-        if (User is null)
-        {
-            return true;
-        }
-
-        bool isUserAdmin = User.IsInRole(AuthConstants.Roles.Admin);
-
-        return !isUserAdmin;
-    }
+    public bool HasDailySaveBudget() => User is null || !TrustedRoles.AreHeldBy(User);
 }

@@ -710,6 +710,9 @@ public sealed class UpsertTranslationHandlerTests
             return Task.FromResult(CountFor(translatorId));
         }
 
+        public Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken)
+            => Task.CompletedTask;
+
         public Task RemoveAsync(Guid saveId, CancellationToken cancellationToken)
         {
             // Like EF Core, a cancelled token stops the delete.

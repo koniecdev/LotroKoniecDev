@@ -1353,19 +1353,25 @@ prompt. It:
 5. shows the notes: Enter publishes, `e` edits them in your git editor, `v` changes the version,
    `q` stops;
 6. tags (`git tag -a`), pushes the tag, publishes the GitHub Release with `--latest` and closes the
-   "Next release" issue. If the release cannot be created after the tag push, the tag stays and the
-   script prints the `gh release create` command that finishes it.
+   "Next release" issue. Any failure here keeps the notes in `.git/release-notes-vX.Y.Z.md` and
+   prints the commands that finish the release by hand. A tag that could not be pushed is removed
+   again, so the next run does not take the release as done; one pushed before the GitHub Release
+   failed stays.
+
+Lines typed while the script waits are thrown away before each prompt, so only an answer to the
+prompt itself publishes.
 
 AI never blocks a release: when the call fails (no `claude` CLI, not signed in, a usage limit, an
 answer with no `## ` heading), the notes are the raw change list, with one line that says why. The
 script needs `jq` only to read that answer, so without `jq` the AI notes are off and the raw list is
-used; the release goes on. Settings: `RELEASE_POLL_SECONDS` (default 15).
+used; the release goes on. Settings (environment): `RELEASE_POLL_SECONDS` (seconds between status
+checks, default 15), `RELEASE_NOTES_GRACE_SECONDS` (how long the last prompt waits for the notes
+before it offers the raw list with `r`, default 10), `RELEASE_JQ` and `RELEASE_CLAUDE` (the
+commands, default `jq` and `claude`).
 
 **Check once, after #1440 merges:** the first CD run of a merge must be named `CD for <sha> (CI run
 <id>, attempt 1)` in the Actions list. If the attempt number is empty, the script never finds its run
 (it would wait at "The CD run … has not started yet"): use the manual steps below and file a bug.
-CD runs from before #1440 are named only "CD", so the first release may deploy prod again; that is
-harmless (the N-1 gate sees an empty span).
 
 ### Cutting a release by hand (the fallback)
 

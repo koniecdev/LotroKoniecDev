@@ -124,8 +124,8 @@ internal sealed partial class UpsertTranslation : IEndpoint
                 return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
             }
 
-            // Here and not in the validator, which cannot see the English. Before the translator row and
-            // the save permit, because both commit on their own (ADR-0004, ADR-0072 §4).
+            // Here and not in the validator, which cannot see the English. Before the save permit,
+            // which commits on its own, so a refused save spends nothing (ADR-0072 §4).
             Result placeholderResult = translation.Source.CheckPlaceholderCountOf(command.TranslatedText);
             if (placeholderResult.IsFailure)
             {

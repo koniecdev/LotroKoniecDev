@@ -258,7 +258,7 @@ then GossipId for sequential DAT I/O. The rules below stay in force; each ADR ho
 - **The `<--DO_NOT_TOUCH!-->` count must match the English** (#1437, ADR-0043 amendment): the TMS
   save refuses Polish with a different count than the row's current English (400
   `TranslationEntity.TranslatedText.PlaceholderCountMismatch`, checked in the handler before the
-  translator row and the save permit), and the patcher skips and reports a row whose piece count is
+  save permit), and the patcher skips and reports a row whose piece count is
   not the fragment's argument count + 1 (`Fragment.FitsPieceCount`). `ParserContractParityTests`
   keeps the TMS copy of the marker and its count in step with the patcher's cut.
 - **Stale Polish never lands over changed English: an INVARIANT enforced per row at write time**

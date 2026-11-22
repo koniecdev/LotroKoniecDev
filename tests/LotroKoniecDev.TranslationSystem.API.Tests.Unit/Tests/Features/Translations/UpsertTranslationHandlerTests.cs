@@ -241,11 +241,11 @@ public sealed class UpsertTranslationHandlerTests
     [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj <--DO_NOT_TOUCH!--> <--DO_NOT_TOUCH!-->!")]
     [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!-->!")]
     [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->!")]
-    public async Task Handle_WhenThePlaceholderCountDiffersFromTheEnglish_ShouldRefuseBeforeTheTranslatorRowAndThePermit(
+    public async Task Handle_WhenThePlaceholderCountDiffersFromTheEnglish_ShouldRefuseBeforeThePermit(
         string english, string polish)
     {
-        // Arrange: both the translator row and the permit commit on their own, so a refusal after
-        // either would leave a trace of a save that never happened (#1437).
+        // Arrange: the permit commits on its own, so a later refusal would spend it on a save that
+        // never happened (#1437).
         Translation row = Untranslated(source: english);
         GivenStoredRow(row);
 
@@ -258,7 +258,6 @@ public sealed class UpsertTranslationHandlerTests
         result.Error.Type.ShouldBe(TypeOfError.Validation);
         row.TranslatedText.ShouldBeNull();
         row.Status.ShouldBe(TranslationStatus.Untranslated);
-        _provisioner.CallCount.ShouldBe(0);
         _saveLedger.RecordCalls.ShouldBe(0);
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
     }

@@ -170,9 +170,9 @@ refuses it and the patcher skips it, the same way as an over-long piece.
 **TMS.** §1 says that teaching the TMS the patcher's cut rule would duplicate patcher logic. The
 TMS still does not learn how the patcher cuts. It compares the marker count in two texts it already
 holds, the Polish and the row's current English (never `PreviousSourceText`):
-`TranslationSource.CheckPlaceholderCountOf`. `UpsertTranslation` calls it before it provisions the
-translator and before it takes a save permit, because both commit on their own (ADR-0004, ADR-0072
-§4), so a refused save leaves no trace. A mismatch is a 400 with its own code,
+`TranslationSource.CheckPlaceholderCountOf`. `UpsertTranslation` calls it next to its other
+refusals, before it takes a save permit, which commits on its own (ADR-0072 §4), so a refused save
+changes nothing and spends nothing. A mismatch is a 400 with its own code,
 `TranslationEntity.TranslatedText.PlaceholderCountMismatch`, and its own Polish copy (ADR-0044). The
 validator cannot do it, because it sees only the request. `Translation.ProvideTranslation` asserts
 the same rule as a programmer-error guard, like the length guard of §1. The marker gets a TMS copy,

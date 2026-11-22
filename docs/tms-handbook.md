@@ -824,7 +824,7 @@ shows; nothing is copied. Saving sends
 2. rejects a soft-removed row (422 `CannotEditRemoved`);
 3. rejects a Polish text whose number of `<--DO_NOT_TOUCH!-->` placeholders differs from the
    row's current English (400 `TranslationEntity.TranslatedText.PlaceholderCountMismatch`, #1437),
-   before step 4 and the save budget, because both commit on their own;
+   before the save budget, whose permit commits on its own, so a refused save spends nothing;
 4. provisions the caller's Translator profile (Part 5.2) and stamps `SubmittedById`;
 5. calls `ProvideTranslation(...)` → the row becomes **Draft** (whatever it was before — editing
    an Approved row un-publishes it);

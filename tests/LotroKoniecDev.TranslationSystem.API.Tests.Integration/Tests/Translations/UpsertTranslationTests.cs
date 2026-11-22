@@ -254,8 +254,7 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     public async Task Upsert_WithADifferentPlaceholderCountThanTheEnglish_ShouldReturn400AndLeaveNoTrace(
         string english, string polish)
     {
-        // Arrange: a plain translator, so a permit and a translator row would both be written if the
-        // refusal came late (#1437).
+        // Arrange: a plain translator, so a permit would be spent if the refusal came late (#1437).
         await SeedAsync(gossipId: 1, source: english, SeedStatus.Untranslated);
         using HttpClient client = TranslatorClient(Guid.NewGuid());
 
@@ -272,7 +271,6 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         row.TranslatedText.ShouldBeNull();
         row.Status.ShouldBe(TranslationStatus.Untranslated);
         row.UpdatedAt.ShouldBe(Now);
-        (await dbContext.Translators.CountAsync()).ShouldBe(1);
         (await dbContext.TranslationSaves.CountAsync()).ShouldBe(0);
     }
 

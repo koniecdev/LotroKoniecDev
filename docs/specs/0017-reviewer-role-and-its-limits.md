@@ -4,9 +4,9 @@
 - **Date:** 2026-11-21
 - **Author:** loop worker for #1488
 - **Ticket:** #1488
-- **Related:** #1368 (the right to approve, later), #1483 (closed by #1488), spec 0014 (the review flow,
-  on its own branch), ADR-0049, ADR-0054 and ADR-0072 (all amended 2026-11-21), ADR-0040, ADR-0041,
-  wiki `Wersje-systemu` (the Recenzent line under "Wersje 1.x")
+- **Related:** #1368 (the right to approve, later), #1483 (closed by #1488), spec 0014 (the review
+  flow), ADR-0049, ADR-0054 and ADR-0072 (all amended 2026-11-21), ADR-0040, ADR-0041, wiki
+  `Wersje-systemu` (the Recenzent line under "Wersje 1.x")
 
 ## Business context
 

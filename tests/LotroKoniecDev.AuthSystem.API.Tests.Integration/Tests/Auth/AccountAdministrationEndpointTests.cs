@@ -64,6 +64,24 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task ListAccounts_ShouldSortByUsernameIgnoringCase()
+    {
+        // Arrange: a byte-order collation, as in the test image, puts every capitalised name first.
+        string adminToken = await AdminAccessTokenAsync();
+        await CreateAccountsAsync("Zed", "adam", "Bob", "carol");
+        string[] expectedOrder = ["adam", "Bob", "carol", "Zed"];
+
+        // Act
+        AccountListResponse response = await GetAccountsAsync(adminToken);
+
+        // Assert
+        response.Items
+            .Select(item => item.Username)
+            .Where(username => expectedOrder.Contains(username))
+            .ShouldBe(expectedOrder);
+    }
+
+    [Fact]
     public async Task ListAccounts_ShouldLeaveOutAnErasedAccount()
     {
         // Arrange: erasure keeps only an anonymous row.
@@ -494,23 +512,28 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         return (await response.Content.ReadFromJsonAsync<AccountListResponse>(ApiClient.JsonOptions))!;
     }
 
-    private async Task CreateAccountsAsync(int count)
+    private Task CreateAccountsAsync(int count) =>
+        CreateAccountsAsync(Enumerable.Range(0, count)
+            .Select(i => string.Create(CultureInfo.InvariantCulture, $"pageduser{i:D2}"))
+            .ToArray());
+
+    private async Task CreateAccountsAsync(params string[] usernames)
     {
         await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
         UserManager<ApplicationUser> userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
-        for (int i = 0; i < count; i++)
+        foreach (string username in usernames)
         {
             ApplicationUser user = new()
             {
-                UserName = string.Create(CultureInfo.InvariantCulture, $"pageduser{i:D2}"),
+                UserName = username,
                 Email = UserFactory.GenerateUniqueEmail(Faker)
             };
             IdentityResult result = await userManager.CreateAsync(user);
             if (!result.Succeeded)
             {
                 throw new InvalidOperationException(
-                    $"Could not create paged test user {i}: {string.Join(", ", result.Errors.Select(error => error.Code))}.");
+                    $"Could not create test user {username}: {string.Join(", ", result.Errors.Select(error => error.Code))}.");
             }
         }
     }

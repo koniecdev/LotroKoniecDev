@@ -117,8 +117,8 @@ middleware creates the caller's TMS `Translator` profile if it is missing (ADR-0
 (edits Polish) and `Reviewer` (Recenzent, #1488: a trusted translator, always next to `Translator`;
 for now it only lifts the limits — 300 requests a minute per account and no daily save budget — and
 cannot approve until #1368). A self-registered user gets **`Translator`**; the seeded admin gets
-`Admin`; only the admin gives or takes away `Reviewer` (§7.2). **Scopes** (`AuthConstants.Scopes`): `api`, `service` (plus the OIDC `openid email profile
-roles offline_access`).
+`Admin`; only the admin gives or takes away `Reviewer` (§7.2). **Scopes** (`AuthConstants.Scopes`):
+`api`, `service` (plus the OIDC `openid email profile roles offline_access`).
 
 ### 2.3 Request headers the client should send
 
@@ -451,7 +451,7 @@ an admin nor a reviewer spends the per-account save budget (§2.4, ADR-0072): pa
 rows that already have Polish is spent, so a row with no Polish still saves). A refused save changes
 nothing and spends nothing.
 
-**`POST /translations/{id}/approve`** (reviewer only): a row with no Polish → **422**
+**`POST /translations/{id}/approve`** (admin only until #1368): a row with no Polish → **422**
 (`CannotApproveWithoutTranslation`), a soft-removed row → **422** (`CannotApproveRemoved`), unknown id
 → **404**, success → **204**. It schedules a background rebuild of the file (PERF-04, ADR-0021); the
 response does not wait for it, so a download can trail the commit for a moment.
@@ -614,7 +614,7 @@ uses to detect a token that never reached the API — see the warning on `Rels.C
 3. `GET /api/v1/translations?status=Untranslated` → pick a row → `GET /api/v1/translations/{id}`.
 4. `PUT /api/v1/translations { fileId, gossipId, translatedText }` → the row becomes `Draft`.
 
-### 9.2 Reviewer approves & the file ships
+### 9.2 The admin approves & the file ships
 
 1. `GET /api/v1/translations?status=Draft` (or `NeedsReview`).
 2. `POST /api/v1/translations/{id}/approve` (Admin) → **204** — or select up to 100 rows and send
@@ -676,8 +676,9 @@ Discovery: `self`, `register` and `forgot-password` for an anonymous caller, `ex
 a logged-in one, and `accounts` (GET `auth/admin/accounts`) for the admin alone, because the link
 factory replays the endpoint's policy. Account list (#1488): `self`, `previous-page`, `next-page`; on
 each account `grant-reviewer` (PUT) while it holds `Translator`, not `Admin`, not `Reviewer`, with no
-deletion scheduled, and `remove-reviewer` (DELETE) while it holds `Reviewer`. Account representation: `self`, `download-account-data`, `change-password`,
-`change-email`, `delete-account`, and `resend-email-confirmation` while the e-mail is unconfirmed.
+deletion scheduled, and `remove-reviewer` (DELETE) while it holds `Reviewer`. Account
+representation: `self`, `download-account-data`, `change-password`, `change-email`, `delete-account`,
+and `resend-email-confirmation` while the e-mail is unconfirmed.
 `download-account-data` (POST `auth/account/data-export`) is the password-gated GDPR export and is not
 in discovery (ADR-0052). While a deletion is scheduled the account representation emits only `self`,
 `cancel-deletion` (POST `auth/account/cancel-deletion`) and `download-account-data`: every other action

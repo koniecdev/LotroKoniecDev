@@ -265,7 +265,7 @@ both boxes run `ASPNETCORE_ENVIRONMENT=Production`.
 | `TranslationSaveBudget__SaveAlertThreshold` | — (default `500`) | from `TMS_SAVE_ALERT_THRESHOLD`, default `500` | optional | plain | From this save on, every save logs the Warning that the `lotro-translation-save-budget` alert mails. Between 1 and `SaveLimit`. |
 | `TranslationSaveBudget__OverwriteLimit` | — (default `100`) | from `TMS_OVERWRITE_LIMIT`, default `100` | optional | plain | Saves on a row that already has Polish, counted inside the save budget. Past it only such saves are refused; rows with no Polish still save. Raise it for the days after a large game update, when translators correct many rows. At least 1. |
 | `TranslationSaveBudget__OverwriteAlertThreshold` | — (default `50`) | from `TMS_OVERWRITE_ALERT_THRESHOLD`, default `50` | optional | plain | The overwrite Warning, as for saves. Between 1 and `OverwriteLimit`. |
-| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. Rows older than the window are deleted on the next save by a plain translator. |
+| `TranslationSaveBudget__WindowHours` | — (default `24`) | from `TMS_SAVE_BUDGET_WINDOW_HOURS`, default `24` | optional | plain | The rolling window both budgets count in. 1 to 720 (30 days, the privacy policy's limit for technical data). The counts are kept in the `TranslationSaves` table, so a deploy or a restart does not reset them. Rows older than the window are deleted on the next save, by any account (#1488). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` (launchSettings) | `http://10.60.0.1:4317` | optional | plain | See the auth-api row. |
 
 ### frontend
@@ -597,10 +597,10 @@ the admin inbox can give it a password. `EmailConfirmed` alone is **not** enough
 moves someone else's account onto your address, with their password, as soon as you click the
 confirm link it mails you, and its undo link can later take the row back, role included (ADR-0048).
 The statements below end any session still open on the row, then grant the role only when all three
-conditions hold. Granting a role does not change the security stamp. A refresh token that survived is refused at its
-next refresh, because its roles no longer match the account's (#1488), but a sign-in cookie that
-survived would get the Admin role at the next sign-in. Changing the stamp ends both the auth cookie
-and every refresh token (#848); the deletes are a second layer.
+conditions hold. Granting a role does not change the security stamp. A refresh token that survived
+is refused at its next refresh, because its roles no longer match the account's (#1488), but a
+sign-in cookie that survived would get the Admin role at the next sign-in. Changing the stamp
+ends both the auth cookie and every refresh token (#848); the deletes are a second layer.
 
 ```sql
 UPDATE authsystem."Users" SET "SecurityStamp" = gen_random_uuid()::text
@@ -1672,7 +1672,8 @@ keeps a placeholder address, so the finalizer erases it again, with its message 
 system. What the redo does not select stays rewound: an e-mail confirmation and a failed-login
 lockout made after the restore point (harmless; a person may be asked to confirm their address
 again), and anything outside the `Users` columns it copies, such as a role granted or removed by
-hand or on the admin's "Konta i role" page (the Reviewer role, #1488), or a row deleted by hand. Check such changes against your own notes. A mail that was still
+hand or on the admin's "Konta i role" page (the Reviewer role, #1488), or a row deleted by hand.
+Check such changes against your own notes. A mail that was still
 waiting in the outbox at the restore point goes out again, built from today's account state.
 
 Do not use the export when it may hold the damage: an auth migration of the bad release writes,

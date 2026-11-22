@@ -304,9 +304,10 @@ status check. The steps of the runbook stay as the fallback.
   `CD for <tested commit> (CI run <id>, attempt <n>)`, or `CD by hand: <tag or sha>`, and the script
   matches on that name. A hand run never counts as "prod runs the release commit", because its image
   tag can differ from its record.
-- **A run whose prod job never started is run again in full** (`gh run rerun`, at most twice), never
-  replaced by a hand dispatch with `image_tag`, which would skip the N-1 gate. A re-run keeps its
-  event, so it reuses the images (§2) and proves the span again.
+- **A run whose prod job never started, or whose earlier deploy a later one replaced, is run again
+  in full** (`gh run rerun`, at most twice), never replaced by a hand dispatch with `image_tag`,
+  which would skip the N-1 gate. A re-run keeps its event, so it reuses the images (§2) and proves
+  the span again.
 - **Nothing is published without the owner's yes** at the script's last prompt. Only a commit with
   this ADR is tagged, and nothing is tagged after a red check, a failed rollout or a rollback.
 - **The notes come from one headless `claude -p` call** with no tools and no repo context, started

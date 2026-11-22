@@ -1345,18 +1345,20 @@ prompt. It:
    name (`CD for <commit> (CI run <id>, attempt <n>)`), rejects every other run waiting at the gate
    (older and newer candidates and hand runs: a waiting prod job holds `prod-mutation`), and approves
    its own. A run whose prod job never started (rejected, cancelled by the CD janitor or by a newer
-   candidate) is run again in full, at most twice, and its staging deploy goes back to that commit
-   until the next merge. A red rollout or a rollback stops it, and nothing is tagged. From the
-   approval on, Ctrl-C stops only the script, not the deploy;
+   candidate), or one whose earlier deploy a later deploy replaced, is run again in full, at most
+   twice, and its staging deploy goes back to that commit until the next merge. Once it approved its
+   own run, it leaves later candidates at the gate to you. A red rollout or a rollback stops it, and
+   nothing is tagged. From the approval on, Ctrl-C stops only the script, not the deploy;
 4. shows the change list and the proposed number. When nothing raises it, Enter stops (prod keeps
    the deploy) or you type a version;
 5. shows the notes: Enter publishes, `e` edits them in your git editor, `v` changes the version,
    `q` stops;
 6. tags (`git tag -a`), pushes the tag, publishes the GitHub Release with `--latest` and closes the
-   "Next release" issue. Any failure here keeps the notes in `.git/release-notes-vX.Y.Z.md` and
-   prints the commands that finish the release by hand. A tag that could not be pushed is removed
-   again, so the next run does not take the release as done; one pushed before the GitHub Release
-   failed stays.
+   "Next release" issue. A failure or a stop here (Ctrl-C included) keeps the notes in
+   `.git/release-notes-vX.Y.Z.md` for the by-hand commands it prints. A tag that did not reach
+   GitHub is removed again, so the next run does not take the release as done (a new run writes new
+   notes); a tag that reached GitHub stays, and the printed `gh release create` finishes it. A run
+   that finds a newest tag only the clone has stops at the start and says so.
 
 Lines typed while the script waits are thrown away before each prompt, so only an answer to the
 prompt itself publishes.

@@ -426,7 +426,7 @@ unknown name, such as the old `lang`, is ignored.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `search` | string? | — | case-insensitive substring of the English source **or** the Polish (LIKE special characters escaped) |
+| `search` | string? | — | case-insensitive substring of the English source **or** the Polish (LIKE special characters escaped). A term made only of the digits 0–9 also matches the rows whose `FileId` or `GossipId` equals it, and `FileId:GossipId` also matches that one row (#1406). An id match only adds rows: the text match always runs |
 | `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs retranslation" view |
 | `page` | int | `1` | at least 1 |
 | `pageSize` | int | `50` | clamped to 1–100 |

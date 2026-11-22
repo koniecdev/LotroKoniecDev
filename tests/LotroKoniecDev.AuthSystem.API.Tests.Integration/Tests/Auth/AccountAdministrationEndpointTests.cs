@@ -79,6 +79,22 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         response.Items.ShouldNotContain(item => item.UserId == erasedId.Value);
     }
 
+    [Fact]
+    public async Task ListAccounts_ShouldListALiveAccountWhoseAddressOnlyLooksErased()
+    {
+        // Arrange: the marker address alone is no proof of erasure; the account still has a password
+        // (ADR-0065).
+        string adminToken = await AdminAccessTokenAsync();
+        (_, IdentityId liveId) = await RegisterAsync();
+        await MoveToTheMarkerDomainAsync(liveId.Value);
+
+        // Act
+        AccountListResponse response = await GetAccountsAsync(adminToken);
+
+        // Assert
+        response.Items.ShouldContain(item => item.UserId == liveId.Value);
+    }
+
     [Theory]
     [InlineData(CallerRole.Translator)]
     [InlineData(CallerRole.TranslatorAndReviewer)]
@@ -508,7 +524,20 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
             .Where(user => user.Id == accountId)
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(user => user.Email, anonymizedEmail)
-                .SetProperty(user => user.NormalizedEmail, anonymizedEmail.ToUpperInvariant()));
+                .SetProperty(user => user.NormalizedEmail, anonymizedEmail.ToUpperInvariant())
+                .SetProperty(user => user.PasswordHash, (string?)null));
+    }
+
+    private async Task MoveToTheMarkerDomainAsync(Guid accountId)
+    {
+        await using AsyncServiceScope scope = Factory.Services.CreateAsyncScope();
+        AuthDbContext db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+        string markerEmail = $"{AnonymizationConstants.EmailPrefix}{Guid.NewGuid():N}{AnonymizationConstants.EmailDomain}";
+        await db.Users
+            .Where(user => user.Id == accountId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(user => user.Email, markerEmail)
+                .SetProperty(user => user.NormalizedEmail, markerEmail.ToUpperInvariant()));
     }
 
     private async Task<IList<string>> RolesOfAsync(Guid accountId)

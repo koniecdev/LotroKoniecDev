@@ -1,14 +1,15 @@
+using System.Linq.Expressions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
 using LotroKoniecDev.AuthSystem.API.Hateoas.AccountAdministrationFactories;
+using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.Contracts.Features.Admin;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.DbContexts;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
-using LotroKoniecDev.SharedKernel.Constants;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 
@@ -21,6 +22,11 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Admin;
 internal sealed class ListAccounts : IApiEndpoint
 {
     public const int PageSize = 50;
+
+    private static readonly Expression<Func<ApplicationUser, bool>> NotErased =
+        Expression.Lambda<Func<ApplicationUser, bool>>(
+            Expression.Not(ErasedAccounts.Rule.Body),
+            ErasedAccounts.Rule.Parameters);
 
     internal sealed record Query(int Page) : IQuery<Result<AccountListResponse>>;
 
@@ -37,7 +43,7 @@ internal sealed class ListAccounts : IApiEndpoint
 
             IQueryable<ApplicationUser> accounts = _dbContext.Users
                 .AsNoTracking()
-                .Where(user => !user.Email!.EndsWith(AnonymizationConstants.EmailDomain));
+                .Where(NotErased);
 
             int totalCount = await accounts.CountAsync(cancellationToken);
 

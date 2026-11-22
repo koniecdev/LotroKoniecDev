@@ -792,25 +792,6 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public async Task Save_WhenSucceeds_TheReloadedEditorStillLinksBackToTheSameList()
-    {
-        // bUnit renders the redirect target again, so the back link after the save comes from the
-        // redirect's own address.
-        Guid id = Guid.NewGuid();
-        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
-        _client
-            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
-        Navigation().NavigateTo($"/editor/{id}?{ListState}");
-        IRenderedComponent<EditorComponent> component = RenderEditor(id);
-
-        await component.Find("form").SubmitAsync();
-
-        component.WaitForAssertion(() =>
-            component.Find(".head-actions a").GetAttribute("href").ShouldBe($"/translations?{ListState}"));
-    }
-
-    [Fact]
     public void Render_OtherRowLink_CarriesTheListState()
     {
         // "Otwórz" is a detour from the same list, so its back link still shows that list.

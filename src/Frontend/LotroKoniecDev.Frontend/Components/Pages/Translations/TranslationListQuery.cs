@@ -9,8 +9,9 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
 /// <summary>
 /// The filter and paging state of the translation list page. The collection's address comes from the TMS
-/// service document (#610), so this type only adds the query string to it. Kept apart from the component
-/// so it can be unit-tested without rendering.
+/// service document (#610), so for the API this type only adds the query string. It also writes the
+/// list's and the editor's own addresses and reads the state back from them (#1452). Kept apart from the
+/// component so it can be unit-tested without rendering.
 /// </summary>
 internal sealed record TranslationListQuery
 {
@@ -96,7 +97,7 @@ internal sealed record TranslationListQuery
 
     /// <summary>
     /// The editor's address carries the list state, so the editor can build the way back (#1452). Default
-    /// values stay out, so the list's first page links to a bare <c>/editor/{id}</c>.
+    /// values stay out, so the first page of an unfiltered list links to a bare <c>/editor/{id}</c>.
     /// </summary>
     public string ToEditorRelativeUri(TranslationId id) =>
         QueryHelpers.AddQueryString(
@@ -194,7 +195,8 @@ internal sealed record TranslationListQuery
     }
 
     /// <summary>
-    /// The same number rules as the list's own query binding. Anything else is the first page.
+    /// The number rules of the list's own query binding. Where that binding fails the page on a value it
+    /// cannot read (#1356), this falls back to the first page.
     /// </summary>
     private static int ParsePage(string? page) =>
         int.TryParse(page, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ? parsed : 1;
@@ -221,8 +223,8 @@ internal sealed record TranslationListQuery
     }
 
     /// <summary>
-    /// The first value of a repeated name, as Blazor's query binding reads it. A joined value such as
-    /// <c>a,b</c> would match neither page.
+    /// The first value of a repeated name, as Blazor's query binding reads it. Joining the values would
+    /// differ from the list: <c>page=2&amp;page=3</c> would read as "2,3", which is no number.
     /// </summary>
     private static string? FirstValue(Dictionary<string, StringValues> query, string name) =>
         query.TryGetValue(name, out StringValues values) && values.Count > 0 ? values[0] : null;

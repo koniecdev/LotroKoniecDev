@@ -254,6 +254,40 @@ public sealed class TranslationTests
         translation.Status.ShouldBe(TranslationStatus.Untranslated);
     }
 
+    [Theory]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj!")]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!-->!")]
+    public void ProvideTranslation_WithADifferentPlaceholderCountThanTheEnglish_ShouldThrowAndLeaveTheRowUntouched(
+        string english, string polish)
+    {
+        // Arrange: a programmer-error guard; UpsertTranslation refuses the save first (#1437).
+        Translation translation = Translation.CreateUntranslated(Key(), Source(english), IntroducedVersion, Created).Value;
+
+        // Act
+        Action provide = () => translation.ProvideTranslation(polish, Submitter, Changed);
+
+        // Assert
+        provide.ShouldThrow<ArgumentException>();
+        translation.TranslatedText.ShouldBeNull();
+        translation.SubmittedById.ShouldBeNull();
+        translation.Status.ShouldBe(TranslationStatus.Untranslated);
+    }
+
+    [Fact]
+    public void ProvideTranslation_WithTheSamePlaceholderCountAsTheEnglish_ShouldAttachDraft()
+    {
+        // Arrange: the order of the text around the placeholder is free.
+        Translation translation = Translation.CreateUntranslated(
+            Key(), Source("Hail <--DO_NOT_TOUCH!-->!"), IntroducedVersion, Created).Value;
+
+        // Act
+        translation.ProvideTranslation("<--DO_NOT_TOUCH!--> wita!", Submitter, Changed);
+
+        // Assert
+        translation.TranslatedText.ShouldBe("<--DO_NOT_TOUCH!--> wita!");
+        translation.Status.ShouldBe(TranslationStatus.Draft);
+    }
+
     [Fact]
     public void ProvideTranslation_OnNeedsReviewRow_ShouldReturnToDraftAndKeepPreviousSource()
     {

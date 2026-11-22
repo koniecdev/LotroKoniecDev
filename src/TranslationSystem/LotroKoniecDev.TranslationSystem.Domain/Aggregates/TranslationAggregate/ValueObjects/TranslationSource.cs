@@ -1,5 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 
@@ -27,6 +29,41 @@ public sealed class TranslationSource : ValueObject
         return Text.EndsWith('\r') || Text.EndsWith('\n')
             ? translatedText
             : translatedText.TrimEnd('\r', '\n');
+    }
+
+    /// <summary>
+    /// Refuses Polish with a different number of <see cref="DatFormatConstants.Placeholder"/> markers
+    /// than this English (#1437). The patcher cuts the text on the marker and the game puts an argument
+    /// into each cut, so no other count can work in the game.
+    /// </summary>
+    public Result CheckPlaceholderCountOf(string translatedText)
+    {
+        ArgumentNullException.ThrowIfNull(translatedText);
+
+        int englishCount = CountPlaceholders(Text);
+        int polishCount = CountPlaceholders(translatedText);
+
+        return englishCount == polishCount
+            ? Result.Success()
+            : Result.Failure(
+                DomainErrors.TranslationEntity.TranslatedTextProperty.PlaceholderCountMismatch(englishCount, polishCount));
+    }
+
+    /// <summary>Counts the markers without overlap, the same way the patcher's ordinal cut does.</summary>
+    public static int CountPlaceholders(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        int count = 0;
+        int index = text.IndexOf(DatFormatConstants.Placeholder, StringComparison.Ordinal);
+        while (index >= 0)
+        {
+            count++;
+            index = text.IndexOf(
+                DatFormatConstants.Placeholder, index + DatFormatConstants.Placeholder.Length, StringComparison.Ordinal);
+        }
+
+        return count;
     }
 
     public static Result<TranslationSource> Create(string text, string? argsOrder, string? argsId)

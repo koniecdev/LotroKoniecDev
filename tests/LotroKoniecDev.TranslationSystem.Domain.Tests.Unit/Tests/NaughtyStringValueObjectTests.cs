@@ -108,10 +108,11 @@ public sealed class NaughtyStringValueObjectTests
     public void ProvideTranslation_NaughtyPolishAroundAPlaceholder_ShouldStoreItVerbatim(string naughty)
     {
         // Arrange: the Polish ships unchanged, and the <--DO_NOT_TOUCH!--> marker must survive hostile
-        // text around it, or the fragment loses its arguments in-game.
+        // text around it, or the fragment loses its arguments in-game. The English holds one marker too,
+        // because a save must keep the English count (#1437).
         Translation translation = Translation.CreateUntranslated(
             FragmentKey.Create(620756992, 1001).Value,
-            TranslationSource.Create("Old English", null, null).Value,
+            TranslationSource.Create("Old <--DO_NOT_TOUCH!--> English", null, null).Value,
             GameVersionId.Create(),
             Now).Value;
 

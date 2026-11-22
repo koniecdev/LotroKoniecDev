@@ -236,6 +236,87 @@ public sealed class UpsertTranslationHandlerTests
         _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
+    [Theory]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj!")]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj <--DO_NOT_TOUCH!--> <--DO_NOT_TOUCH!-->!")]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!-->!")]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->!")]
+    public async Task Handle_WhenThePlaceholderCountDiffersFromTheEnglish_ShouldRefuseBeforeTheTranslatorRowAndThePermit(
+        string english, string polish)
+    {
+        // Arrange: both the translator row and the permit commit on their own, so a refusal after
+        // either would leave a trace of a save that never happened (#1437).
+        Translation row = Untranslated(source: english);
+        GivenStoredRow(row);
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, polish), CancellationToken.None);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.TranslatedText.PlaceholderCountMismatch");
+        result.Error.Type.ShouldBe(TypeOfError.Validation);
+        row.TranslatedText.ShouldBeNull();
+        row.Status.ShouldBe(TranslationStatus.Untranslated);
+        _provisioner.CallCount.ShouldBe(0);
+        _saveLedger.RecordCalls.ShouldBe(0);
+        await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenThePlaceholderCountMatchesTheEnglish_ShouldPersist()
+    {
+        // Arrange
+        Translation row = Untranslated(source: "Hail <--DO_NOT_TOUCH!-->, friend of <--DO_NOT_TOUCH!-->!");
+        GivenStoredRow(row);
+        const string polish = "Witaj, <--DO_NOT_TOUCH!-->, przyjacielu <--DO_NOT_TOUCH!-->!";
+        GivenReadBack(row, polish);
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, polish), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        row.TranslatedText.ShouldBe(polish);
+    }
+
+    [Fact]
+    public async Task Handle_OnNeedsReviewRow_ShouldCheckThePlaceholdersAgainstTheCurrentEnglish()
+    {
+        // Arrange: the old English had one placeholder and the new one has none.
+        Translation needsReview = Untranslated(source: "Hail <--DO_NOT_TOUCH!-->!");
+        needsReview.ProvideTranslation("Witaj <--DO_NOT_TOUCH!-->!", CurrentTranslator, Now);
+        needsReview.ApplySourceChange(TranslationSource.Create("Hail!", null, null).Value, VersionId, Now);
+        GivenStoredRow(needsReview);
+        GivenReadBack(needsReview, "Witaj!");
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Witaj!"), CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        needsReview.TranslatedText.ShouldBe("Witaj!");
+    }
+
+    [Fact]
+    public async Task Handle_OnNeedsReviewRow_WhenThePolishFitsOnlyThePreviousEnglish_ShouldRefuse()
+    {
+        // Arrange: the file ships against the current English, so the previous one never counts.
+        Translation needsReview = Untranslated(source: "Hail <--DO_NOT_TOUCH!-->!");
+        needsReview.ProvideTranslation("Witaj <--DO_NOT_TOUCH!-->!", CurrentTranslator, Now);
+        needsReview.ApplySourceChange(TranslationSource.Create("Hail!", null, null).Value, VersionId, Now);
+        GivenStoredRow(needsReview);
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(
+            Command(1, "Witaj ponownie <--DO_NOT_TOUCH!-->!"), CancellationToken.None);
+
+        // Assert
+        result.Error.Code.ShouldBe("TranslationEntity.TranslatedText.PlaceholderCountMismatch");
+        needsReview.TranslatedText.ShouldBe("Witaj <--DO_NOT_TOUCH!-->!");
+        needsReview.Status.ShouldBe(TranslationStatus.NeedsReview);
+    }
+
     [Fact]
     public async Task Handle_WhenTheSaveBudgetIsSpent_ShouldReturn429CodeAndNotPersist()
     {
@@ -439,6 +520,7 @@ public sealed class UpsertTranslationHandlerTests
     [InlineData(RejectedBeforeTheSave.InvalidText)]
     [InlineData(RejectedBeforeTheSave.UnknownRow)]
     [InlineData(RejectedBeforeTheSave.RemovedRow)]
+    [InlineData(RejectedBeforeTheSave.PlaceholderMismatch)]
     public async Task Handle_WhenTheRequestIsRejectedBeforeTheSave_ShouldSpendNoPermit(RejectedBeforeTheSave reason)
     {
         // Arrange
@@ -457,6 +539,10 @@ public sealed class UpsertTranslationHandlerTests
                 Translation removed = Translated(TranslationSeed.Draft);
                 removed.MarkRemoved(VersionId, Now);
                 GivenStoredRow(removed);
+                break;
+            case RejectedBeforeTheSave.PlaceholderMismatch:
+                GivenStoredRow(Untranslated());
+                text = "Polski <--DO_NOT_TOUCH!-->";
                 break;
         }
 
@@ -666,7 +752,8 @@ public sealed class UpsertTranslationHandlerTests
     {
         InvalidText,
         UnknownRow,
-        RemovedRow
+        RemovedRow,
+        PlaceholderMismatch
     }
 
     /// <summary>

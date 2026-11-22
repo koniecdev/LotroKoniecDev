@@ -28,8 +28,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
 /// Stores the translator's Polish on an imported row (spec 0001). It never creates a row: an unknown
-/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A plain
-/// translator (neither Admin nor Reviewer) spends the per-account save budget of ADR-0072 first.
+/// fragment is a 404. Polish with a different number of placeholders than the English is refused
+/// (#1437). A plain translator (neither Admin nor Reviewer) spends the per-account save budget of
+/// ADR-0072 first.
 /// </summary>
 internal sealed partial class UpsertTranslation : IEndpoint
 {
@@ -121,6 +122,14 @@ internal sealed partial class UpsertTranslation : IEndpoint
             if (translation.IsRemoved)
             {
                 return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
+            }
+
+            // Here and not in the validator, which cannot see the English. Before the translator row and
+            // the save permit, because both commit on their own (ADR-0004, ADR-0072 §4).
+            Result placeholderResult = translation.Source.CheckPlaceholderCountOf(command.TranslatedText);
+            if (placeholderResult.IsFailure)
+            {
+                return Result.Failure<TranslationDetailResponse>(placeholderResult.Error);
             }
 
             // Commits the caller's Translator row before the foreign key is written (ADR-0004).

@@ -437,7 +437,8 @@ signature of ours, and WP Poczta refused it as spam (`554 5.3.0`, #1484).
    Only a real inbox shows a silent drop or a move to spam.
 4. Nothing confirms an account whose mail is lost. A failed outbox send is retried and then parked
    ([the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq)). A resend goes out
-   directly, so a failed one leaves only log line 2282. A send that "succeeded" leaves nothing, and
+   directly, so a failed one is logged (2282, next to a 3100–3102 line) but never parked. A send
+   that "succeeded" leaves nothing, and
    the person stays at *"potwierdź adres e-mail"*.
 
 That is how both prods shipped with `no-reply@lotro-translator.pl` before the domain had any records
@@ -445,8 +446,12 @@ That is how both prods shipped with `no-reply@lotro-translator.pl` before the do
 
 **For any new sender, Brevo account or provider: authenticate first, switch second.** Add the domain
 in Brevo (Settings → Senders, domains, IPs → Domains), publish the records it prints, and wait until
-Brevo shows the domain as authenticated. Only *then* change `Email__SenderEmail` (and
-`GF_SMTP_FROM_ADDRESS` in `/opt/obs/.env`), and run the check below.
+Brevo shows the domain as authenticated. Only *then* change `Email__SenderEmail` in `/opt/lotro/.env`
+and `GF_SMTP_FROM_ADDRESS` in `/opt/obs/.env` (Grafana runs on the staging box). Recreate the
+containers, because a plain `restart` keeps the old value:
+`docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api` and
+`docker compose -f compose.observability.yaml up -d --force-recreate grafana`. Then run the check
+below for both senders.
 
 **The check after any change of sender, Brevo account or DNS.** `smoke.sh` and the health probes
 cannot see this; only delivery proves delivery.
@@ -461,9 +466,12 @@ dig +short CNAME brevo2._domainkey.lotro-translator.pl @ns1.webio.pl
 
 Then ask for a password reset of an account you own, on the changed box, to a Gmail address. Never
 make a test sign-up on prod: prod data cannot be re-created by hand, and a test account takes 14 days
-to delete. In Gmail, "Show original" must show `dkim=pass header.d=lotro-translator.pl` and
-`dmarc=pass`. The `spf=pass` part names Brevo's domain in `smtp.mailfrom=`, and that is expected.
-Last, Brevo's log must show the mail as **Delivered**.
+to delete. In Gmail, "Show original" must show `dkim=pass header.i=@lotro-translator.pl` and
+`dmarc=pass (…) header.from=lotro-translator.pl`, as the prod mail of 2026-11-20 did. The `spf=pass`
+part names Brevo's own domain (`smtp.mailfrom=…@….sender-sib.com`), and that is expected. Last,
+Brevo's log must show the mail as **Delivered**. For a new `GF_SMTP_FROM_ADDRESS`, also get one
+alert mail out (a test from Grafana's `owner-email` contact point, or the next real alert) and see
+it as **Delivered** in Brevo's log: the password reset does not prove Grafana's sender.
 
 **When someone says an account mail never came:**
 
@@ -476,11 +484,15 @@ Last, Brevo's log must show the mail as **Delivered**.
    {project="lotrokoniecdev", box="lotro-prod", container=~".*auth-api.*"} |= `<account id>`
    ```
 
-   Lines 3100, 3101 and 3102 mean the send failed; 3101 carries the server's refusal text. Line
-   2282 means a resend failed. Line 2624 means the person tried to sign in while unconfirmed. Never
-   search by address: the logs mask it (`a***@wp.pl`). No failure line usually means Brevo took the
-   mail. For a mail from the outbox, also check
+   (`box="lotro-staging"` for staging.) Line 3100 is one failed attempt ("attempt N of M"); the
+   send failed when the last attempt fails, or on 3101 or 3102. 3101 carries the server's refusal
+   text. Line 2282 means a resend failed. Line 2624 means the person tried to sign in while
+   unconfirmed. Do not search by the full address: the logs mask it (`a***@wp.pl`). No failure line
+   usually means Brevo took the mail. For a mail from the outbox, also check
    [the dead-letter parking lot](#the-dead-letter-parking-lot-emailssenddlq).
+   When step 1 finds no account, or Loki shows nothing for its id, the app may not have sent the
+   mail at all: a request over the mail budget of that inbox is logged only with the masked address
+   (2273 sign-up, 2283 resend, 2712 password reset). Search for the masked form then.
 3. Brevo: **Transactional → Email → Logs**, search for the full address (a part of the address finds
    nothing). A soft bounce means the receiving server refused it. **Delivered** means the server took
    it; only the person's inbox can show a move to spam or a drop.
@@ -2820,7 +2832,7 @@ translation save rules of #687, and the nightly backup; TheKittySaver ships its 
 are fleet-scoped, because box saturation belongs to neither project. This repo ships fourteen;
 TheKittySaver's rules live in its own repo. All of them deliver to **one**
 contact point, `owner-email`, over the Brevo relay the apps already use. There is no second channel.
-Alert mail uses the same sender as account mail, so never unsubscribe from it: Brevo would block
+Alert mail uses the same sender as account mail, so never unsubscribe from it: Brevo can block
 `OBS_ALERT_EMAIL` ([E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as)).
 
 | Folder | Rules |

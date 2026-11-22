@@ -138,6 +138,16 @@ jobs:
       - name: Desktop release clean-up self-test
         run: ./scripts/tests/desktop-release-cleanup.tests.sh
 
+      # Same three release self-tests as pr-verify (#1440) — CD's issue job runs next-release-issue.sh.
+      - name: Next-release list self-test
+        run: ./scripts/tests/next-release.tests.sh
+
+      - name: Next-release issue self-test
+        run: ./scripts/tests/next-release-issue.tests.sh
+
+      - name: Release script self-test
+        run: ./scripts/tests/release.tests.sh
+
       - name: N-1 promotion gate verdict self-test
         run: ./scripts/tests/n1-promotion-gate.tests.sh
 

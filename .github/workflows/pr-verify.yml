@@ -244,6 +244,26 @@ jobs:
         if: steps.diff.outputs.guards != 'false'
         run: ./scripts/tests/desktop-release-cleanup.tests.sh
 
+      # The change list and the proposed number behind both the "Next release" issue and
+      # scripts/release.sh (#1440). Its GitHub inputs are stubbed, and the stub runs its --jq
+      # expressions through the real jq.
+      - name: Next-release list self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/next-release.tests.sh
+
+      # The "Next release" issue CD keeps up to date after every prod deploy (#1440): when it opens,
+      # edits, comments and closes, and that a hand-run tag only warns.
+      - name: Next-release issue self-test
+        if: steps.diff.outputs.guards != 'false'
+        run: ./scripts/tests/next-release-issue.tests.sh
+
+      # The release the owner runs in a terminal (#1440). The real production gate cannot be tried in
+      # CI, so this suite plays it. Its last case checks that cd.yml, deploy.yml and gitleaks.yml
+      # still give the script the run name, the job names and the runs it reads, and a workflow
+      # change counts as inert, so it runs on every PR.
+      - name: Release script self-test
+        run: ./scripts/tests/release.tests.sh
+
       # The verdict mapping is its own gate: n1-compat.sh's exit 1 (schema proven incompatible) and
       # exit 2 (the proof never ran) both block the promotion but demand OPPOSITE fixes, and the
       # runbook tells the approver not to retry a RED. Collapsing them would send them to split a

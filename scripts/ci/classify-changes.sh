@@ -21,7 +21,8 @@
 # Verdict rules:
 #   * A file is INERT unless it can affect one of the three gates. Everything under docs/, .claude/,
 #     .github/, .idea/, .run/, .vscode/, .docker/; Markdown at the root and in scripts/; every
-#     README.md and CLAUDE.md; *.sh / *.ps1 under scripts/; the loop engine copy scripts/claude/
+#     README.md and CLAUDE.md; *.sh / *.ps1 under scripts/ and the release notes prompt
+#     scripts/release-notes-prompt.txt; the loop engine copy scripts/claude/
 #     (every file in it) with scripts/claude-loop.conf and .engine beside it; the root LICENSE,
 #     .gitignore, compose files, .dockerignore and env examples; the Dockerfiles where they sit
 #     today. Each rule names
@@ -74,7 +75,7 @@ set -euo pipefail
 # GUARD_INPUTS and IMAGE_INPUTS keep their broad rules, because broad is the safe side there.
 # .gitattributes is not here: it decides the bytes of every fixture at checkout (eol, binary). The
 # one in scripts/claude/ is: it covers only that folder, which no build or test reads.
-INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/claude/|^scripts/claude-loop\.(conf|engine)$|^docs/|^LICENSE$|^\.gitignore$|^Dockerfile(\.migrator|\.migrator\.prod|\.tests)?$|^src/[^/]+/[^/]+/Dockerfile$|^\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|^\.env[^/]*\.example$'
+INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/release-notes-prompt\.txt$|^scripts/claude/|^scripts/claude-loop\.(conf|engine)$|^docs/|^LICENSE$|^\.gitignore$|^Dockerfile(\.migrator|\.migrator\.prod|\.tests)?$|^src/[^/]+/[^/]+/Dockerfile$|^\.dockerignore$|^compose[^/]*\.ya?ml$|^\.docker/|^\.github/|^\.claude/|^\.run/|^\.vscode/|^\.idea/|^\.env[^/]*\.example$'
 
 # Executed or read by the guard steps of pr-verify/ci. The .ps1 twins are here because the
 # migration-safety self-test runs its pwsh leg; the Dockerfiles because the restore-graph guard
@@ -96,8 +97,11 @@ INERT='^[^/]*\.md$|(^|/)(README|CLAUDE)\.md$|^scripts/.*\.(md|sh|ps1)$|^scripts/
 # those halves call, whose verdict classification decides whether a blocked promotion reads as
 # "your migrations break prod" or as "the proof never ran" (#679). scripts/run-script-checks.sh is
 # here because sessions run every check above through it on their PCs, and its self-test is the only
-# check of its Windows leg (#1473).
-GUARD_INPUTS='^scripts/run-script-checks\.sh$|^scripts/tests/run-script-checks\.tests\.sh$|^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap|backup)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot|backup)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate|resolve-verified-digests|rollback-to-previous-tag|cd-gate|desktop-release-check|desktop-release-cleanup)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat|resolve-verified-digests|rollback-to-previous-tag|cd-gate|desktop-release-check|desktop-release-cleanup)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
+# check of its Windows leg (#1473). The release scripts (#1440) are here because CD's issue job runs
+# next-release-issue.sh and next-release.sh after every prod deploy, and the owner runs release.sh
+# with its prompt file to tag and publish; their self-tests are the only check any of them gets
+# before that.
+GUARD_INPUTS='^scripts/run-script-checks\.sh$|^scripts/tests/run-script-checks\.tests\.sh$|^scripts/release\.sh$|^scripts/release-notes-prompt\.txt$|^scripts/ci/next-release(-issue)?\.sh$|^scripts/tests/(next-release|next-release-issue|release)\.tests\.sh$|^scripts/check-ssr-purity\.(sh|ps1)$|^scripts/tests/check-ssr-purity\.tests\.sh$|^scripts/smoke\.(sh|ps1)$|^scripts/tests/smoke\.tests\.sh$|^scripts/check-client-hypermedia\.(sh|ps1)$|^scripts/tests/check-client-hypermedia\.tests\.sh$|^scripts/check-migration-safety\.(sh|ps1)$|^scripts/tests/check-migration-safety\.tests\.sh$|^scripts/check-dockerfile-restore-graph\.(sh|ps1)$|^scripts/tests/check-dockerfile-restore-graph\.tests\.sh$|^scripts/hetzner/(deploy|bootstrap|backup)\.sh$|^scripts/tests/hetzner-(deploy|bootstrap-swap|bootstrap-docker-user|bootstrap-reboot|backup)\.tests\.sh$|^scripts/ci/(resolve-prod-baseline|n1-promotion-gate|resolve-verified-digests|rollback-to-previous-tag|cd-gate|desktop-release-check|desktop-release-cleanup)\.sh$|^scripts/n1-compat\.sh$|^scripts/tests/(resolve-prod-baseline|n1-promotion-gate|n1-compat|resolve-verified-digests|rollback-to-previous-tag|cd-gate|desktop-release-check|desktop-release-cleanup)\.tests\.sh$|(^|/)Dockerfile[^/]*$|^\.github/workflows/(pr-verify|ci)\.yml$'
 
 # Build-relevant despite matching INERT:
 #   * the two workflows that DEFINE the .NET gate;

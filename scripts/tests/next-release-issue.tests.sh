@@ -47,6 +47,7 @@ pass() {
 #   $STUB/pulls/<sha>.json, $STUB/graphql/<pr>.json               as in next-release.tests.sh
 #   $STUB/calls.log                                               one line per write
 #   $STUB/body-<n>.md, $STUB/comments-<n>.md                      what was written to issue <n>
+#   $STUB/list-fail, $STUB/write-fail, $STUB/pulls-fail           those calls fail
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
@@ -90,6 +91,7 @@ case "$method $path" in
             *) echo "stub gh: issues listed without the bot creator filter: $path" >&2; exit 1 ;;
         esac
         [ "$paginate" -eq 1 ] || { echo 'stub gh: the issue list must be paginated' >&2; exit 1; }
+        [ ! -f "$STUB/list-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         if [ -f "$STUB/issues.page1.json" ]; then
             reply "$(cat "$STUB/issues.page1.json")"
             reply "$(cat "$STUB/issues.page2.json")"
@@ -98,11 +100,13 @@ case "$method $path" in
         fi
         ;;
     "POST repos/"*"/issues")
+        [ ! -f "$STUB/write-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         echo "open ${title}" >> "$STUB/calls.log"
         cp "$body_file" "$STUB/body-500.md"
         reply '{"number": 500}'
         ;;
     "PATCH repos/"*"/issues/"*)
+        [ ! -f "$STUB/write-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         n="${path##*/}"
         if [ -n "$state" ]; then
             echo "close ${n} ${state}" >> "$STUB/calls.log"
@@ -125,6 +129,7 @@ case "$method $path" in
         reply "$(cat "$STUB/graphql/${number}.json" 2>/dev/null || echo '{"data":{"repository":{"pullRequest":{"closingIssuesReferences":{"nodes":[]}}}}}')"
         ;;
     "GET repos/"*"/commits/"*"/pulls")
+        [ ! -f "$STUB/pulls-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         sha="${path#*/commits/}"
         sha="${sha%/pulls}"
         reply "$(cat "$STUB/pulls/${sha}.json" 2>/dev/null || echo '[]')"
@@ -341,5 +346,44 @@ jq -n --arg body "${MARKER}"$'\n<!-- next-release-bump: patch -->' '[{number: 71
 run_issue update "sha-$(short_head)"
 logged 'edit 71 Next release: v0.2.2' || fail 'the marked issue on the second page must be found'
 pass 'the marked issue is found on the second page of the list'
+
+new_case 'GitHub cannot be read or written'
+merged 118 25 'A feature' type-feature
+touch "$STUB/list-fail"
+run_issue update "sha-$(short_head)"
+[ "$LAST_STATUS" -eq 3 ] || fail "an unreadable issue list must exit 3, got $LAST_STATUS"
+[ "$(log_lines)" -eq 0 ] || fail 'nothing must be written when the list cannot be read'
+run_issue close v0.3.0 'https://example.invalid'
+[ "$LAST_STATUS" -eq 3 ] || fail "close with an unreadable list must exit 3 (release.sh warns on it), got $LAST_STATUS"
+rm "$STUB/list-fail"
+touch "$STUB/write-fail"
+run_issue update "sha-$(short_head)"
+[ "$LAST_STATUS" -eq 3 ] || fail "a failed write must exit 3, got $LAST_STATUS"
+open_issue 83 minor
+run_issue close v0.3.0 'https://example.invalid'
+[ "$LAST_STATUS" -eq 3 ] || fail "a failed close must exit 3, got $LAST_STATUS"
+rm "$STUB/write-fail" "$STUB/issues.json"
+: > "$STUB/calls.log"
+touch "$STUB/pulls-fail"
+run_issue update "sha-$(short_head)"
+[ "$LAST_STATUS" -eq 3 ] || fail "a change list that cannot be built must exit 3, got $LAST_STATUS"
+[ "$(log_lines)" -eq 0 ] || fail 'nothing must be written without a change list'
+pass 'an unreadable list, a failed write or a failed change list exits 3 and writes nothing more'
+
+new_case 'bad arguments'
+merged 119 26 'A feature' type-feature
+LAST_STATUS=0
+LAST_OUTPUT="$( (cd "$FIXTURE" && env GITHUB_REPOSITORY="$REPO" REPO_OWNER='not a login' "$ISSUE_SH" update "sha-$(short_head)") 2>&1 )" \
+    || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "a REPO_OWNER that is not a login must exit 2, got $LAST_STATUS"
+run_issue update
+[ "$LAST_STATUS" -eq 2 ] || fail "update without a tag must exit 2, got $LAST_STATUS"
+run_issue close v0.3.0
+[ "$LAST_STATUS" -eq 2 ] || fail "close without a URL must exit 2, got $LAST_STATUS"
+LAST_STATUS=0
+LAST_OUTPUT="$( (cd "$FIXTURE" && env -u GITHUB_REPOSITORY "$ISSUE_SH" close v0.3.0 x) 2>&1 )" || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "a missing GITHUB_REPOSITORY must exit 2, got $LAST_STATUS"
+[ "$(log_lines)" -eq 0 ] || fail 'nothing must be written'
+pass 'a bad REPO_OWNER, missing arguments or a missing GITHUB_REPOSITORY exits 2'
 
 printf '\nnext-release-issue.tests.sh: %d cases passed\n' "$cases"

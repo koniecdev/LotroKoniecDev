@@ -1,7 +1,7 @@
 # ADR-0073: A translation proposal is its own aggregate root
 
 **Status:** Accepted
-**Date:** 2026-11-13, updated 2026-11-21 (#1494)
+**Date:** 2026-11-13, updated 2026-11-21 and 2026-11-22 (#1494)
 **Decision-makers:** Solo maintainer (owner decision, 2026-11-13, after comparing both options)
 **Related:** spec 0014 (translation review flow);
 `TranslationSystem.Domain/Aggregates/TranslationAggregate/`,
@@ -66,9 +66,10 @@ the history, and the live text is always the approved proposal with the latest d
 its own rules on its own `xmin`:
 
 - at most one waiting proposal (a new save replaces the waiting one, spec 0014 Q2);
-- approve, reject and withdraw name a proposal they may take, otherwise the request fails with 409,
-  except a repeat of the caller's own request that already took effect, which answers 204 (spec
-  0014, "Retries");
+- approve, reject and withdraw name a proposal they may take, and an approve also carries the row's
+  `UpdatedAt` the caller saw (a row that changed since is a conflict); otherwise the request fails
+  with 409, except a repeat of the caller's own request that already took effect, which answers 204
+  (spec 0014, "Retries");
 - it refuses save, approve, reject and withdraw on a row that the previous app revision wrote and
   #1388 has not yet reconciled (spec 0014, "The deploy window"); the import still writes such a
   row. It can tell from a stamp that its own write methods keep equal to `UpdatedAt` on a row that
@@ -101,8 +102,15 @@ new ADR first.
 
 ### 4. The database guards the same rules
 
-- A foreign key from `Translation.WaitingProposalId` to the proposal.
-- A partial unique index on the proposal table: at most one waiting proposal per translation.
+- A foreign key from `Translation.WaitingProposalId` to the proposal. A plain key does not tie the
+  proposal to the same row; `Translation` does, because it sets the column only to a proposal it
+  adds for itself. A composite key from (`Id`, `WaitingProposalId`) to (`TranslationId`, `Id`)
+  would make the database say it too, at almost no cost: its unique key is the index the history
+  needs anyway. The first implementation ticket may take it.
+- A partial unique index on the proposal table: at most one waiting proposal per translation. It is
+  checked on every row change and cannot be deferred, so on every path the old proposal is marked
+  "replaced" by a statement that runs before the insert of the new waiting one. A data-modifying
+  CTE does not fix the order of its parts, so it never does both.
 - A `CHECK` constraint on the length of the proposal text, like the one on `Translations`
   (ADR-0043 §2), because the set-based paths skip the validator.
 
@@ -120,7 +128,9 @@ so they never write while the deploy-window stamp of spec 0014 exists. Until #14
 `UPDATE` of `Translations` waits (#1421 and #378 write `Translations` through `Translation` in
 chunks if they run in that time). In the same transaction the bulk paths set `WaitingProposalId` and
 mark a replaced proposal, either through `Translation` in chunks or with set-based SQL that keeps
-the same rules; the partial unique index is the backstop.
+the same rules, the mark before the insert (§4); the partial unique index is the backstop. Every
+such write moves `UpdatedAt`, like the write methods of `Translation`, because an approve tells a
+page that is out of date by it (spec 0014, "Approve and reject name the proposal").
 
 The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
 row's English does not end with a line break, the run of CR and LF at the end goes). The empty and

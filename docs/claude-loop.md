@@ -65,12 +65,12 @@ works around it with a budget.
   every question and fitting the cut. If GitHub refuses the comment, the issue gets a short note
   instead, and the questions stay in the run's `ticket-<n>.json` (`scripts/claude/LOOP.md`).
 
-Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every ticket the old clock
-stopped (240 minutes, then 360 for one day) was still working. #1494 and #1376 ended before their
-PR, with the work unpushed on a local branch, no PR, no note on the ticket, and a session that
-cannot be resumed. #687 and #905 already had PRs open and were waiting for CodeQL. #1488 and #695
-stopped themselves early, at 208 and 191 minutes, to beat the clock. A stuck session was never
-seen.
+Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every
+ticket the old clock stopped (240 minutes, then 360 for one day) was still working. #1494 and
+#1376 ended before their PR, with the work unpushed on a local branch, no PR, no note on the
+ticket, and a session that cannot be resumed. #687 and #905 already had PRs open and were waiting
+for CodeQL. #1488 and #695 stopped themselves early, at 208 and 191 minutes, to beat the clock. A
+stuck session was never seen.
 
 If a worker does get stuck, the other tickets keep running, but the nap after a usage limit, a stop
 request, the table and the end of the run all wait for it. End it as `scripts/claude/LOOP.md` →

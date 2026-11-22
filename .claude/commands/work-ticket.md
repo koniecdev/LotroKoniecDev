@@ -31,7 +31,7 @@ everything that matters must be committed and pushed.
   (`design-choice`).
 - A question that is a **genuine business decision** (boundary behavior, UX wording, scope cut,
   contract shape not derivable from anything) — **STOP and return `STATUS: BLOCKED`** with every
-  open question (in step 1: the triage's questions, then one item per owner choice its challenge
+  open question (in step 1: the triage's questions and one item per owner choice its challenge
   raised). A wrong guess costs the owner a review round and a rework; a paused ticket costs
   nothing. "The owner decides" in a ticket, unless a later owner comment answers it, is such a
   question: never pick the strictest option as "the ticket's default" (PR #1063).
@@ -72,7 +72,8 @@ everything that matters must be committed and pushed.
      BOUNCE because the ticket asks for a hand edit inside `scripts/claude/` is `mis-scope`
      instead ("Scope & safety").
    - **CLARIFY on an open dependency** that blocks the ticket → `STATUS: BLOCKED` (category:
-     dependency) with its question: a plan written before the dependency lands goes stale.
+     dependency) with its questions and their recommended answers, and no challenge: a plan
+     written before the dependency lands goes stale.
    - **Any other CLARIFY** (a business question, a conflict with an owner's ruling on the same
      flow, or "the owner decides" with no answer yet) → its plan gets one run of the challenge
      first ("After a CLARIFY" below), then `STATUS: BLOCKED` (category: business-questions, or
@@ -87,8 +88,8 @@ everything that matters must be committed and pushed.
    **Challenge the plan before the branch — every ticket.** Apply `/ticket` step 2 → "Challenge the
    plan" as written: the same brief (the triage's report with its claims, assumptions and ADRs, and
    `/buddy`'s design challenge), the same `/buddy` run or fallback agent, and the same bar for claims
-   written into docs, tickets or UI copy. No ticket that reaches it skips it: this run asks nobody, so it is the only
-   moment anything questions the plan. Run it in the FOREGROUND and never pass `name`: a named agent
+   written into docs, tickets or UI copy. No ticket that reaches it skips it: this run asks
+   nobody, so it is the only moment anything questions the plan. Run it in the FOREGROUND and never pass `name`: a named agent
    never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own last steps
    (message an idle buddy, report to the user) do not apply here: go straight on. Where a bullet
    below asks for a revision, it is a fresh `ticket-triage` (`/ticket` step 2). Then:
@@ -129,18 +130,21 @@ everything that matters must be committed and pushed.
    - Every owner choice it raises is its own item under `QUESTIONS`, in the shape above: a
      `BETTER DESIGN` with `NEEDS OWNER: yes`, each other owner call its report names, and a NOT
      SOUND on the premise or on the plan, whatever its `NEEDS OWNER` says. A NOT SOUND item lists
-     the defects and asks the owner to choose between the plan as written and the plan with them
-     fixed as `/buddy` proposes. A premise item comes first. Each item says that it assumes the
-     recommended answers, and that the next run plans again if the owner answers otherwise.
+     the defects. On the plan, it asks the owner to choose between the plan as written and the
+     plan with them fixed as `/buddy` proposes; on the premise, whether the ticket stands as
+     written. Each item says that it assumes the recommended answers, and that the next run plans
+     again if the owner answers otherwise.
+   - Order under `QUESTIONS`: a premise item first, then the triage's questions, then the other
+     items from the challenge.
    - Where `/buddy` disagrees with a recommended answer, its view goes into that question, not into
      a new item. An item that an `Owner decision` comment already answers is left out.
    - Corrections, SOUND, and `BETTER DESIGN` with `NEEDS OWNER: no` add nothing: the next run's
      triage and challenge work on the plan again.
    - No report, even after the respawn → the triage's questions, plus the line "The plan challenge
      did not run." The category stays the triage's: the questions are this run's result.
-   - Category: `design-choice` when the block holds a design item, otherwise the triage's. The
-     "Answer in a comment that starts with `**Owner decision:**`." line then comes once, at the
-     end of the block.
+   - Category: `design-choice` when the block holds an item from the challenge, otherwise the
+     triage's. The "Answer in a comment that starts with `**Owner decision:**`." line then comes
+     once, at the end of the block.
    - Nothing comes before `STATUS:`: the loop posts the whole final message.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
@@ -321,5 +325,5 @@ LESSONS: <one line, or "none">
 STATUS: BLOCKED
 CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | pr-closed | pr-state-unknown
 QUESTIONS:
-- <every open question (in step 1: the triage's, then one per owner choice its challenge raised), or the specific blocker the user must resolve>
+- <every open question (in step 1: the triage's and one per owner choice its challenge raised), or the specific blocker the user must resolve>
 ```

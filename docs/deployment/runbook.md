@@ -515,7 +515,23 @@ it as **Delivered** in Brevo's log: the password reset does not prove Grafana's 
 6. If WP refuses mail from our authenticated domain again: write to WP's postmaster, or move to
    another provider (#1486), with the Brevo log in hand.
 
-No alert fires for a lost mail today (#1510).
+**The alert for a sign-in before confirmation (`lotro-unconfirmed-sign-in`, #1510).** It mails the
+owner when someone types the right password for an account whose e-mail is not confirmed yet: the
+person signed up, the mail did not come (or they have not clicked the link yet), and they try to sign
+in anyway. The mail names the account id and the environment, never the IP address. Turn the id into
+the address with `SELECT "Email", "EmailConfirmed" FROM authsystem."Users" WHERE "Id" = '<the id>';`
+on the auth database and go on from step 2 above. If `EmailConfirmed` is true by then, the person
+confirmed after the attempt. How the rule works and how many mails it sends:
+[The observability stack](#the-observability-stack) → "The unconfirmed sign-in rule".
+
+The alert sees only people who try to sign in. These leave no trace and still reach us only when they
+write to us:
+
+- a person who never tries to sign in;
+- a person who only asks for a new link on the resend page: a successful resend writes no log line;
+- a sign-in with a wrong password: it is logged as a wrong password (2622), not as 2624;
+- an account locked after 5 wrong passwords: for 5 minutes even the right password is logged as a
+  lockout (2621).
 
 ### Reseed traps — the auth seeder is create-if-missing
 
@@ -2836,9 +2852,10 @@ the rule: that chain is a second wall, not the first. Loki, Prometheus and Tempo
 joins `default` or `tks`: the agent reads the Docker socket, containerd and `/proc`, so it never needs
 a route to an app container and does not have one (ADR-0050 §3).
 
-**Alerts (#713).** Six are project-scoped (crash loop, 5xx rate, error-log spike, the two
-translation save rules of #687, and the nightly backup; TheKittySaver ships its own set) and eight
-are fleet-scoped, because box saturation belongs to neither project. This repo ships fourteen;
+**Alerts (#713).** Seven are project-scoped (crash loop, 5xx rate, error-log spike, the two
+translation save rules of #687, the nightly backup, and the unconfirmed sign-in of #1510;
+TheKittySaver ships its own set) and eight are fleet-scoped, because box saturation belongs to
+neither project. This repo ships fifteen;
 TheKittySaver's rules live in its own repo. All of them deliver to **one**
 contact point, `owner-email`, over the Brevo relay the apps already use. There is no second channel.
 Alert mail uses the same sender as account mail, so never unsubscribe from it: Brevo can block
@@ -2846,7 +2863,7 @@ Alert mail uses the same sender as account mail, so never unsubscribe from it: B
 
 | Folder | Rules |
 |---|---|
-| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike · a translator account reached its save budget · more than 100 translations overwritten in 24 hours · the nightly database backup did not land ([Database backups](#database-backups)) |
+| LotroKoniecDev | crash loop · 5xx above 5% · error-level log spike · a translator account reached its save budget · more than 100 translations overwritten in 24 hours · the nightly database backup did not land ([Database backups](#database-backups)) · an account that has not confirmed its e-mail tried to sign in ([E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as)) |
 | Fleet | memory > 85% · swapping hard or waiting for memory · swap > 70% full · CPU > 85% · disk < 20% · disk < 10% · a box has gone silent · a container above 85% of its own `mem_limit` |
 | TheKittySaver | its own set (that repo's #511 and later additions) |
 
@@ -2874,6 +2891,21 @@ text changes, the rule file changes with it and needs the sync too.
 Both are best effort: tms-api logs every request before its rate limiter, so a flood of requests can
 delay or drop lines on the way to Loki. The block itself is in the database and does not depend on the
 log.
+
+**The unconfirmed sign-in rule (#1510).** `lotro-unconfirmed-sign-in` (warning) reads auth-api's log
+line 2624, which the sign-in page writes when the right password meets an account whose e-mail is not
+confirmed. Like the save rules, it works only while the box ships its logs to Loki and after
+`/opt/obs` is synced. It matches the template text in the JSON line
+(`"@mt":"Failed login: email not confirmed.`), never the bare text and never the log level, so moving
+the line to Information under the Warning rule (#977) does not break it. A unit test
+(`UnconfirmedSignInLogRuleTests`) ties the rule file to the C# text in `LoginLogText`; when the text
+changes, the rule file changes with it and needs the sync too. There is no threshold (the owner's
+decision on #1510): one alert per account and environment, so one attempt sends about two mails. The
+alert comes within about 90 seconds, or up to 5 minutes when another account's alert already fired,
+and that mail then lists both accounts. A "resolved" mail follows about an hour after the account's
+last attempt; it does not mean the mail arrived. A repeat comes every 6 hours only while the account
+keeps trying at least once an hour. What to do with the mail, and who the alert cannot see:
+[E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as).
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it

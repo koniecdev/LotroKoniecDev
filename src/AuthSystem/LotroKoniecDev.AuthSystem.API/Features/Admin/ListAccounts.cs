@@ -56,7 +56,8 @@ internal sealed class ListAccounts : IApiEndpoint
             }
 
             var page = await accounts
-                .OrderBy(user => user.UserName)
+                // The normalized name ignores case, whatever collation the database sorts with.
+                .OrderBy(user => user.NormalizedUserName)
                 .ThenBy(user => user.Id)
                 .Skip((int)skipped)
                 .Take(PageSize)

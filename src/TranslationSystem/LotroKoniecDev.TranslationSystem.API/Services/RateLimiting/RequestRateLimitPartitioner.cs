@@ -17,10 +17,12 @@ internal sealed class RequestRateLimitPartitioner
 
     private const string AccountKeyPrefix = "account:";
 
-    // Its own prefix, because the limiter kept for a key is built by the first request that brings it.
+    /// <summary>
+    /// Its own prefix, because the limiter kept for a key is built by the first request that brings it.
+    /// </summary>
     private const string AdminKeyPrefix = "admin:";
 
-    // MapInboundClaims is off, so the OpenIddict claim name arrives unchanged.
+    /// <summary>MapInboundClaims is off, so the OpenIddict claim name arrives unchanged.</summary>
     private const string SubjectClaimType = "sub";
 
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);

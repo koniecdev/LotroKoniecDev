@@ -4,6 +4,7 @@ using LotroKoniecDev.AuthSystem.API.Services.Gdpr;
 using LotroKoniecDev.AuthSystem.API.Services.RateLimiting;
 using LotroKoniecDev.AuthSystem.API.Services.ResponseTiming;
 using LotroKoniecDev.AuthSystem.API.Settings;
+using LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.AuthSystem.Domain.Aggregates.ApplicationUsers.Entities;
 using LotroKoniecDev.AuthSystem.Persistence.Identity;
 using Microsoft.AspNetCore.Http;
@@ -33,6 +34,7 @@ public sealed class LoginModelTests : IDisposable
     private static readonly GdprSettings ShortGrace = new() { DeletionGracePeriod = TimeSpan.FromDays(1) };
 
     private readonly FakeTimeProvider _clock = new();
+    private readonly CapturingLogger<LoginModel> _logger = new();
     private readonly PerAccountFixedWindowThrottle _deletionScheduledLoginThrottle = new(1, TimeSpan.FromMinutes(15));
     private readonly IUserStore<ApplicationUser> _store = Substitute.For<
         IUserEmailStore<ApplicationUser>,
@@ -120,6 +122,38 @@ public sealed class LoginModelTests : IDisposable
         // Assert
         answeredAtOnce.ShouldBeTrue();
         sut.ResendConfirmationEmail.ShouldBe(user.Email);
+    }
+
+    /// <summary>
+    /// The Grafana rule <c>lotro-unconfirmed-sign-in</c> anchors on this template and reads its
+    /// <c>UserId</c> (#1510), so a line written with any other template would never reach the owner.
+    /// </summary>
+    [Fact]
+    public async Task OnPostAsync_ShouldLogTheTemplateTheAlertRuleReads_WhenTheEmailIsNotConfirmed()
+    {
+        // Arrange
+        ApplicationUser user = new()
+        {
+            Id = Guid.NewGuid(),
+            Email = "frodo@shire.me",
+            PasswordHash = new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), Password)
+        };
+        ((IUserEmailStore<ApplicationUser>)_store)
+            .FindByEmailAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(user);
+        ((IUserPasswordStore<ApplicationUser>)_store)
+            .GetPasswordHashAsync(user, Arg.Any<CancellationToken>())
+            .Returns(user.PasswordHash);
+        LoginModel sut = CreatePostingSut(user.Email, Password);
+
+        // Act
+        await sut.OnPostAsync().WaitAsync(CompletionTimeout);
+
+        // Assert
+        CapturingLogger<LoginModel>.LogEntry entry = _logger.Entries.ShouldHaveSingleItem();
+        entry.EventId.ShouldBe(EventIds.LoginEmailNotConfirmed);
+        entry.Template.ShouldBe(LoginLogText.EmailNotConfirmedTemplate);
+        entry.Message.ShouldContain(user.Id.ToString());
     }
 
     /// <summary>
@@ -326,7 +360,7 @@ public sealed class LoginModelTests : IDisposable
             _deletionScheduledLoginThrottle,
             new ResponseTimeFloor(_clock),
             _clock,
-            NullLogger<LoginModel>.Instance);
+            _logger);
 
     private LoginModel CreatePostingSut(string email, string password, GdprSettings? gdprSettings = null)
     {

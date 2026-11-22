@@ -27,10 +27,6 @@ public sealed class TranslationListWayBackTests : E2ETestBase
     private const string PageSize = "25";
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
 
-    public TranslationListWayBackTests(PlaywrightStackFixture fixture) : base(fixture)
-    {
-    }
-
     [Fact]
     public async Task Search_status_and_page_survive_edit_save_and_the_way_back()
     {
@@ -74,6 +70,10 @@ public sealed class TranslationListWayBackTests : E2ETestBase
         (await Page.GetByLabel("Wyszukaj", new() { Exact = true }).InputValueAsync()).ShouldBe(token);
         (await Page.GetByLabel("Status", new() { Exact = true }).InputValueAsync()).ShouldBe(Untranslated);
         (await Page.GetByLabel("Na stronie", new() { Exact = true }).InputValueAsync()).ShouldBe(PageSize);
+    }
+
+    public TranslationListWayBackTests(PlaywrightStackFixture fixture) : base(fixture)
+    {
     }
 
     private static NameValueCollection QueryOf(string url) =>

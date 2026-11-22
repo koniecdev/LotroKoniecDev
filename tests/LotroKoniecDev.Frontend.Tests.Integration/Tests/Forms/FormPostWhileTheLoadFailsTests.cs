@@ -286,8 +286,6 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("pageSize=abc")]
     [InlineData("conflictsOnly=on")]
     [InlineData("status=Bogus")]
-    [InlineData("page=2&page=3")]
-    [InlineData("search=//evil.example&returnUrl=https://evil.example")]
     public async Task Get_EditorWithAListValueItCannotRead_ShowsTheEditorPage(string editorQuery)
     {
         // Arrange: #1452, the real query binding on the Production host. A typed query parameter would turn

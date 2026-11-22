@@ -537,11 +537,16 @@ before the limit.
   review rounds may take five hours or more, and a clock would throw that work away just before
   the PR. To see whether the session still works, look at the newest commit on its branch or at
   its transcript under the loop's config dir. A stuck worker holds up more than its slot: the nap
-  after a usage limit, a stop request, the table and the end of the run all wait for it. To end
-  one, `kill <pid>` its worker (`ps` shows `work-ticket.sh <n>`): the worker salvages the work and
-  removes the worktree. The conductor counts the stopped ticket as failed, so with the ticket
-  before it also failed, it starts nothing new (`LOOP_MAX_CONSECUTIVE_FAILURES`) and lets the
-  running tickets finish.
+  after a usage limit, a stop request, the table and the end of the run all wait for it.
+  - To end one, `kill <pid>` the worker. While a session runs, `ps -Ao pid,ppid,command` shows two
+    lines with `work-ticket.sh <n>`: the worker is the one whose parent is the conductor
+    (`backlog-loop.sh`). The other one is the session's watchdog, which ignores TERM: leave it.
+  - While its session runs, the worker then salvages the work and removes the worktree. Before or
+    after the session it acts on a stop only when the command it waits for returns. So when it
+    hangs in a `gh`, `git` or `docker` call, kill that call instead (`pgrep -l -P <worker pid>`
+    lists what the worker runs), and the worker goes on from there.
+  - The conductor counts the stopped ticket as failed. If the ticket before it also failed, it
+    starts nothing new (`LOOP_MAX_CONSECUTIVE_FAILURES`) and lets the running tickets finish.
 - **"another loop is running (pid N)"**: a live conductor owns the lock; `ps -p N` shows it. A stale
   lock is reclaimed by itself, so this means a real second loop.
 - **Ticket ended `error` with no STATUS block**: the session was already resumed

@@ -100,8 +100,7 @@ When the engine resumes a session, the prompt is one line of facts and nothing e
 
 What the session does for each reason is written in the repository's
 `.claude/commands/work-ticket.md`, which the session read when it started, never in the engine.
-The engine never stops a session for time: a session runs until it ends on its own, hits a usage
-limit, or the owner stops the run.
+The engine never stops a session for time.
 
 A session goes by the contract it started under, because the prompt it read stays in its
 transcript even when it later rebases its worktree onto a newer `main`:

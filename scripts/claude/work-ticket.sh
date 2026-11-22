@@ -936,8 +936,9 @@ sleeper=""
 # Reads this shell's own job list. Bash takes the job off the running list in the same step in
 # which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
 # bash never sees a job stop.
-# The list is read with backquotes, not $(...), and so is the clock in the poll loop of
-# fetch_merged_head: a stop must reach this script while it waits for its session.
+# The list is read with backquotes, not $(...): run_session reads it in its poll loop, and a stop
+# must reach this script while it waits for its session. The clock in fetch_merged_head's poll
+# loop is read the same way.
 # Bash 5.2 runs a waiting trap when it starts to parse a $(...). At that point it still expects the
 # closing `)`, so the trap's own text does not parse: the trap fails with "unexpected EOF while
 # looking for matching `)'", never runs, and the stop is lost. Bash parses a backquote in

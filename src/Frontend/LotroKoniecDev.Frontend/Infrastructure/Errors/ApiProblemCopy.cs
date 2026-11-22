@@ -105,6 +105,9 @@ internal static partial class ApiProblemCopy
                 "Nieprawidłowy identyfikator pliku.",
             ["TranslationEntity.GossipId.Invalid"] =
                 "Nieprawidłowy identyfikator fragmentu.",
+            ["TranslationEntity.TranslatedText.PlaceholderCountMismatch"] =
+                "Tłumaczenie musi mieć tyle samo znaczników <--DO_NOT_TOUCH!--> co tekst angielski. "
+                + "Zachowaj każdy znacznik i zapisz ponownie.",
             ["Translations.Validation"] =
                 "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.",
             ["Translations.SaveBudgetExhausted"] =

@@ -29,8 +29,8 @@ internal static class PlaceholderAnalyzer
     }
 
     /// <summary>
-    /// The warning is only advice: the API stores the Polish as it is either way (spec 0001). A row with
-    /// no Polish yet is never flagged.
+    /// Warns while the translator types. The API refuses the save on a mismatch (#1437), so this only
+    /// says it early. A row with no Polish yet is never flagged.
     /// </summary>
     public static PlaceholderComparison Compare(string sourceText, string? translatedText)
     {

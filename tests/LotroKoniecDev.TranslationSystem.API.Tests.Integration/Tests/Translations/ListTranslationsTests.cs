@@ -758,9 +758,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     };
 
     /// <summary>
-    /// A sign, a space, a separator, a number too big for a long, or a bad colon form. <c>-5</c> and
-    /// the numbers too big for their column have no row a wrong parse could match, because ids are
-    /// positive and fit their column; those cases prove only that the text search still runs.
+    /// A sign, a space, a separator, a number too big for a long, or a bad colon form. Each decoy holds
+    /// the ids a lenient parse would read: it drops the sign or the separator, or clamps an overflow to
+    /// the column's maximum. A parse that keeps the minus or wraps to a negative number has no row to
+    /// hit, because ids are never negative.
     /// </summary>
     public static TheoryData<string, int, long> TextOnlyTerms() => new()
     {

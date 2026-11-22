@@ -182,8 +182,8 @@ groups:
             hijacked account or a script looks like this; so does an honest translator after a large
             game update. The mail names the account by its translator id; the runbook (Observability,
             "The two translation save rules") shows how to turn it into a name. The first mail comes within
-            about 90 seconds, or up to 5 minutes when another instance of this rule already fired. A
-            "resolved" mail follows about an hour after the account's last budget line, which does
+            about 90 seconds, or up to 5 minutes when another instance of this rule already fired on
+            the same environment. A "resolved" mail follows about an hour after the account's last budget line, which does
             not mean the account is back under its limit: the budget window is 24 hours by default.
             A new mail follows when the account saves above the threshold again, and a repeat every
             6 hours only while it keeps saving every hour.
@@ -288,10 +288,11 @@ groups:
             SELECT "Email", "EmailConfirmed" FROM authsystem."Users" WHERE "Id" = '{{ $labels.UserId }}';
             on the auth database, then follow the runbook (E-mail deliverability, "When someone says
             an account mail never came") from step 2. The first mail comes within about 90 seconds,
-            or up to 5 minutes when another instance of this rule already fired, and that mail then
-            lists both accounts. A "resolved" mail follows about an hour after the account's last
-            attempt, which does not mean the mail arrived. A repeat comes every 6 hours only while
-            the account keeps trying at least once an hour. This alert does not fire for a person
+            or up to 5 minutes when another instance of this rule already fired on the same
+            environment, and that mail then lists both accounts. A "resolved" mail follows about an
+            hour after the account's last attempt, which does not mean the mail arrived. A repeat
+            comes every 6 hours only while the account keeps trying at least once an hour. This
+            alert does not fire for a person
             who never tries to sign in, one who only asks for a new link on the resend page, a wrong
             password, or an account locked after 5 wrong passwords (for 5 minutes even the right
             password is logged as a lockout). Anyone can fire it with an unconfirmed account of

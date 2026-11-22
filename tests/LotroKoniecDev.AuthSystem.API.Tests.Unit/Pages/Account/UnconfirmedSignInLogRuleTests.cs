@@ -10,8 +10,12 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 /// </summary>
 public sealed class UnconfirmedSignInLogRuleTests
 {
-    private const string RuleUidLine = "uid: lotro-unconfirmed-sign-in";
-    private const string GroupNameKey = "name: ";
+    // Each key at its own indent at the start of a line, so the same words inside a rule's text never match.
+    private const string RuleUidLine = "\n      - uid: lotro-unconfirmed-sign-in";
+    private const string NextRuleLine = "\n      - uid:";
+    private const string NextGroupLine = "\n  - orgId:";
+    private const string GroupNameLine = "\n    name: ";
+    private const string GroupRulesLine = "\n    rules:";
 
     private static readonly string RuleFilePath =
         Path.Combine(AppContext.BaseDirectory, "TestData", "lotrokoniecdev-alerts.yaml");
@@ -92,7 +96,7 @@ public sealed class UnconfirmedSignInLogRuleTests
         string groupHeader = GroupHeaderOf(await ReadRuleFileAsync());
 
         // Assert
-        groupHeader.Split('\n')[0].TrimEnd('\r').ShouldBe($"{GroupNameKey}lotrokoniecdev");
+        groupHeader.Split('\n')[0].Trim().ShouldBe("name: lotrokoniecdev");
         groupHeader.Split('\n').Select(line => line.Trim()).ShouldContain("interval: 1m");
     }
 
@@ -115,18 +119,19 @@ public sealed class UnconfirmedSignInLogRuleTests
             return string.Empty;
         }
 
+        int searchFrom = ruleAt + RuleUidLine.Length;
         int[] nextBlockStarts =
         [
-            rules.IndexOf("- uid:", ruleAt, StringComparison.Ordinal),
-            rules.IndexOf("- orgId:", ruleAt, StringComparison.Ordinal),
+            rules.IndexOf(NextRuleLine, searchFrom, StringComparison.Ordinal),
+            rules.IndexOf(NextGroupLine, searchFrom, StringComparison.Ordinal),
             rules.Length
         ];
         return rules[ruleAt..nextBlockStarts.Where(index => index >= 0).Min()];
     }
 
     /// <summary>
-    /// Only a group has a name key, so the last one above the rule starts the rule's group. The header
-    /// ends where the group's rules start.
+    /// The last group name above the rule starts the rule's group. The header ends where the group's
+    /// rules start.
     /// </summary>
     private static string GroupHeaderOf(string rules)
     {
@@ -136,13 +141,13 @@ public sealed class UnconfirmedSignInLogRuleTests
             return string.Empty;
         }
 
-        int groupAt = rules.LastIndexOf(GroupNameKey, ruleAt, StringComparison.Ordinal);
+        int groupAt = rules.LastIndexOf(GroupNameLine, ruleAt, StringComparison.Ordinal);
         if (groupAt < 0)
         {
             return string.Empty;
         }
 
-        int rulesKeyAt = rules.IndexOf("rules:", groupAt, StringComparison.Ordinal);
-        return rules[groupAt..(rulesKeyAt < 0 ? ruleAt : rulesKeyAt)];
+        int rulesKeyAt = rules.IndexOf(GroupRulesLine, groupAt, StringComparison.Ordinal);
+        return rules[(groupAt + 1)..(rulesKeyAt < 0 ? ruleAt : rulesKeyAt)];
     }
 }

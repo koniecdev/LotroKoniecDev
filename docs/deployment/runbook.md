@@ -2878,8 +2878,8 @@ text changes, the rule file changes with it and needs the sync too.
 
 - **A translator account reached its save budget** (`lotro-translation-save-budget`, warning): one alert
   per account, budget (`Saves` or `Overwrites`) and outcome (`AlertThreshold` or `Refused`). The first
-  mail comes within about 90 seconds, or up to 5 minutes when another of its alerts already fired. A
-  "resolved" mail follows about an hour after the account's last budget line. That does not mean the
+  mail comes within about 90 seconds, or up to 5 minutes when another of its alerts already fired on
+  the same environment. A "resolved" mail follows about an hour after the account's last budget line. That does not mean the
   account is under its limit again: the budget window is 24 hours by default. A new mail follows when it
   saves above the threshold again. The thresholds and limits are the `TranslationSaveBudget__*`
   settings in the tms-api table above. The mail names the account by its translator id; its name is
@@ -2903,8 +2903,8 @@ the line to Information under the Warning rule (#977) does not break it. A unit 
 (`UnconfirmedSignInLogRuleTests`) ties the rule file to the C# text in `LoginLogText`; when the text
 changes, the rule file changes with it and needs the sync too. There is no threshold (the owner's
 decision on #1510): one alert per account and environment, so one attempt sends about two mails. The
-alert comes within about 90 seconds, or up to 5 minutes when another account's alert already fired,
-and that mail then lists both accounts. A "resolved" mail follows about an hour after the account's
+alert comes within about 90 seconds, or up to 5 minutes when another account's alert already fired
+on the same environment, and that mail then lists both accounts. A "resolved" mail follows about an hour after the account's
 last attempt; it does not mean the mail arrived. A repeat comes every 6 hours only while the account
 keeps trying at least once an hour. What to do with the mail, and who the alert cannot see:
 [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as).
@@ -2914,7 +2914,11 @@ password they chose. Nothing in the rule limits that. The only brake is the shar
 policy (`group_interval: 5m`): one account that signs in a little more than an hour apart sends about
 two mails each time, and several accounts together send up to about one mail per 5 minutes per
 environment, so up to about 288 a day each for prod and staging. Those mails go to the same inbox as
-every other alert and through the same Brevo account as account mail. To stop a flood, add a silence
+every other alert and through the same Brevo account as account mail. That account has one daily
+sending limit for all of it (300 mails a day on the Free plan, as
+`docs/deployment/azure-supabase-bring-up-plan.md` noted it; check Brevo's plan page), so a flood also
+eats into that day's confirmation and password reset mail. Sign-ups to made-up addresses can spend
+that limit faster, with no alert at all (#1526). To stop a flood, add a silence
 in Grafana (**Alerting → Silences**) with the matcher `__alert_rule_uid__=lotro-unconfirmed-sign-in`.
 It also hides real cases while it lasts, so give it an end time. Past 500 accounts in one hour the
 rule's query asks Loki for more series than it allows (Loki's default limit; `loki.yaml` sets none),

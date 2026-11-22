@@ -447,7 +447,8 @@ That is how both prods shipped with `no-reply@lotro-translator.pl` before the do
 **For any new sender, Brevo account or provider: authenticate first, switch second.** Add the domain
 in Brevo (Settings → Senders, domains, IPs → Domains), publish the records it prints, and wait until
 Brevo shows the domain as authenticated. Only *then* change `Email__SenderEmail` in `/opt/lotro/.env`
-and `GF_SMTP_FROM_ADDRESS` in `/opt/obs/.env` (Grafana runs on the staging box). Recreate the
+and `GF_SMTP_FROM_ADDRESS` in `/opt/obs/.env` (Grafana runs on the staging box), as `deploy`, never
+as root ([Gotchas](#gotchas)). Recreate the
 containers, because a plain `restart` keeps the old value:
 `docker compose -f compose.hetzner.yaml up -d --force-recreate --no-deps auth-api` and
 `docker compose -f compose.observability.yaml up -d --force-recreate grafana`. Then run the check
@@ -465,8 +466,8 @@ dig +short CNAME brevo2._domainkey.lotro-translator.pl @ns1.webio.pl
 ```
 
 Then ask for a password reset of an account you own, on the changed box, to a Gmail address. Never
-make a test sign-up on prod: prod data cannot be re-created by hand, and a test account takes 14 days
-to delete. In Gmail, "Show original" must show `dkim=pass header.i=@lotro-translator.pl` and
+make a test sign-up on prod: the test account would sit among real users' data, and deleting it
+takes 14 days. In Gmail, "Show original" must show `dkim=pass header.i=@lotro-translator.pl` and
 `dmarc=pass (…) header.from=lotro-translator.pl`, as the prod mail of 2026-11-20 did. The `spf=pass`
 part names Brevo's own domain (`smtp.mailfrom=…@….sender-sib.com`), and that is expected. Last,
 Brevo's log must show the mail as **Delivered**. For a new `GF_SMTP_FROM_ADDRESS`, also get one

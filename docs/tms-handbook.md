@@ -1103,7 +1103,7 @@ Frontend's CSP would block (#670). Wanting interactivity means writing an ADR fi
 |---|---|---|
 | `/` | public | Landing page with a progress meter (approved / awaiting / total; from a 30 s server-side snapshot — AUDIT-EF-04) and download links |
 | `/translations` | public | Searchable, filterable, paginated list with a "Tylko rozbieżne tłumaczenia" filter; per-row Edit link; admin sees bulk-approve checkboxes |
-| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs |
+| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs. Its address carries the list's search, filters and page, so "Wróć do listy", the reload after a save or an approval, and "Otwórz" keep them (#1452). The back link is rebuilt from those known fields and always points at `/translations` |
 | `/dashboard` | logged in | Progress tiles: total / translated / approved / remaining |
 | `/game-versions` | logged in | Version list; admin-only register form and guarded per-row delete |
 | `/import-export` | logged in | Download `polish.txt`; admin-only upload of `exported.txt` with an import summary |

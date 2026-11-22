@@ -2,6 +2,7 @@ using System.Security.Claims;
 using FluentValidation;
 using FluentValidation.Results;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using LotroKoniecDev.AuthSystem.API.ApiErrors;
 using LotroKoniecDev.AuthSystem.API.Common;
 using LotroKoniecDev.AuthSystem.API.Extensions;
@@ -15,7 +16,8 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Admin;
 
 /// <summary>
 /// The admin gives an account the Reviewer role (#1488). The account is signed out, so it signs in again
-/// with the new role. A repeated call changes nothing, because the website retries a write that timed out.
+/// with the new role. A repeated or overlapping call changes nothing, because the website retries a write
+/// that timed out.
 /// </summary>
 internal sealed partial class GrantReviewerRole : IApiEndpoint
 {
@@ -65,9 +67,32 @@ internal sealed partial class GrantReviewerRole : IApiEndpoint
                 return Result.Failure(AuthErrors.ReviewerRoleNotAllowed);
             }
 
-            IdentityResult identityResult = await _userManager.AddToRoleAsync(account, AuthConstants.Roles.Reviewer);
+            IdentityResult identityResult;
+            try
+            {
+                identityResult = await _userManager.AddToRoleAsync(account, AuthConstants.Roles.Reviewer);
+            }
+            catch (DbUpdateException)
+            {
+                // An overlapping call saved the same role row first.
+                if (!await IsReviewerAsync(account))
+                {
+                    throw;
+                }
+
+                LogReviewerRoleAlreadyChanged(_logger, account.Id);
+                return Result.Success();
+            }
+
             if (!identityResult.Succeeded)
             {
+                // A concurrency failure is also how an overlapping call that won shows up here.
+                if (await IsReviewerAsync(account))
+                {
+                    LogReviewerRoleAlreadyChanged(_logger, account.Id);
+                    return Result.Success();
+                }
+
                 string errors = string.Join(", ", identityResult.Errors.Select(error => error.Code));
                 LogReviewerRoleChangeFailed(_logger, account.Id, errors);
                 return Result.Failure(AuthErrors.ReviewerRoleChangeFailed);
@@ -93,11 +118,18 @@ internal sealed partial class GrantReviewerRole : IApiEndpoint
             _logger = logger;
         }
 
+        // GetRolesAsync queries the database, not the change tracker, so it sees what the other call saved.
+        private async Task<bool> IsReviewerAsync(ApplicationUser account) =>
+            (await _userManager.GetRolesAsync(account)).Contains(AuthConstants.Roles.Reviewer);
+
         [LoggerMessage(EventId = EventIds.ReviewerRoleGranted, Level = LogLevel.Information, Message = "Reviewer role given to user {UserId} by admin {AdminUserId}")]
         private static partial void LogReviewerRoleGranted(ILogger logger, Guid userId, string adminUserId);
 
         [LoggerMessage(EventId = EventIds.ReviewerRoleChangeFailed, Level = LogLevel.Error, Message = "Reviewer role could not be given to user {UserId}. Errors: {Errors}")]
         private static partial void LogReviewerRoleChangeFailed(ILogger logger, Guid userId, string errors);
+
+        [LoggerMessage(EventId = EventIds.ReviewerRoleAlreadyChanged, Level = LogLevel.Information, Message = "Reviewer role for user {UserId} was already given by an overlapping call")]
+        private static partial void LogReviewerRoleAlreadyChanged(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -129,6 +161,7 @@ internal sealed partial class GrantReviewerRole : IApiEndpoint
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status500InternalServerError);
     }
 }

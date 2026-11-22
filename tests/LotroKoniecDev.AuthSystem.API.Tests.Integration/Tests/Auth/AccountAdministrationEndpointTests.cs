@@ -28,6 +28,7 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
 {
     private const string Password = "TestPass1!";
     private const string AccountsPath = "auth/admin/accounts";
+    private const int OverlappingCalls = 20;
 
     public enum CallerRole
     {
@@ -237,6 +238,22 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         (await OpenIddictTokenState.StatusOfAsync(Factory.Services, refreshTokenAfterSignIn)).ShouldBe(OpenIddictConstants.Statuses.Valid);
     }
 
+    [Fact]
+    public async Task GrantReviewer_ForOverlappingCalls_ShouldAnswerEachWith204AndAddTheRoleOnce()
+    {
+        // Arrange: the website retries a write that timed out while the first one still runs.
+        string adminToken = await AdminAccessTokenAsync();
+        (_, IdentityId translatorId) = await RegisterAsync();
+
+        // Act
+        HttpStatusCode[] statusCodes = await SendOverlappingAsync(HttpMethod.Put, ReviewerPath(translatorId.Value), adminToken);
+
+        // Assert
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.NoContent);
+        (await RolesOfAsync(translatorId.Value)).ShouldBe(
+            [AuthConstants.Roles.Reviewer, AuthConstants.Roles.Translator], ignoreOrder: true);
+    }
+
     [Theory]
     [InlineData(UngrantableAccount.Admin)]
     [InlineData(UngrantableAccount.DeletionScheduled)]
@@ -371,6 +388,22 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
         (await RolesOfAsync(reviewerId.Value)).ShouldNotContain(AuthConstants.Roles.Reviewer);
     }
 
+    [Fact]
+    public async Task RemoveReviewer_ForOverlappingCalls_ShouldAnswerEachWith204AndTakeTheRole()
+    {
+        // Arrange
+        string adminToken = await AdminAccessTokenAsync();
+        (RegisterRequest reviewer, IdentityId reviewerId) = await RegisterAsync();
+        await AccountStateFactory.AddToRoleAsync(Factory.Services, reviewer.Email, AuthConstants.Roles.Reviewer);
+
+        // Act
+        HttpStatusCode[] statusCodes = await SendOverlappingAsync(HttpMethod.Delete, ReviewerPath(reviewerId.Value), adminToken);
+
+        // Assert
+        statusCodes.ShouldAllBe(statusCode => statusCode == HttpStatusCode.NoContent);
+        (await RolesOfAsync(reviewerId.Value)).ShouldBe([AuthConstants.Roles.Translator]);
+    }
+
     public AccountAdministrationEndpointTests(AuthSystemApiFactory appFactory) : base(appFactory)
     {
     }
@@ -430,6 +463,13 @@ public sealed class AccountAdministrationEndpointTests : EndpointsTestBase
 
         return await ApiClient.Http.SendAsync(request);
     }
+
+    private Task<HttpStatusCode[]> SendOverlappingAsync(HttpMethod method, string path, string accessToken) =>
+        Task.WhenAll(Enumerable.Range(0, OverlappingCalls).Select(async _ =>
+        {
+            using HttpResponseMessage response = await SendAsync(method, path, accessToken);
+            return response.StatusCode;
+        }));
 
     private async Task<AccountListResponse> GetAccountsAsync(string adminToken, string path = AccountsPath)
     {

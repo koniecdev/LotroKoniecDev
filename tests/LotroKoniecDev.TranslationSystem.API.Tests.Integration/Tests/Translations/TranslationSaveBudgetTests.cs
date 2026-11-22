@@ -358,6 +358,26 @@ public sealed class TranslationSaveBudgetTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Upsert_AsAReviewer_ShouldDeleteRowsOlderThanTheWindow()
+    {
+        // Arrange: the translator's own rows from before the promotion; no plain translator saves later.
+        await SeedUntranslatedAsync(1, 2);
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 5, overwriteLimit: 5);
+        Guid accountId = Guid.NewGuid();
+        using HttpClient translator = TranslatorClient(host, accountId);
+        (await SaveAsync(translator, 1)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ExecuteSqlAsync("UPDATE translation.\"TranslationSaves\" SET \"SavedAt\" = \"SavedAt\" - interval '25 hours';");
+        using HttpClient reviewer = ReviewerClient(host, accountId);
+
+        // Act
+        HttpResponseMessage response = await SaveAsync(reviewer, 2);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await CountLedgerRowsAsync()).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task Upsert_AsAReviewerReplacingPolish_ShouldStillWriteTheLineTheTotalAlertCounts()
     {
         // Arrange: a reviewer has no budget, so only the all-accounts overwrite alert sees its saves

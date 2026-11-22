@@ -240,14 +240,20 @@ translators only": the budget applies to an account that holds neither Admin nor
   sign-in problem, as a stolen admin is (§1).
 - **Saves made while exempt are not in the ledger.** A Reviewer whose role is taken away starts with
   a full budget.
+- **Every save deletes the expired rows, budgeted or not (§3).** §3 accepted that old rows wait for
+  the next budgeted save. With the role that is no longer a short wait: once every regular translator
+  is a Reviewer, no budgeted save may come for months, and the rows would outlive the 30 days the
+  privacy policy names. A Reviewer's or the admin's save now deletes them as well. Rows still wait
+  when nobody saves at all.
 - **Context and Alternative A said the limiter runs before authentication (#829).** Since #1488 it
   runs after authentication and before authorization; it counts a Reviewer per account and sets no
-  limit for the admin (ADR-0054 amendment of 2026-11-21). Alternative A's reason no longer holds as written. The
-  budget stays in the handler anyway: a per-minute limiter cannot keep a 24-hour count that survives
-  a restart (§3), and plain accounts stay per address by the owner's ruling.
+  limit for the admin (ADR-0054 amendment of 2026-11-21). Alternative A's reason no longer holds as
+  written. The budget stays in the handler anyway: a per-minute limiter cannot keep a 24-hour count
+  that survives a restart (§3), and plain accounts stay per address by the owner's ruling.
 
-Tests: `TranslationSaveBudgetTests` (a Reviewer is never refused and spends nothing; its overwrite
-still writes the line the total alert counts), `CurrentUserAccessorTests`.
+Tests: `TranslationSaveBudgetTests` (a Reviewer is never refused and spends nothing; its save deletes
+rows older than the window; its overwrite still writes the line the total alert counts),
+`CurrentUserAccessorTests`.
 
 ## References
 

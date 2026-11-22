@@ -147,6 +147,13 @@ internal sealed partial class UpsertTranslation : IEndpoint
                     return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
                 }
             }
+            else
+            {
+                // Without this, rows would wait for a plain translator's save, and there may be none
+                // once every regular translator is a Reviewer (#1488).
+                await _saveLedger.DeleteExpiredAsync(
+                    now, TimeSpan.FromHours(_saveBudgetSettings.Value.WindowHours), cancellationToken);
+            }
 
             translation.ProvideTranslation(command.TranslatedText, translatorId, now);
 

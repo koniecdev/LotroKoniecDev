@@ -21,6 +21,12 @@ public interface ITranslationSaveLedger
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Deletes every account's rows older than the window. A save without a budget calls it too, so a
+    /// translator who becomes a Reviewer leaves no rows behind (ADR-0072 amendment of 2026-11-21).
+    /// </summary>
+    Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Hands the permit back after a refusal, so a refused attempt spends nothing.
     /// </summary>
     Task RemoveAsync(Guid saveId, CancellationToken cancellationToken);

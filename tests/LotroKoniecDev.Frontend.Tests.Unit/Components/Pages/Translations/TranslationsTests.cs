@@ -336,6 +336,17 @@ public sealed class TranslationsTests : BunitContext
     }
 
     [Fact]
+    public void Render_SearchBox_SaysItAlsoFindsFileIdAndGossipId()
+    {
+        // #1406: the list shows both ids next to the box, and the search now matches them too.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("form.filter input#search").GetAttribute("placeholder").ShouldBe("Tekst, FileId lub GossipId…");
+    }
+
+    [Fact]
     public void Render_ConflictsOnlyCheckbox_SendsTrueSoTheFilterTurnsOn()
     {
         StubPage(SinglePageOf(Row(canEdit: true)));

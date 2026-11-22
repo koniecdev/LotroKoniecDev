@@ -42,7 +42,7 @@ public sealed record ListTranslationsRequest(
             parameters.Add(QueryParameter.Of(nameof(Search), Search));
         }
 
-        if (Match != TranslationSearchMatch.Contains)
+        if (Match is not TranslationSearchMatch.Contains)
         {
             parameters.Add(QueryParameter.Of(nameof(Match), Match.ToString()));
         }

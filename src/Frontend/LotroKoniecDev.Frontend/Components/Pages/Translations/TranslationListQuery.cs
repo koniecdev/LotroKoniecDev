@@ -204,7 +204,7 @@ internal sealed record TranslationListQuery
             parameters[SearchName] = Search;
         }
 
-        if (Match != TranslationSearchMatch.Contains)
+        if (Match is not TranslationSearchMatch.Contains)
         {
             parameters[MatchName] = Match.ToString();
         }

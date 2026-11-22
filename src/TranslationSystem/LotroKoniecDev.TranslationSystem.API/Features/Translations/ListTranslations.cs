@@ -178,7 +178,7 @@ internal sealed class ListTranslations : IEndpoint
             int? pairFileId = ids.PairFileId;
             long? pairGossipId = ids.PairGossipId;
 
-            if (match == TranslationSearchMatch.Contains)
+            if (match is TranslationSearchMatch.Contains)
             {
                 // LOTRO source text contains both % and _, so they must match themselves.
                 string likePattern = $"%{EscapeLike(term)}%";
@@ -195,7 +195,7 @@ internal sealed class ListTranslations : IEndpoint
             }
 
             string escapedTerm = EscapeRegex(term);
-            string regexPattern = match == TranslationSearchMatch.WholeWord
+            string regexPattern = match is TranslationSearchMatch.WholeWord
                 ? $"{WordStart}{escapedTerm}{WordEnd}"
                 : $"{TextStart}{escapedTerm}{TextEnd}";
 

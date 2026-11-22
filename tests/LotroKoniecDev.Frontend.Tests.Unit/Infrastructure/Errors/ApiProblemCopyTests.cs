@@ -129,6 +129,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("Translations.Validation", 400, "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.")]
     [InlineData("Translations.SaveBudgetExhausted", 429, "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.")]
     [InlineData("Translations.OverwriteBudgetExhausted", 429, "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. Teksty bez tłumaczenia możesz tłumaczyć dalej.")]
+    [InlineData("Translations.UnknownSearchMatch", 400, "Nieznany sposób dopasowania wyszukiwania. Wybierz „Zawiera”, „Całe słowo” albo „Cały tekst”.")]
     [InlineData("Auth.InvalidCurrentPassword", 400, "Aktualne hasło jest nieprawidłowe.")]
     [InlineData("Auth.PasswordFoundInBreaches", 400, "To hasło pojawiło się w wyciekach danych, wybierz inne.")]
     [InlineData("Auth.PasswordConfirmationThrottled", 429, "Zbyt wiele prób potwierdzenia hasła. Odczekaj kwadrans i spróbuj ponownie.")]

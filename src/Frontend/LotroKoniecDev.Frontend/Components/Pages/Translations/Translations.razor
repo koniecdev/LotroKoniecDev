@@ -34,9 +34,9 @@
                 <label for="match">Dopasowanie</label>
                 <div class="select-wrap">
                     <select id="match" name="match" title="Cały tekst pomija spacje na brzegach i znacznik na końcu, np. [e]">
-                        <option value="" selected="@(_query.Match == TranslationSearchMatch.Contains)">Zawiera</option>
-                        <option value="@TranslationSearchMatch.WholeWord" selected="@(_query.Match == TranslationSearchMatch.WholeWord)">Całe słowo</option>
-                        <option value="@TranslationSearchMatch.WholeText" selected="@(_query.Match == TranslationSearchMatch.WholeText)">Cały tekst</option>
+                        <option value="" selected="@(_query.Match is TranslationSearchMatch.Contains)">Zawiera</option>
+                        <option value="@TranslationSearchMatch.WholeWord" selected="@(_query.Match is TranslationSearchMatch.WholeWord)">Całe słowo</option>
+                        <option value="@TranslationSearchMatch.WholeText" selected="@(_query.Match is TranslationSearchMatch.WholeText)">Cały tekst</option>
                     </select>
                     <span class="select-chev" aria-hidden="true">▾</span>
                 </div>

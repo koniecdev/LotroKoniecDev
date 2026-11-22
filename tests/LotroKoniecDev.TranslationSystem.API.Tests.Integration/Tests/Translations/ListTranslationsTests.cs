@@ -529,6 +529,19 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithWholeWordThatEndsInPunctuation_NeedsNoLetterRightBeforeOrAfterTheMatch()
+    {
+        // Arrange: the ticket's rule looks at the characters next to the match, so "Wait..." is no match.
+        await SeedAsync(Row(1, "Hello ... there"), Row(2, "... and"), Row(3, "..."), Row(4, "Wait..."), Row(5, "...more"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("...", TranslationSearchMatch.WholeWord);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L]);
+    }
+
+    [Fact]
     public async Task List_WithWholeWordOfSeveralWords_MatchesThePhrase()
     {
         // Arrange

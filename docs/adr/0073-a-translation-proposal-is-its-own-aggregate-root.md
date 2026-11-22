@@ -123,8 +123,9 @@ mark a replaced proposal, either through `Translation` in chunks or with set-bas
 the same rules; the partial unique index is the backstop.
 
 The text of every proposal they add is stored after the trailing line break rule of #1476 (when the
-row's English does not end with a line break, the run of CR and LF at the end goes), before the
-empty and the length check. A set-based path compares each row with that row's own English.
+row's English does not end with a line break, the run of CR and LF at the end goes). The empty and
+the length checks count the text as sent, as the save path does since #1476. A set-based path
+compares each row with that row's own English.
 
 ## Consequences
 

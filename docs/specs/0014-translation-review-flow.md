@@ -6,14 +6,14 @@
   after 13 November, see "Changes of 2026-11-21")
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
-  reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks) lands
-  first, then #1384 (every save is a proposal). Once #1384 runs on prod: #1388 (it reconciles the
-  rows of the deploy window) and #1386 (the wiki's "coming" mark). After #1388: #50 (history and
-  restore), #1345 (rejection with a reason) and #1385 (withdraw), and later #1497 (it removes the
-  deploy-window stamp). #1368 (the Reviewer's right to approve, reject and restore, and the author
-  rule) after #50 and #1345. The Reviewer role itself, the admin page that gives it, and its limits
-  come earlier, in #1488, which needs nothing from this spec (owner decision of 2026-11-21: #1368 is
-  split).
+  reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks)
+  landed first (PR #1499, 2026-11-22), then #1384 (every save is a proposal). Once #1384 runs on
+  prod: #1388 (it reconciles the rows of the deploy window) and #1386 (the wiki's "coming" mark).
+  After #1388: #50 (history and restore), #1345 (rejection with a reason) and #1385 (withdraw), and
+  later #1497 (it removes the deploy-window stamp). #1368 (the Reviewer's right to approve, reject
+  and restore, and the author rule) after #50 and #1345. The Reviewer role itself, the admin page
+  that gives it, and its limits come earlier, in #1488, which needs nothing from this spec (owner
+  decision of 2026-11-21: #1368 is split).
 - **Related:** spec 0001 (status model, approve = publish), spec 0007 (bulk approve), ADR-0040
   (authorization-aware links), ADR-0043 (text length), ADR-0047 (source digest), ADR-0065 (account
   erasure), ADR-0023 (forward-only migrations), ADR-0072 (daily save budget), #687 (SEC-09, one
@@ -241,11 +241,12 @@ back.
   validator. A rejection reason has its own limit: 1000 characters.
 - **Trailing line breaks (#1476, owner decision of 2026-11-18).** On a save, a pattern save and an
   AI upload, the domain removes the run of CR and LF characters at the end of the text when the
-  row's English does not end with a line break. It does this before its own empty and length
-  guards, and the proposal stores the trimmed text. `UpsertTranslation.Validator` stays as #1476
-  leaves it: it counts the text as sent. A set-based path compares each row with that row's own
-  English. #1476 lands before #1384, so its one-off cleaning of the saved rows runs before the
-  backfill turns them into proposals. After that, a proposal's text never changes (ADR-0073 §1).
+  row's English does not end with a line break (`TranslationSource.RemoveTrailingLineBreaksFrom`),
+  and the proposal stores the trimmed text. The empty and the length checks count the text as
+  sent, as `UpsertTranslation.Validator` and `Translation.ProvideTranslation` do since #1476. A
+  set-based path compares each row with that row's own English. #1476 landed before #1384, so its
+  one-off cleaning of the saved rows runs before the backfill turns them into proposals. After
+  that, a proposal's text never changes (ADR-0073 §1).
 
 ## Contract
 

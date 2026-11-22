@@ -255,7 +255,9 @@ made for the previous game version never lands on top of a reworded one: the pla
 instead. A row without the column is parsed, reported and **not** written. Readers on both sides
 still accept the older six-column form; the writers always emit seven.
 
-`<--DO_NOT_TOUCH!-->` marks a game-supplied argument and must be kept verbatim; `args_order`
+`<--DO_NOT_TOUCH!-->` marks a game-supplied argument and must be kept verbatim: a row with a
+different number of them than the English is refused when it is saved, and the patcher reports it
+and does not write it (#1437); `args_order`
 reorders arguments (`NULL` or e.g. `2-1`); `approved` is `1` when the line is approved. Changing this
 format requires an ADR and updated golden fixtures in **both** the Patcher and the TMS.
 

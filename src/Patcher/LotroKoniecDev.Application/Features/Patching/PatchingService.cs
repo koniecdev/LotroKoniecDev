@@ -274,7 +274,7 @@ internal sealed class PatchingService : IPatchingService
                     {
                         warnings.Add(
                             $"Fragment {translation.GossipId} in file {translation.FileId} has {pieces.Length} text "
-                            + $"pieces, but the fragment has {fragment.ArgRefs.Count} argument(s) and needs "
+                            + $"piece(s), but the fragment has {fragment.ArgRefs.Count} argument(s) and needs "
                             + $"{fragment.ArgRefs.Count + 1}: the {DatFileConstants.PieceSeparator} markers in the "
                             + "translation do not match the English, so it was not written");
                         skippedCount++;

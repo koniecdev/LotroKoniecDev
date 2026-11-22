@@ -82,8 +82,8 @@ The web application at the heart of the project — where the human translation 
 - **Browse, search and filter** the whole catalog — by English or Polish text, and by status
   (*untranslated · draft · approved · needs review*) — with pagination.
 - **Translate** in a **side-by-side editor**: read-only English on the left, the Polish translation
-  on the right, with live validation of the `<--DO_NOT_TOUCH!-->` argument placeholders (so dynamic
-  values like player names or item counts are never broken).
+  on the right. A save is refused when the Polish does not keep every `<--DO_NOT_TOUCH!-->` argument
+  placeholder of the English, so dynamic values like player names or item counts are never broken.
 - **Review & approve** (single rows or a bulk selection): approving a translation publishes it into
   the distributed file; changed English re-opens a row for review.
 - **Track game versions**: the catalog is bound to a LOTRO version; admins register versions

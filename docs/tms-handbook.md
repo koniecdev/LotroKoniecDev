@@ -832,9 +832,9 @@ shows; nothing is copied. Saving sends
 
 The text must not be empty and must fit the DAT (32,767 UTF-16 code units, ADR-0043). It must also
 keep the English placeholder count: the patcher cuts the text on the placeholder and the game puts
-an argument into each cut, so no other count can work in the game. The editor warns about a
-mismatch while the translator types, and the API refuses the save. The API stores the text as
-typed, with one exception: when the English does not end with a line break, the line breaks a
+an argument into each cut, so no other count can work in the game. The API refuses such a save.
+The editor then shows a Polish message and a warning with both counts, and keeps the typed text.
+The API stores the text as typed, with one exception: when the English does not end with a line break, the line breaks a
 translator's Enter key left at the end of the Polish are removed (#1476,
 `TranslationSource.RemoveTrailingLineBreaksFrom`).
 

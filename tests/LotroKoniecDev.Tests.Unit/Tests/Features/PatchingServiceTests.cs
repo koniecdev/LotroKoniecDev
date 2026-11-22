@@ -1019,7 +1019,24 @@ public sealed class PatchingServiceTests
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.SourceMovedTranslations.ShouldBe(0);
         result.Value.Warnings.ShouldContain(warning =>
-            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has {rowPieceCount} text pieces"));
+            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has {rowPieceCount} text piece(s)"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_RowWhosePieceCountDoesNotFitTheFragment_ShouldNameBothCountsInTheWarning()
+    {
+        // Arrange: the warning is the only place a player or an admin learns what is wrong with the row.
+        SetupAllPassingDefaults();
+        string englishDigest = SetupFragmentWithArguments(argumentCount: 1);
+        SetupTranslations(CreateTranslation(content: PolishWithPieces(3), sourceDigest: englishDigest));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.Warnings.ShouldContain(
+            $"Fragment {FragmentId1} in file {TextFileId} has 3 text piece(s), but the fragment has 1 argument(s) "
+            + "and needs 2: the <--DO_NOT_TOUCH!--> markers in the translation do not match the English, so it was not written");
     }
 
     [Theory]
@@ -1130,7 +1147,7 @@ public sealed class PatchingServiceTests
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.SourceMovedTranslations.ShouldBe(0);
         result.Value.Warnings.ShouldContain(warning =>
-            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has 2 text pieces"));
+            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has 2 text piece(s)"));
     }
 
     [Fact]
@@ -1155,7 +1172,7 @@ public sealed class PatchingServiceTests
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.SourceMovedTranslations.ShouldBe(0);
         result.Value.Warnings.ShouldContain(warning =>
-            warning.StartsWith($"Fragment 1 in file {TextFileId} has 2 text pieces"));
+            warning.StartsWith($"Fragment 1 in file {TextFileId} has 2 text piece(s)"));
     }
 
     [Fact]
@@ -1174,7 +1191,7 @@ public sealed class PatchingServiceTests
         // Assert
         result.Value.SkippedTranslations.ShouldBe(1);
         result.Value.SourceMovedTranslations.ShouldBe(1);
-        result.Value.Warnings.ShouldNotContain(warning => warning.Contains("text pieces"));
+        result.Value.Warnings.ShouldNotContain(warning => warning.Contains("text piece(s)"));
     }
 
     [Fact]

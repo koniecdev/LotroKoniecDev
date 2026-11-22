@@ -99,8 +99,10 @@ wersji, bez kopiowania wierszy przy każdym patchu (spec 0001).
   `Approved`) zostaje, bo stary polski nadal pasuje.
 - `ProvideTranslation(translatedText, submittedBy, now)` — zapisuje lub zastępuje polski draft
   i stempluje tłumacza. Każdy poprzedni status → `Draft`. Edycja wiersza `Approved` wyjmuje go
-  z pobieranego pliku do ponownej akceptacji. Tekst dłuższy, niż zmieści DAT, rzuca wyjątek, bo
-  to błąd programisty; komunikat dla tłumacza daje `UpsertTranslation.Validator` (ADR-0043).
+  z pobieranego pliku do ponownej akceptacji. Tekst dłuższy, niż zmieści DAT, albo z inną liczbą
+  znaczników `<--DO_NOT_TOUCH!-->` niż obecny angielski rzuca wyjątek, bo to błąd programisty;
+  komunikat dla tłumacza daje `UpsertTranslation`: jego walidator (ADR-0043) i wywołanie
+  `Source.CheckPlaceholderCountOf` (#1437).
   Zapisuje tekst bez końcowych znaków nowej linii, które usuwa
   `Source.RemoveTrailingLineBreaksFrom` (#1476).
 - `Approve(approvedBy, now)` — zatwierdza do dystrybucji. Wymaga polskiej treści i nieusuniętego
@@ -212,7 +214,7 @@ walidują w `Create(...)` przez `Result` i są niezmienne.
 | VO | Plik | Reguła |
 |---|---|---|
 | `FragmentKey` | `…TranslationAggregate/ValueObjects/FragmentKey.cs` | `FileId > 0` i `GossipId >= 0`; tożsamość `(FileId, GossipId)`: `FileId` wskazuje subplik DAT, `GossipId` (8 bajtów) fragment w nim |
-| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039); `RemoveTrailingLineBreaksFrom` — reguła końcowych nowych linii polskiego (niżej) |
+| `TranslationSource` | `…TranslationAggregate/ValueObjects/TranslationSource.cs` | `Text` + `ArgsOrder` + `ArgsId` jako **jedna** wartość (inny układ placeholderów = inne znaczenie); pusta kolumna argumentów i `NULL` dają `null`; tekst jest surowy, bez escape'u z pliku (ADR-0039); `RemoveTrailingLineBreaksFrom` — reguła końcowych nowych linii polskiego (niżej); `CheckPlaceholderCountOf` / `CountPlaceholders` — polski musi mieć tyle znaczników co ten angielski (niżej) |
 | `LotroNotationVersion` | `…GameVersionAggregate/ValueObjects/LotroNotationVersion.cs` | gramatyka `digits(.digits)*`, od jednego do trzech członów (aneks ADR-0003 z 2026-08-28), max 12 znaków; **forma kanoniczna**: końcowe zera są obcinane, więc `48` = `48.0` = `48.0.0` (ADR-0003) |
 | `DisplayName` | `…TranslatorAggregate/ValueObjects/DisplayName.cs` | niepuste, ≤ **150** znaków (po trim) |
 | `Email` | `…TranslatorAggregate/ValueObjects/Email.cs` | niepuste, ≤ **250**, regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`; opcjonalny na `Translator` |
@@ -226,6 +228,17 @@ Spacje, tabulatory, wpisane dwa znaki `\n` i nowe linie w środku tekstu zostaj�
 `ProvideTranslation` (na własnym `Source`); każda nowa ścieżka zapisu polskiego (np. propozycje
 z #1384, które nie trzymają angielskiego) woła ją na `Translation.Source`. Tekst z samych nowych linii
 wraca pusty, więc wołający najpierw odrzuca pusty tekst.
+
+**Liczba znaczników polskiego (#1437, aneks ADR-0043 z 2026-11-22).**
+`TranslationSource.CheckPlaceholderCountOf(translatedText)` zwraca błąd walidacji
+`TranslationEntity.TranslatedText.PlaceholderCountMismatch`, gdy polski ma inną liczbę znaczników
+`<--DO_NOT_TOUCH!-->` niż ten angielski. Patcher tnie tekst na znaczniku, a gra wstawia argument
+w każde cięcie, więc inna liczba nie zadziała w grze. Liczy się obecny angielski, nigdy
+`PreviousSourceText`. Dziś woła ją `UpsertTranslation` przed limitem zapisów, a `ProvideTranslation`
+pilnuje tego samego jako guard programisty. Każda nowa ścieżka, w której człowiek albo plik wysyła
+polski (np. propozycje z #1384), woła ją na `Translation.Source`, zanim cokolwiek zapisze. Ścieżka,
+która tylko kopiuje istniejący tekst (np. ponowne zatwierdzenie wiersza `NeedsReview`), nie może
+rzucać: po imporcie taki wiersz może słusznie mieć inną liczbę.
 
 Strongly-typed ID (`TranslationId`, `GameVersionId`, `TranslatorId`, `PrecomputedTranslationFileId`)
 leżą w `TranslationSystem.Primitives`; `IdentityId` (wspólny z Auth) leży w

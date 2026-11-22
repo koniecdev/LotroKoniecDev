@@ -1,14 +1,16 @@
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
+
 namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 
 /// <summary>
 /// Counts and splits out the argument placeholder, so the editor can highlight it without interactive
-/// code. The marker is part of the <c>||</c> file contract; the Frontend keeps its own copy instead of
-/// referencing the patcher, as each context has its own parser.
+/// code. The marker is part of the <c>||</c> file contract; the Frontend takes the translation API's
+/// copy, so the editor's count and the API's refusal use one string.
 /// </summary>
 internal static class PlaceholderAnalyzer
 {
     /// <summary>Translators must keep it exactly as it is (file contract).</summary>
-    internal const string Placeholder = "<--DO_NOT_TOUCH!-->";
+    internal const string Placeholder = DatFormatConstants.Placeholder;
 
     public static int Count(string? text)
     {
@@ -29,8 +31,9 @@ internal static class PlaceholderAnalyzer
     }
 
     /// <summary>
-    /// Warns while the translator types. The API refuses the save on a mismatch (#1437), so this only
-    /// says it early. A row with no Polish yet is never flagged.
+    /// Feeds the yellow warning the page draws. The page has no script, so a translator sees it after a
+    /// save the API refused (#1437), or on a stored row whose English changed its count. A row with no
+    /// Polish yet is never flagged.
     /// </summary>
     public static PlaceholderComparison Compare(string sourceText, string? translatedText)
     {

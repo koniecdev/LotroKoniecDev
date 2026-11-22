@@ -200,7 +200,7 @@ English.
 - Approve does not check the count. After an import changes the placeholder count of an English text
   that has Polish, the row waits for review with its old Polish. If someone approves it as it is, the
   mismatch reaches the file, and the patcher skips that row with a warning, so players see English
-  there. Whether approve should refuse it too is the owner's call.
+  there. Whether approve should refuse it too is the owner's call (#1524).
 - A future game version could add a fragment whose pieces are not its arguments + 1. Then the TMS
   accepts a save the patcher refuses. That fails safe: nothing is written, and the warning names the
   row.

@@ -1,7 +1,7 @@
 namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 
 /// <summary>
-/// The username and e-mail end in a GUID, so a rerun never clashes with the uniqueness rules.
+/// A random user's username and e-mail end in a GUID, so a rerun never clashes with the uniqueness rules.
 /// </summary>
 internal sealed class TestUser
 {
@@ -33,4 +33,8 @@ internal sealed class TestUser
             email: email,
             password: "E2ePassw0rd!");
     }
+
+    /// <summary>An account that already exists, such as the admin the stack seeds.</summary>
+    public static TestUser Create(string username, string email, string password) =>
+        new(username, email, password);
 }

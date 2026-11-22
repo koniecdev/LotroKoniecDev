@@ -93,6 +93,9 @@ public sealed class PlaywrightStackFixture : IAsyncLifetime
 
     public IBrowser Browser { get; private set; } = null!;
 
+    /// <summary>The admin the auth host seeds in its Testing profile. A flow that needs data seeds it as this user.</summary>
+    internal TestUser Admin => TestUser.Create(AdminUsername, AdminEmail, AdminPassword);
+
     public string FrontendBaseUrl => FrontendHttpsOrigin;
 
     public string AuthBaseUrl => AuthHttpsOrigin;

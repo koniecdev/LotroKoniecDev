@@ -85,6 +85,11 @@ One test class per flow, in `Flows/`:
   tall screens, and keeps its own width on a screen wider than the strip.
 - `HomeLayoutTests`: the home page's player and translator boxes have the same height side by side,
   and the big percentage is centred against its text.
+- `TranslationListWayBackTests`: search + status + page 2 on the list → "Edytuj" → save →
+  "Wróć do listy" shows the same list (#1452). It is the one flow that seeds its own rows: it signs
+  in as the admin the auth host seeds (`PlaywrightStackFixture.Admin`), registers a game version and
+  uploads an `exported.txt` it builds in memory, whose English carries a token no other flow uses
+  (ADR-0009 §5 amendment).
 
 > PL-only: the Auth pages and the FE nav are Polish-only (no culture routing), so there is no
 > culture parameter.

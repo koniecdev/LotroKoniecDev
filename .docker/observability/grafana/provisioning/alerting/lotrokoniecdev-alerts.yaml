@@ -285,16 +285,18 @@ groups:
             Someone typed the right password for an account whose e-mail is not confirmed yet. The
             confirmation mail may never have arrived, or the person has not clicked the link yet.
             Find the address with
-            SELECT "Email", "EmailConfirmed" FROM authsystem."Users" WHERE "Id" = '<the id>';
+            SELECT "Email", "EmailConfirmed" FROM authsystem."Users" WHERE "Id" = '{{ $labels.UserId }}';
             on the auth database, then follow the runbook (E-mail deliverability, "When someone says
             an account mail never came") from step 2. The first mail comes within about 90 seconds,
             or up to 5 minutes when another instance of this rule already fired, and that mail then
             lists both accounts. A "resolved" mail follows about an hour after the account's last
             attempt, which does not mean the mail arrived. A repeat comes every 6 hours only while
-            the account keeps trying at least once an hour. This alert cannot see a person who never
-            tries to sign in, one who only asks for a new link on the resend page (a successful
-            resend writes no log line), a wrong password, or an account locked after 5 wrong
-            passwords (for 5 minutes even the right password is logged as a lockout).
+            the account keeps trying at least once an hour. This alert does not fire for a person
+            who never tries to sign in, one who only asks for a new link on the resend page, a wrong
+            password, or an account locked after 5 wrong passwords (for 5 minutes even the right
+            password is logged as a lockout). Anyone can fire it with an unconfirmed account of
+            their own, up to about one mail per 5 minutes per environment; to stop a flood, silence the
+            rule (matcher __alert_rule_uid__=lotro-unconfirmed-sign-in), which hides real cases too.
         data:
           - refId: A
             relativeTimeRange: { from: 3600, to: 0 }
@@ -304,10 +306,8 @@ groups:
               instant: true
               queryType: instant
               editorMode: code
-              # Anchored on the template key, not the bare text: auth-api writes a caller's
-              # X-Correlation-ID header and request path into its log lines, and a bare-text filter
-              # would let any anonymous request fire this rule. The text comes from LoginLogText,
-              # and a unit test ties the two together.
+              # Anchored on the template key for the same reason as the budget rule above. The text
+              # comes from LoginLogText, and a unit test ties the two together.
               expr: >-
                 sum by (environment, UserId) (count_over_time({project="lotrokoniecdev", container=~".*auth-api.*"} |= `"@mt":"Failed login: email not confirmed.` | json UserId="UserId" [1h]))
           - refId: C

@@ -524,14 +524,16 @@ on the auth database and go on from step 2 above. If `EmailConfirmed` is true by
 confirmed after the attempt. How the rule works and how many mails it sends:
 [The observability stack](#the-observability-stack) → "The unconfirmed sign-in rule".
 
-The alert sees only people who try to sign in. These leave no trace and still reach us only when they
-write to us:
+The alert sees only people who type the right password. It does not fire for these, and they still
+reach us only when they write to us:
 
-- a person who never tries to sign in;
-- a person who only asks for a new link on the resend page: a successful resend writes no log line;
-- a sign-in with a wrong password: it is logged as a wrong password (2622), not as 2624;
+- a person who never tries to sign in: no line names the account;
+- a person who only asks for a new link on the resend page: a successful resend writes no line that
+  names the account;
+- a sign-in with a wrong password: it is logged as a wrong password (2622), not as 2624, so step 2
+  finds it;
 - an account locked after 5 wrong passwords: for 5 minutes even the right password is logged as a
-  lockout (2621).
+  lockout (2621), which step 2 finds too.
 
 ### Reseed traps — the auth seeder is create-if-missing
 
@@ -2906,6 +2908,15 @@ and that mail then lists both accounts. A "resolved" mail follows about an hour 
 last attempt; it does not mean the mail arrived. A repeat comes every 6 hours only while the account
 keeps trying at least once an hour. What to do with the mail, and who the alert cannot see:
 [E-mail deliverability](#e-mail-deliverability--the-sender-must-be-one-brevo-is-authorised-to-send-as).
+
+Anyone can fire this alert on purpose: sign up with any address, skip the link, and sign in with the
+password they chose. Nothing in the rule limits that. The only brake is the shared notification
+policy (`group_interval: 5m`): one account that signs in a little more than an hour apart sends about
+two mails each time, and several accounts together send up to about one mail per 5 minutes per
+environment, so up to about 288 a day each for prod and staging. Those mails go to the same inbox as
+every other alert and through the same Brevo account as account mail. To stop a flood, add a silence
+in Grafana (**Alerting → Silences**) with the matcher `__alert_rule_uid__=lotro-unconfirmed-sign-in`.
+It also hides real cases while it lasts, so give it an end time.
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it

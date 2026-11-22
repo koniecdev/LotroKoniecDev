@@ -10,6 +10,7 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Pages.Account;
 /// </summary>
 public sealed class UnconfirmedSignInLogRuleTests
 {
+    private const string RuleUidLine = "uid: lotro-unconfirmed-sign-in";
     private const string GroupNameKey = "name: ";
 
     private static readonly string RuleFilePath =
@@ -22,7 +23,7 @@ public sealed class UnconfirmedSignInLogRuleTests
         string rules = await ReadRuleFileAsync();
 
         // Assert: a bare-text filter would also match a caller's header or path in a request line.
-        rules.ShouldContain(
+        RuleBlockOf(rules).ShouldContain(
             $"container=~\".*auth-api.*\"}} |= `\"@mt\":\"{LoginLogText.EmailNotConfirmedPrefix}`");
         rules.ShouldNotContain($"|= `{LoginLogText.EmailNotConfirmedPrefix}");
     }
@@ -31,28 +32,39 @@ public sealed class UnconfirmedSignInLogRuleTests
     public async Task RuleFile_ShouldGroupTheRuleByEnvironmentAndTheLoggedAccountId()
     {
         // Act
-        string rules = await ReadRuleFileAsync();
+        string rule = RuleBlockOf(await ReadRuleFileAsync());
 
         // Assert
-        rules.ShouldContain("| json UserId=\"UserId\"");
-        rules.ShouldContain("sum by (environment, UserId)");
+        rule.ShouldContain("| json UserId=\"UserId\"");
+        rule.ShouldContain("sum by (environment, UserId)");
     }
 
     /// <summary>
-    /// The daily group runs every five minutes, so the first mail would come minutes later.
+    /// The owner's decision on #1510: every attempt fires, with no threshold and no wait.
+    /// </summary>
+    [Fact]
+    public async Task RuleFile_ShouldFireOnTheFirstLineWithNoWait()
+    {
+        // Act
+        string rule = RuleBlockOf(await ReadRuleFileAsync());
+
+        // Assert
+        rule.ShouldContain("for: 0s");
+        rule.ShouldContain("evaluator: { type: gt, params: [0] }");
+    }
+
+    /// <summary>
+    /// The runbook promises the first mail in about 90 seconds, which holds only in the one-minute group.
     /// </summary>
     [Fact]
     public async Task RuleFile_ShouldPutTheRuleInTheOneMinuteGroup()
     {
         // Act
-        string rules = await ReadRuleFileAsync();
+        string groupHeader = GroupHeaderOf(await ReadRuleFileAsync());
 
-        // Assert: only a group has a name key, so the last one above the rule is its group.
-        int ruleAt = rules.IndexOf("uid: lotro-unconfirmed-sign-in", StringComparison.Ordinal);
-        ruleAt.ShouldBeGreaterThan(0);
-        string aboveTheRule = rules[..ruleAt];
-        int groupNameAt = aboveTheRule.LastIndexOf(GroupNameKey, StringComparison.Ordinal) + GroupNameKey.Length;
-        aboveTheRule[groupNameAt..].Split('\n')[0].TrimEnd('\r').ShouldBe("lotrokoniecdev");
+        // Assert
+        groupHeader.Split('\n')[0].TrimEnd('\r').ShouldBe($"{GroupNameKey}lotrokoniecdev");
+        groupHeader.ShouldContain("interval: 1m");
     }
 
     [Fact]
@@ -62,4 +74,46 @@ public sealed class UnconfirmedSignInLogRuleTests
     }
 
     private static Task<string> ReadRuleFileAsync() => File.ReadAllTextAsync(RuleFilePath);
+
+    /// <summary>
+    /// The rule's own lines, from its uid to the next rule or group.
+    /// </summary>
+    private static string RuleBlockOf(string rules)
+    {
+        int ruleAt = rules.IndexOf(RuleUidLine, StringComparison.Ordinal);
+        if (ruleAt < 0)
+        {
+            return string.Empty;
+        }
+
+        int[] nextBlockStarts =
+        [
+            rules.IndexOf("- uid:", ruleAt, StringComparison.Ordinal),
+            rules.IndexOf("- orgId:", ruleAt, StringComparison.Ordinal),
+            rules.Length
+        ];
+        return rules[ruleAt..nextBlockStarts.Where(index => index >= 0).Min()];
+    }
+
+    /// <summary>
+    /// Only a group has a name key, so the last one above the rule starts the rule's group. The header
+    /// ends where the group's rules start.
+    /// </summary>
+    private static string GroupHeaderOf(string rules)
+    {
+        int ruleAt = rules.IndexOf(RuleUidLine, StringComparison.Ordinal);
+        if (ruleAt < 0)
+        {
+            return string.Empty;
+        }
+
+        int groupAt = rules.LastIndexOf(GroupNameKey, ruleAt, StringComparison.Ordinal);
+        if (groupAt < 0)
+        {
+            return string.Empty;
+        }
+
+        int rulesKeyAt = rules.IndexOf("rules:", groupAt, StringComparison.Ordinal);
+        return rules[groupAt..(rulesKeyAt < 0 ? ruleAt : rulesKeyAt)];
+    }
 }

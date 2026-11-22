@@ -76,6 +76,14 @@ public sealed class Fragment
         return piece.Length <= DatFileConstants.MaxTextPieceLength;
     }
 
+    /// <summary>
+    /// Whether a text made of <paramref name="pieceCount"/> pieces fits this fragment. The game puts one
+    /// argument between two pieces, so the text needs one piece more than the fragment has arguments.
+    /// Our writes never change the argument count, so this is the English shape even on a fragment we
+    /// already patched (#1437).
+    /// </summary>
+    public bool FitsPieceCount(int pieceCount) => pieceCount == ArgRefs.Count + 1;
+
     /// <exception cref="ArgumentOutOfRangeException">
     /// A piece failed <see cref="IsWritablePiece"/>. The length prefix cannot hold that number, and
     /// writing a shortened one would corrupt the whole subfile.

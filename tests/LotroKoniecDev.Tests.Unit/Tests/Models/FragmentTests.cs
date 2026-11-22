@@ -355,6 +355,50 @@ public sealed class FragmentTests
         fragment.ArgRefs[2].ShouldBe(new byte[] { 0x0B, 0x00, 0x00, 0x00 });
     }
 
+    [Theory]
+    [InlineData(0, 1, true)]
+    [InlineData(0, 0, false)]
+    [InlineData(0, 2, false)]
+    [InlineData(2, 3, true)]
+    [InlineData(2, 2, false)]
+    [InlineData(2, 4, false)]
+    public void FitsPieceCount_ForTheArgumentCount_ShouldAcceptExactlyOneMorePiece(
+        int argumentCount,
+        int pieceCount,
+        bool expected)
+    {
+        // Arrange
+        Fragment fragment = new();
+
+        for (int index = 0; index < argumentCount; index++)
+        {
+            fragment.ArgRefs.Add([(byte)index, 0x00, 0x00, 0x00]);
+        }
+
+        fragment.Pieces.AddRange(Enumerable.Repeat("Part", argumentCount + 1));
+
+        // Act
+        bool fits = fragment.FitsPieceCount(pieceCount);
+
+        // Assert
+        fits.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void FitsPieceCount_FragmentHoldingMorePiecesThanItsArgumentsAllow_ShouldFollowTheArguments()
+    {
+        // Arrange: a fragment an older patcher wrote a two-piece row into. Its arguments still give the
+        // English shape, its pieces do not.
+        Fragment fragment = new();
+        fragment.Pieces.AddRange(["Czesc1", "Czesc2"]);
+
+        // Act
+        bool fitsWhatItHolds = fragment.FitsPieceCount(2);
+
+        // Assert
+        fitsWhatItHolds.ShouldBeFalse();
+    }
+
     [Fact]
     public void ParseAndWrite_RoundTrip_WithArgStrings_ShouldPreserveData()
     {

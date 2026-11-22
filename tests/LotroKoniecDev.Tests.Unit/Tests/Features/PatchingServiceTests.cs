@@ -314,10 +314,13 @@ public sealed class PatchingServiceTests
     public void ApplyTranslations_ContentSplittingIntoPiecesThatEachFit_ShouldApply()
     {
         // Arrange: the DAT caps each piece, not the whole row, so content twice the ceiling is legal
-        // as long as no piece exceeds it.
+        // as long as no piece exceeds it. Two pieces need a fragment with one argument (#1437).
         SetupAllPassingDefaults();
+        string englishDigest = SetupFragmentWithArguments(argumentCount: 1);
         string half = new('ż', DatFileConstants.MaxTextPieceLength);
-        SetupTranslations(CreateTranslation(content: $"{half}{DatFileConstants.PieceSeparator}{half}"));
+        SetupTranslations(CreateTranslation(
+            content: $"{half}{DatFileConstants.PieceSeparator}{half}",
+            sourceDigest: englishDigest));
 
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
@@ -733,7 +736,7 @@ public sealed class PatchingServiceTests
         // columns, which a hand-made file may leave as NULL. Otherwise a translated fragment with
         // arguments would report a false "source moved" on every run.
         const string polish = "Czesc1<--DO_NOT_TOUCH!-->Czesc2";
-        byte[][] argRefs = [[0x01, 0x00, 0x00, 0x00], [0x02, 0x00, 0x00, 0x00]];
+        byte[][] argRefs = [[0x01, 0x00, 0x00, 0x00]];
         byte[] subFileData = TestDataFactory.CreateTextSubFileDataWithArgs(
             TextFileId, FragmentId1, ["Czesc1", "Czesc2"], argRefs);
 
@@ -750,7 +753,7 @@ public sealed class PatchingServiceTests
         SetupTranslations(CreateTranslation(
             content: polish,
             argsOrder: null,
-            sourceDigest: SourceDigest.ForExportForm("English that has since moved", 2)));
+            sourceDigest: SourceDigest.ForExportForm("English that has since moved", 1)));
 
         // Act
         Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
@@ -988,6 +991,190 @@ public sealed class PatchingServiceTests
         // Assert
         _datFileHandler.DidNotReceive().PutSubfileData(
             Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(0, 3)]
+    [InlineData(1, 3)]
+    [InlineData(1, 1)]
+    [InlineData(2, 1)]
+    [InlineData(2, 2)]
+    public void ApplyTranslations_RowWhosePieceCountDoesNotFitTheFragment_ShouldSkipAndReportIt(
+        int argumentCount,
+        int rowPieceCount)
+    {
+        // Arrange: more and fewer pieces than the fragment's arguments allow. The row was made for the
+        // English the DAT holds, so only the piece count can refuse it (#1437).
+        SetupAllPassingDefaults();
+        string englishDigest = SetupFragmentWithArguments(argumentCount);
+        SetupTranslations(CreateTranslation(content: PolishWithPieces(rowPieceCount), sourceDigest: englishDigest));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        result.Value.Warnings.ShouldContain(warning =>
+            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has {rowPieceCount} text pieces"));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void ApplyTranslations_RowWithOneMorePieceThanTheFragmentHasArguments_ShouldApply(int argumentCount)
+    {
+        // Arrange
+        SetupAllPassingDefaults();
+        string englishDigest = SetupFragmentWithArguments(argumentCount);
+        SetupTranslations(CreateTranslation(content: PolishWithPieces(argumentCount + 1), sourceDigest: englishDigest));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(0);
+    }
+
+    [Fact]
+    public void ApplyTranslations_PieceCountMismatchNextToAValidRow_ShouldWriteOnlyTheValidRow()
+    {
+        // Arrange: one bad row must cost one row, not its subfile. The counters would also pass for a
+        // run that put the bad row into the subfile and only declined to count it.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));
+        byte[]? capturedData = null;
+        _datFileHandler.PutSubfileData(DatHandle, TextFileId, Arg.Do<byte[]>(data => capturedData = data), Arg.Any<int>(), 1)
+            .Returns(Result.Success());
+        SetupTranslations(
+            CreateTranslation(gossipId: FragmentId1, content: PolishWithPieces(2)),
+            CreateTranslation(gossipId: FragmentId2, content: "Przetlumaczony tekst"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(1);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        capturedData.ShouldNotBeNull();
+        SubFile written = new();
+        written.Parse(capturedData);
+        written.Fragments[FragmentId1].Pieces.ShouldBe([FixtureFragmentText]);
+        written.Fragments[FragmentId2].Pieces.ShouldBe(["Przetlumaczony tekst"]);
+    }
+
+    [Fact]
+    public void ApplyTranslations_PieceCountMismatchNextToAValidRow_ShouldRecordOnlyTheWrittenRowInTheLedger()
+    {
+        // Arrange: the refused row's fragment still holds the English, so a ledger entry for it would
+        // admit a later write against text we never put there (ADR-0047 §4).
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, FragmentId1, 2)));
+        LedgerKey refusedKey = new(TextFileId, FragmentId1);
+        LedgerKey writtenKey = new(TextFileId, FragmentId2);
+        SetupTranslations(
+            CreateTranslation(gossipId: FragmentId1, content: PolishWithPieces(2)),
+            CreateTranslation(gossipId: FragmentId2, content: "Przetlumaczony tekst"));
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _translationLedger.Received(1).Save(
+            Arg.Any<string>(),
+            Arg.Is<IReadOnlyDictionary<LedgerKey, string>>(entries => entries.ContainsKey(writtenKey) && !entries.ContainsKey(refusedKey)));
+    }
+
+    [Fact]
+    public void ApplyTranslations_EveryRowOfASubFileHasTheWrongPieceCount_ShouldNotWriteTheSubFileAtAll()
+    {
+        // Arrange: skipping must mean "wrote nothing", as it does for the source guard.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(content: PolishWithPieces(2)));
+
+        // Act
+        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        _datFileHandler.DidNotReceive().PutSubfileData(
+            Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
+    }
+
+    [Fact]
+    public void ApplyTranslations_FragmentAlreadyHoldingThisMismatchedRow_ShouldStillSkipIt()
+    {
+        // Arrange: clause (c). An older patcher wrote this two-piece row into a fragment with no
+        // arguments, so the row equals what the DAT holds and the source guard admits it. The piece
+        // count must still refuse it.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileDataWithArgs(
+                TextFileId, FragmentId1, ["Czesc1", "Czesc2"], [])));
+        SetupTranslations(CreateTranslation(
+            content: $"Czesc1{DatFileConstants.PieceSeparator}Czesc2",
+            sourceDigest: SourceDigest.ForExportForm("English that has since moved", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        result.Value.Warnings.ShouldContain(warning =>
+            warning.StartsWith($"Fragment {FragmentId1} in file {TextFileId} has 2 text pieces"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_MismatchedRowAdmittedThroughTheLedger_ShouldStillSkipIt()
+    {
+        // Arrange: clause (b). The fragment holds what we wrote before, so the ledger admits a newer
+        // translation, but this one has a marker the fragment's English does not have.
+        SetupAllPassingDefaults();
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileData(TextFileId, "Stara wersja")));
+        _translationLedger.Read(Arg.Any<string>()).Returns(new Dictionary<LedgerKey, string>
+        {
+            [new LedgerKey(TextFileId, 1)] = SourceDigest.ForExportForm("Stara wersja", 0)
+        });
+        SetupTranslations(CreateTranslation(gossipId: 1, content: $"Nowa{DatFileConstants.PieceSeparator}wersja"));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.AppliedTranslations.ShouldBe(0);
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        result.Value.Warnings.ShouldContain(warning =>
+            warning.StartsWith($"Fragment 1 in file {TextFileId} has 2 text pieces"));
+    }
+
+    [Fact]
+    public void ApplyTranslations_MismatchedRowWhoseEnglishMoved_ShouldReportItAsSourceMovedOnly()
+    {
+        // Arrange: when the English changed, its argument count may have changed too, so the piece
+        // count says nothing about the row. "Source moved" is the reason a translator can act on.
+        SetupAllPassingDefaults();
+        SetupTranslations(CreateTranslation(
+            content: PolishWithPieces(2),
+            sourceDigest: SourceDigest.ForExportForm("Some other English", 0)));
+
+        // Act
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+
+        // Assert
+        result.Value.SkippedTranslations.ShouldBe(1);
+        result.Value.SourceMovedTranslations.ShouldBe(1);
+        result.Value.Warnings.ShouldNotContain(warning => warning.Contains("text pieces"));
     }
 
     [Fact]
@@ -1230,6 +1417,20 @@ public sealed class PatchingServiceTests
             .Returns(Result.Success(new TranslationParseResult(translations, warnings, warnings.Count)));
     }
 
+    /// <summary>
+    /// Makes the fixture subfile hold one fragment with <paramref name="argumentCount"/> arguments and
+    /// one piece more, and returns the digest of that English, so a row made for it passes clause (a).
+    /// </summary>
+    private string SetupFragmentWithArguments(int argumentCount)
+    {
+        string[] pieces = [.. Enumerable.Range(1, argumentCount + 1).Select(index => $"Part{index}")];
+        byte[][] argRefs = [.. Enumerable.Range(1, argumentCount).Select(index => new byte[] { (byte)index, 0x00, 0x00, 0x00 })];
+        _datFileHandler.GetSubfileData(DatHandle, TextFileId, 100)
+            .Returns(Result.Success(TestDataFactory.CreateTextSubFileDataWithArgs(TextFileId, FragmentId1, pieces, argRefs)));
+
+        return SourceDigest.ForExportForm(string.Join(DatFileConstants.PieceSeparator, pieces), argumentCount);
+    }
+
     private static Translation CreateTranslation(
         int fileId = TextFileId,
         ulong gossipId = FragmentId1,
@@ -1257,4 +1458,9 @@ public sealed class PatchingServiceTests
             Content = "Przetlumaczony tekst",
             IsApproved = true
         };
+
+    private static string PolishWithPieces(int pieceCount) =>
+        string.Join(
+            DatFileConstants.PieceSeparator,
+            Enumerable.Range(1, pieceCount).Select(index => $"Czesc{index}"));
 }

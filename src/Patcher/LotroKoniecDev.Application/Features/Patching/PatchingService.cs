@@ -268,6 +268,19 @@ internal sealed class PatchingService : IPatchingService
                         continue;
                     }
 
+                    // After the source guard: when the English moved, its argument count may have moved
+                    // with it, and "source moved" is then the real reason.
+                    if (!fragment.FitsPieceCount(pieces.Length))
+                    {
+                        warnings.Add(
+                            $"Fragment {translation.GossipId} in file {translation.FileId} has {pieces.Length} text "
+                            + $"pieces, but the fragment has {fragment.ArgRefs.Count} argument(s) and needs "
+                            + $"{fragment.ArgRefs.Count + 1}: the {DatFileConstants.PieceSeparator} markers in the "
+                            + "translation do not match the English, so it was not written");
+                        skippedCount++;
+                        continue;
+                    }
+
                     fragment.Pieces = [.. pieces];
                     currentSubFileModified = true;
                     pendingLedgerEntries[ledgerKey] = writtenDigest;

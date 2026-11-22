@@ -1,7 +1,6 @@
-# ONE delivery channel across both projects (#713, and koniecdev/TheKittySaver#511 explicitly
-# reuses it rather than building a second). E-mail over the Brevo relay the apps already send
-# through — a sender Brevo has not authenticated is dropped SILENTLY, so the from-address must stay
-# a verified one.
+# ONE delivery channel across both projects (#713). E-mail over the Brevo relay the apps already
+# send through. The from-address must be on a domain authenticated in Brevo; any other may be
+# refused or dropped with no error here (docs/deployment/runbook.md → "E-mail deliverability").
 apiVersion: 1
 
 contactPoints:

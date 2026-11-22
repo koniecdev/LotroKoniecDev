@@ -340,8 +340,9 @@ services:
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GF_NEWS_NEWS_FEED_ENABLED: "false"
-      # Alert delivery. Reuses the Brevo sender the apps already use — an unauthenticated sender is
-      # silently DROPPED by Brevo, so this must stay a verified address (runbook, Brevo gotcha).
+      # Alert delivery. Reuses the Brevo sender the apps already use. The from-address must be on a
+      # domain authenticated in Brevo; any other may be refused or dropped with no error here
+      # (runbook → "E-mail deliverability").
       GF_SMTP_ENABLED: ${GF_SMTP_ENABLED:-true}
       GF_SMTP_HOST: ${GF_SMTP_HOST:-smtp-relay.brevo.com:587}
       GF_SMTP_USER: ${GF_SMTP_USER:?GF_SMTP_USER must be set; placeholder on an agent-only box}

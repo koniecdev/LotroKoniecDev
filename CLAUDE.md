@@ -902,8 +902,9 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
   ready ones (`next-ticket.sh`).
 - Each ticket runs in a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket
   <n>"`) inside its **own worktree** `.claude/worktrees/ticket-<n>` cut from `origin/main`, up to
-  three at once, with no time limit, no ceiling and no stuck-session watchdog on a ticket's run
-  (owner decision 2026-11-22, #1503: a finding that asks for one is already decided). The session
+  three at once. The loop adds no limit the maintainer did not ask for: no time limit, ceiling or
+  stuck-session watchdog on a run, and no cut on the BLOCKED comment (owner decisions 2026-11-22,
+  #1503, #1507). A finding or a plan that adds one is already decided. The session
   does the whole slice (claim check, spec weight, branch, implement, commit, tests, review gate,
   push → PR), ends with a `STATUS: DONE|BLOCKED` block and dies. No LLM context outlives a ticket;
   an orchestrator *session* that collects every ticket's returns is a retired anti-pattern.

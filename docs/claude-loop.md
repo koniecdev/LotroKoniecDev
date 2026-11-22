@@ -53,12 +53,19 @@ the engine version of the copy. A one-run environment variable can override some
 | `gh_user` | `koniecdev` | The machine's active `gh` account may be one that cannot write here. |
 | `claude_config_dir` | `.claude-account1` | The Claude account the sessions run on. |
 
-## No ticket clock (#1503)
+## No invented limits (#1503, #1507)
 
-The loop has no time limit, no ceiling and no stuck-session watchdog on a ticket's run (owner
-decision 2026-11-22). A review finding that asks for one is already decided.
+The loop adds no limit the maintainer did not ask for (owner decisions 2026-11-22). A review finding
+or a plan that adds one is already decided. When a limit of our own causes trouble, it goes; nobody
+works around it with a budget.
 
-Why: a clock measures how long a ticket takes, not whether it is stuck. Every ticket the old clock
+- **No ticket clock.** No time limit, no ceiling and no stuck-session watchdog on a ticket's run.
+- **No cut on the BLOCKED comment.** The worker's whole final message goes on the issue: the old
+  4,000-character cut ended #1377's questions mid-sentence, and it made #1507 choose between asking
+  every question and fitting the cut. If GitHub refuses the comment, the issue gets a short note
+  instead, and the questions stay in the run's `ticket-<n>.json` (`scripts/claude/LOOP.md`).
+
+Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every ticket the old clock
 stopped (240 minutes, then 360 for one day) was still working. #1494 and #1376 ended before their
 PR, with the work unpushed on a local branch, no PR, no note on the ticket, and a session that
 cannot be resumed. #687 and #905 already had PRs open and were waiting for CodeQL. #1488 and #695

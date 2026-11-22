@@ -269,7 +269,9 @@ Per-ticket outcomes:
   session ran (`CATEGORY: pr-closed`), or when it could not tell that a push is safe
   (`CATEGORY: pr-state-unknown`): GitHub could not give the PR's state before a push, or, where
   the repository's prompt says so, the local and the remote branch moved apart. The ticket gets
-  the `loop-blocked` label and the exact questions as an issue comment. Triage: `gh issue list --label loop-blocked` → answer in a comment
+  the `loop-blocked` label and the exact questions as an issue comment, whole. If GitHub refuses
+  that comment, the issue gets a short note instead, and the questions are in
+  `logs/claude-loop/<run>/ticket-<n>.json` (`jq -r .result`); the worker's line says so. Triage: `gh issue list --label loop-blocked` → answer in a comment
   → remove the label → the loop can pick it up again.
 - **failed**: a session error. Leftovers are committed on a
   `loop-salvage/<n>-<timestamp>` branch (never stashed). Two failures in a row stop new starts

@@ -30,8 +30,9 @@ everything that matters must be committed and pushed.
   1's challenge says needs the maintainer is not such a question: an ADR that chose otherwise does not answer it
   (`design-choice`).
 - A question that is a **genuine business decision** (boundary behavior, UX wording, scope cut,
-  contract shape not derivable from anything) — **STOP and return `STATUS: BLOCKED`** with the 3-5
-  questions. A wrong guess costs the owner a review round and a rework; a paused ticket costs
+  contract shape not derivable from anything) — **STOP and return `STATUS: BLOCKED`** with every
+  open question (in step 1: the triage's questions and one item per owner choice its challenge
+  raised). A wrong guess costs the owner a review round and a rework; a paused ticket costs
   nothing. "The owner decides" in a ticket, unless a later owner comment answers it, is such a
   question: never pick the strictest option as "the ticket's default" (PR #1063).
 
@@ -70,36 +71,44 @@ everything that matters must be committed and pushed.
      resource server's check of a token it receives; input from outside our trust boundary. A
      BOUNCE because the ticket asks for a hand edit inside `scripts/claude/` is `mis-scope`
      instead ("Scope & safety").
-   - **CLARIFY** (a business question, a conflict with an owner's ruling on the same flow, or "the
-     owner decides" with no answer yet) → `STATUS: BLOCKED` (category: business-questions, or
-     design-choice for a design question in the shape below, or dependency for an open dependency
-     that blocks the ticket) with its questions and their recommended answers.
+   - **CLARIFY on an open dependency** that blocks the ticket → `STATUS: BLOCKED` (category:
+     dependency) with its questions and their recommended answers, and no challenge: a plan
+     written before the dependency lands goes stale.
+   - **Any other CLARIFY** (a business question, a conflict with an owner's ruling on the same
+     flow, or "the owner decides" with no answer yet) → its plan gets one run of the challenge
+     first ("After a CLARIFY" below), then `STATUS: BLOCKED` (category: business-questions, or
+     design-choice for a design question in the shape below) with its questions and their
+     recommended answers.
    - **READY** → challenge the plan.
 
-   A revision's verdict (below) is acted on in the same way: its BOUNCE and CLARIFY end the run
-   with these blocks, and only its READY goes on.
+   A revision's verdict (below) is acted on in the same way, except that its CLARIFY gets no
+   further challenge: its BOUNCE and CLARIFY end the run with these blocks, and only its READY
+   goes on.
 
    **Challenge the plan before the branch — every ticket.** Apply `/ticket` step 2 → "Challenge the
    plan" as written: the same brief (the triage's report with its claims, assumptions and ADRs, and
    `/buddy`'s design challenge), the same `/buddy` run or fallback agent, and the same bar for claims
-   written into docs, tickets or UI copy. No ticket skips it: this run asks nobody, so it is the only
-   moment anything questions the plan. Run it in the FOREGROUND and never pass `name`: a named agent
-   never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own last steps
-   (message an idle buddy, report to the user) do not apply here: go straight on. Where a bullet
-   below asks for a revision, it is a fresh `ticket-triage` (`/ticket` step 2). Then:
+   written into docs, tickets or UI copy. No ticket that reaches it skips it: this run asks
+   nobody, so it is the only moment anything questions the plan. Run it in the FOREGROUND and
+   never pass `name`: a named agent never hands its report back, and the turn ends with no `STATUS`
+   block. `/buddy`'s own last steps (message an idle buddy, report to the user) do not apply here:
+   go straight on. Where a bullet below asks for a revision, it is a fresh `ticket-triage`
+   (`/ticket` step 2). Then, after a READY (a CLARIFY takes "After a CLARIFY" below instead, and
+   none of these bullets):
    - NOT SOUND on the premise → `STATUS: BLOCKED` (category: false-premise). NOT SOUND on the plan
      only → a revision fixes the plan from its defects, and the challenge runs once more (the last
      run); NOT SOUND
      again → `BLOCKED` (design-choice), the defects under `QUESTIONS` in the shape below (ending with
      the `**Owner decision:**` ask).
    - No report from `/buddy`, even after its one respawn (`/buddy` §3) → `STATUS: BLOCKED`
-     (category: review-unclean): the plan challenge did not run, and no ticket skips it.
+     (category: review-unclean): the plan challenge did not run, and no ticket skips it. After a
+     CLARIFY the questions still go out instead (below).
    - `BETTER DESIGN` with `NEEDS OWNER: yes` (it changes an ADR, a contract, a domain rule or
      the scope) → `STATUS: BLOCKED` (category: design-choice). Put the choice under `QUESTIONS`, in
-     plain English and under 1,500 characters: the problem, the ticket's plan, the better design,
+     plain English: the problem, the ticket's plan, the better design,
      what it would change, and your recommendation, and end with "Answer in a comment that starts with
      `**Owner decision:**`." The final message stays exactly the block, and
-     the loop posts it on the issue (cut at 4,000 characters), so post no comment of your own. Never
+     the loop posts all of it on the issue, so post no comment of your own. Never
      build the ticket's design by default because an ADR chose it: an ADR that never weighed the
      better option is a gap, not a ruling (#1306).
    - An earlier answer from the maintainer settles it: a comment by the repo owner's login whose first
@@ -112,6 +121,34 @@ everything that matters must be committed and pushed.
      A revision that adds a claim or a design that `/buddy` has not seen gets one more `/buddy`
      run, the last. `/buddy` runs at most twice on a plan; the second run's Corrections are folded
      in with no further run (`/ticket` step 2).
+
+   **After a CLARIFY**, the challenge runs once before the run ends, so the owner gets every
+   question in one round, not a second block after the first answer (#1507). The brief is the one
+   above, plus one line: "the plan assumes the triage's recommended answers; say which answer you
+   would give otherwise and what it changes". The same foreground run, fallback and one respawn, but
+   no revision and no second run: the next run plans again with the owner's answers. Then:
+   - Check its top-ranked owner choice at its `file:line` (`/buddy` §4). If it does not hold, drop
+     that one and keep the rest.
+   - Every owner choice it raises is its own item under `QUESTIONS`, in the shape above but without
+     its closing ask line, which comes once, at the end of the block (below): a
+     `BETTER DESIGN` with `NEEDS OWNER: yes`, each other owner call its report names, and a NOT
+     SOUND on the premise or on the plan, whatever its `NEEDS OWNER` says. A NOT SOUND item lists
+     the defects. On the plan, it asks the owner to choose between the plan as written and the
+     plan with them fixed as `/buddy` proposes; on the premise, whether the ticket stands as
+     written. Each item says that it assumes the recommended answers, and that the next run plans
+     again if the owner answers otherwise.
+   - Order under `QUESTIONS`: a premise item first, then the triage's questions, then the other
+     items from the challenge.
+   - Where `/buddy` disagrees with a recommended answer, its view goes into that question, not into
+     a new item. An item that an `Owner decision` comment already answers is left out.
+   - Corrections, SOUND, and `BETTER DESIGN` with `NEEDS OWNER: no` add nothing: the next run's
+     triage and challenge work on the plan again.
+   - No report, even after the respawn → the triage's questions, plus the line "The plan challenge
+     did not run." The category stays the triage's: the questions are this run's result.
+   - Category: `design-choice` when the block holds an item from the challenge, otherwise the
+     triage's. The "Answer in a comment that starts with `**Owner decision:**`." line then comes
+     once, at the end of the block.
+   - Nothing comes before `STATUS:`: the loop posts the whole final message.
 2. **Ground it in the repo.** Read the areas the ticket touches; identify the nearest sibling
    slice in this repo to mirror (no fitting sibling → "Anatomy of a feature slice" in `CLAUDE.md`).
    DAT/update work → `docs/knowledge-base/` FIRST (vnum, translation survival, launch flow are
@@ -177,7 +214,7 @@ everything that matters must be committed and pushed.
    after you started moves to a new ticket). Check the report's assumptions as `/ticket` step 8
    says. A false one that decided the design, or a reviewer's Major for one, whose fix needs the
    maintainer → push the branch (the work is green; only its design waits), then `STATUS: BLOCKED`
-   (category: design-choice) with the choice under `QUESTIONS` in step 1's shape (no comment of your own, under 1,500 characters,
+   (category: design-choice) with the choice under `QUESTIONS` in step 1's shape (no comment of your own,
    ending with "Answer in a comment that starts with `**Owner decision:**`."), instead of a redesign inside the review rounds. If another Major is
    still open in the same round, the block is `review-unclean` instead (push nothing), with the
    design question in its `QUESTIONS` too, in step 1's shape.
@@ -291,5 +328,8 @@ LESSONS: <one line, or "none">
 STATUS: BLOCKED
 CATEGORY: business-questions | dependency | mis-scope | false-premise | design-choice | red-build | review-unclean | pr-closed | pr-state-unknown
 QUESTIONS:
-- <the exact 3-5 questions or the specific blocker the user must resolve>
+- <every open question (in step 1: the triage's and one per owner choice its challenge raised), or the specific blocker the user must resolve>
 ```
+
+The loop posts a `BLOCKED` block on the issue whole, and this repo is public: write the questions
+in plain words, with no log dumps, no local paths and no raw tool errors.

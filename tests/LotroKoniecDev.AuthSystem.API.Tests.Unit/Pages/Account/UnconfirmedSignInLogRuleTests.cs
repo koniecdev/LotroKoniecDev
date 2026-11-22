@@ -54,6 +54,35 @@ public sealed class UnconfirmedSignInLogRuleTests
     }
 
     /// <summary>
+    /// The runbook's "resolved about an hour after the last attempt" rests on this window.
+    /// </summary>
+    [Fact]
+    public async Task RuleFile_ShouldCountTheAttemptsOfTheLastHour()
+    {
+        // Act
+        string rule = RuleBlockOf(await ReadRuleFileAsync());
+
+        // Assert
+        rule.ShouldContain("[1h]))");
+        rule.ShouldContain("relativeTimeRange: { from: 3600, to: 0 }");
+    }
+
+    /// <summary>
+    /// A query Loki refuses (more than 500 accounts in an hour) must arrive as an error mail, never
+    /// as silence.
+    /// </summary>
+    [Fact]
+    public async Task RuleFile_ShouldStayQuietWithNoLinesAndMailOnAQueryError()
+    {
+        // Act
+        string rule = RuleBlockOf(await ReadRuleFileAsync());
+
+        // Assert
+        rule.ShouldContain("noDataState: OK");
+        rule.ShouldContain("execErrState: Error");
+    }
+
+    /// <summary>
     /// The runbook promises the first mail in about 90 seconds, which holds only in the one-minute group.
     /// </summary>
     [Fact]
@@ -64,7 +93,7 @@ public sealed class UnconfirmedSignInLogRuleTests
 
         // Assert
         groupHeader.Split('\n')[0].TrimEnd('\r').ShouldBe($"{GroupNameKey}lotrokoniecdev");
-        groupHeader.ShouldContain("interval: 1m");
+        groupHeader.Split('\n').Select(line => line.Trim()).ShouldContain("interval: 1m");
     }
 
     [Fact]

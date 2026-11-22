@@ -2916,7 +2916,12 @@ two mails each time, and several accounts together send up to about one mail per
 environment, so up to about 288 a day each for prod and staging. Those mails go to the same inbox as
 every other alert and through the same Brevo account as account mail. To stop a flood, add a silence
 in Grafana (**Alerting → Silences**) with the matcher `__alert_rule_uid__=lotro-unconfirmed-sign-in`.
-It also hides real cases while it lasts, so give it an end time.
+It also hides real cases while it lasts, so give it an end time. Past 500 accounts in one hour the
+rule's query asks Loki for more series than it allows (Loki's default limit; `loki.yaml` sets none),
+so the rule stops working for prod and staging together, because one query covers both. You then get
+one `DatasourceError` mail that names this rule, with Loki's error and "[no value]" in the summary,
+and a "resolved" mail soon after for the accounts that were alerting, real ones too. No account is
+named again until the last hour holds 500 or fewer. The same silence covers the error mail.
 
 **What the two swap rules measure (#1084).** How full swap is says little on its own. Linux moves
 memory that nothing has used for a while into swap and leaves it there until something reads it

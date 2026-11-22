@@ -29,8 +29,8 @@ Reviewer works without hitting the limits meant for fresh accounts.
 - A refresh or code exchange whose roles no longer match the account is refused, so a missed revoke
   cannot leave the person signed in.
 - An admin page on the website, "Konta i role", reached through the auth discovery document.
-- The TMS per-minute limit counts a Reviewer or the admin per account at 300; the daily save budget
-  skips a Reviewer as it skips the admin.
+- The TMS per-minute limit counts a Reviewer per account at 300 and sets no limit for the admin; the
+  daily save budget skips a Reviewer as it skips the admin.
 
 ## Out of scope
 
@@ -40,7 +40,7 @@ Reviewer works without hitting the limits meant for fresh accounts.
 - A change to the auth server's own limits or to the translation-file download limit.
 - Fewer requests per translated row (a follow-up idea, see Follow-ups in the PR).
 
-## Owner decisions (from the ticket, 2026-11-21, and #1368)
+## Owner decisions (from the ticket, 2026-11-21, #1368, and the ticket comment of 2026-11-22)
 
 - Plain accounts keep 100 requests a minute per address and the daily save budget.
 - The trusted room comes through the role the wiki and #1368 already name: Recenzent.
@@ -48,10 +48,13 @@ Reviewer works without hitting the limits meant for fresh accounts.
 - A Reviewer has no daily save budget, like the admin (decision of 2026-11-16 on #1368).
 - Only the admin gives or takes the role; after a change the person is signed out and signs in again
   with the new role. A new registration still gets only `Translator`.
+- The admin has no per-minute limit on the TMS API, so the owner can run scripted work through the
+  admin account (2026-11-22).
+- The rules below started as the session's own calls; the owner confirmed them on 2026-11-22.
+- The #1478 rule for query options also covers the sign-in server's API, in #1504 after this spec;
+  the account list keeps `[FromQuery] int page` until then.
 
 ## Business rules & edge cases
-
-Owner rules are above. These are the session's own calls, written down so the owner can overrule them:
 
 - **Who may get the role:** an account that holds `Translator`, does not hold `Admin`, is not a
   Reviewer yet and has no deletion scheduled. Otherwise the grant answers 422
@@ -63,8 +66,11 @@ Owner rules are above. These are the session's own calls, written down so the ow
 - **Both actions are safe to repeat.** The website retries a write that timed out. A grant on an
   account that already is a Reviewer, or a removal on one that is not, answers 204 and changes,
   revokes and logs nothing.
-- **The admin also gets 300 a minute per account,** because the admin can do all a reviewer can
-  (spec 0014; the ticket's task list).
+- **Overlapping calls are safe too.** When a retry runs while the first call is still saving, the
+  second write fails. A fresh read of the roles then decides: the target state is there, so the
+  answer is 204, the winner already ended the sessions, and an Information line says so (event 2793).
+  With the target state missing, an Identity refusal answers 500 `Auth.ReviewerRoleChangeFailed` and
+  logs an Error (event 2792), and a database error goes on to the global error handler (500).
 - **100 and 300 stay constants in the code,** like the 100 before. Changing one needs a release.
 - **No security stamp change on a role change.** A new stamp would break links already mailed to the
   account (cancel deletion, e-mail change undo) and end the sign-in server's cookie. Instead the token
@@ -84,8 +90,9 @@ Owner rules are above. These are the session's own calls, written down so the ow
 - **Where the page is:** linked from "Moje konto" only when the auth root offers the `accounts` rel,
   which it does for the admin alone. No menu link.
 - **Logs:** each real change writes an Information line naming the admin and the account (events
-  2790/2791); a refused refresh after a role change writes an Information line (event 2398). Both are
-  the normal result of an admin's action (#977).
+  2790/2791); a refused refresh after a role change writes an Information line (event 2398), and so
+  does a call that lost to an overlapping one (event 2793). All are the normal result of an admin's
+  action (#977).
 
 ## Contract
 
@@ -94,16 +101,19 @@ Owner rules are above. These are the session's own calls, written down so the ow
     with `AccountSummaryResponse { userId, username, email, roles, deletionScheduledAt }`; links
     `self`, `previous-page`, `next-page`, and per account `grant-reviewer` (PUT) or `remove-reviewer`
     (DELETE). A page below 1 → 400 `Auth.AccountListPageInvalid`.
-  - `PUT auth/admin/accounts/{accountId}/reviewer` → 204; 422 `Auth.ReviewerRoleNotAllowed`; 404
+  - `PUT auth/admin/accounts/{accountId}/reviewer` → 204; 422 `Auth.ReviewerRoleNotAllowed`; 500
+    `Auth.ReviewerRoleChangeFailed`; 404
     `Auth.UserNotFound`.
-  - `DELETE auth/admin/accounts/{accountId}/reviewer` → 204; 404 `Auth.UserNotFound`.
+  - `DELETE auth/admin/accounts/{accountId}/reviewer` → 204; 500 `Auth.ReviewerRoleChangeFailed`; 404
+    `Auth.UserNotFound`.
   - Discovery: rel `accounts` for the admin only (the link factory replays the policy).
   - Non-admin token → 403; no token → 401.
 - **Token endpoint:** code exchange and refresh refuse with `invalid_grant` when the token's `role`
   claims and the account's roles differ as sets.
-- **TMS API:** the limiter runs between authentication and authorization; `fixed-by-ip` keys a checked
-  token with `Reviewer` or `Admin` and a GUID `sub` as `account:{sub}` with 300 permits, every other
-  caller as before with 100. `UpsertTranslation` spends the save budget only when
+- **TMS API:** the limiter runs between authentication and authorization; `fixed-by-ip` gives a
+  checked token with `Admin` and a GUID `sub` a partition with no limiter, keys one with `Reviewer`
+  and a GUID `sub` as `account:{sub}` with 300 permits, and keys every other caller as before with
+  100. `UpsertTranslation` spends the save budget only when
   `ICurrentUserAccessor.HasDailySaveBudget()` is true (neither `Admin` nor `Reviewer`).
 - **Website:** `/admin/accounts`, Static SSR, Polish labels, one form per row that follows the row's
   link with PUT or DELETE. A successful change redirects to the same page with `changed=granted` or
@@ -118,16 +128,16 @@ Owner rules are above. These are the session's own calls, written down so the ow
   with the old roles is refused even when the revoke did not run. Signing in again issues the new
   roles.
 - [x] A new registration still gets only `Translator`.
-- [x] A Reviewer (and the admin) can make 300 TMS requests a minute, counted per account; two
-  Reviewers behind one address get 300 each; a plain translator is still stopped after 100.
+- [x] A Reviewer can make 300 TMS requests a minute, counted per account; two Reviewers behind one
+  address get 300 each; the admin is never stopped by it; a plain translator is still stopped after
+  100.
 - [x] A Reviewer is never refused by the daily save budget; a plain translator still is.
 - [x] A Reviewer still cannot approve: 403 on approve and bulk approve, and no `approve` or
   `bulk-approve` link on a translation, the list or the discovery document.
 
 ## Open questions
 
-- None. The business rules were ruled by the owner in the ticket; the rest are the session's calls
-  above.
+- None. The owner ruled the business rules in the ticket and in its comment of 2026-11-22.
 
 ## Assumptions
 

@@ -195,7 +195,6 @@ salvages it and removes the worktree: that ticket does not run again until someo
 | `LOOP_MAX_BUDGET_USD` | (none) | per-ticket API budget cap, off on purpose. The cap counts the whole session and stops it wherever it is, maybe just before the PR, and a resume cannot help. A nearly finished ticket thrown away costs more than the cap saves |
 | `LOOP_PARALLEL` | `3` | tickets at once (same as `-j`) |
 | `LOOP_ALLOW_LOCAL_SCRIPTS` | `0` | `1` = run even when `scripts/claude/`, the stamp or the settings here differ from `origin/main` (only to try a change to the settings before its PR) |
-| `LOOP_TICKET_TIMEOUT_MIN` | `240` | wall-clock kill switch per run of `work-ticket.sh`, its resumes included; the run that resumes after a usage limit starts a new clock. Leftovers go to a `loop-salvage/…` branch. It only guards against a stuck session: a normal ticket takes 50 to 80 minutes, and a killed session is never resumed, so its ticket starts again from zero. A whole number above zero without a leading zero; anything else is refused before the session starts |
 | `LOOP_MAX_RESUMES` | `2` | how many times a session that ended normally without a `STATUS:` line is resumed before the ticket counts as `error`; `0` turns that resume off. The resume of a DONE with no open PR and the resume after a usage limit do not count here |
 | `BASH_MAX_TIMEOUT_MS` | `3600000` | the longest Bash timeout the worker may ask for (one hour), so the whole test suite fits in one foreground call |
 | `BASH_DEFAULT_TIMEOUT_MS` | `600000` | the timeout of a worker Bash call that names none (ten minutes, not the CLI's two), because a call that runs out is stopped, not moved to the background |
@@ -267,11 +266,12 @@ Per-ticket outcomes:
   leaves the pushed branch). Answer a design choice in a comment that starts with
   `**Owner decision:**`.
   It also stops here, pushing nothing more, when you closed its PR without a merge while the
-  session ran (`CATEGORY: pr-closed`), or when GitHub could not give the PR's state before a push
-  (`CATEGORY: pr-state-unknown`). The ticket gets the `loop-blocked` label and the exact
-  questions as an issue comment. Triage: `gh issue list --label loop-blocked` → answer in a comment
+  session ran (`CATEGORY: pr-closed`), or when it could not tell that a push is safe
+  (`CATEGORY: pr-state-unknown`): GitHub could not give the PR's state before a push, or, where
+  the repository's prompt says so, the local and the remote branch moved apart. The ticket gets
+  the `loop-blocked` label and the exact questions as an issue comment. Triage: `gh issue list --label loop-blocked` → answer in a comment
   → remove the label → the loop can pick it up again.
-- **failed / timeout**: a session error or the kill switch. Leftovers are committed on a
+- **failed**: a session error. Leftovers are committed on a
   `loop-salvage/<n>-<timestamp>` branch (never stashed). Two failures in a row stop new starts
   (something systemic); the running tickets finish first. A session that ended without a `STATUS:`
   line is resumed first, and fails only after the cap (next section).
@@ -284,7 +284,7 @@ Per-ticket outcomes:
   gets 20 seconds to end the builds and tests it started (claude does that itself on TERM); then
   the loop ends whatever is left. Leftovers are salvaged and the worktree is removed, so the next
   run can start the ticket again. A worker that has already seen its session end (it looks every
-  30 seconds), or is already ending one because the clock ran out, finishes on its own and keeps
+  30 seconds) finishes on its own and keeps
   its real outcome (a PR, BLOCKED, a worktree kept after a usage limit); the stop only cancels a
   resume that has not started. A stopped conductor prints no table, so `/backlog` builds the
   roll-up from the `.meta` files.
@@ -374,8 +374,7 @@ things prevent that:
   <session_id>` with the one-line prompt `loop-resume reason=no-status …` (`CONTRACT.md`,
   section 3), and the repository's `/work-ticket` prompt says what the session does then: run what
   it waited for in the foreground, finish and end with the STATUS block. The resume uses the same
-  flags and worktree and what is left of the ticket's clock. It starts only when at least ten
-  minutes are left, and the prompt says how many. After `LOOP_MAX_RESUMES` resumes the
+  flags and worktree. After `LOOP_MAX_RESUMES` resumes the
   ticket is an `error`. A usage limit during a resume is still a usage limit (exit 6). `.meta`
   gets a `resumes=` line as each resume starts (the last line wins, as for every key), and the
   table marks the ticket `resumed Nx`. The provenance gate runs again before each resume, and a
@@ -385,8 +384,8 @@ A resume writes its result to `ticket-<n>.json.resume-<k>` and replaces `ticket-
 it ends; the result it replaces moves to `ticket-<n>.json.before-resume-<k>`. Neither name matches
 the conductor's `ticket-*.json`, which matters for the cost total: a resumed run reports the cost of
 the whole session. `--max-budget-usd` also counts the whole session, so `LOOP_MAX_BUDGET_USD` stays
-a cap per ticket. A resume killed by the clock or by you leaves the last finished result in
-`ticket-<n>.json`; only the killed run's own spend is missing. A retry that starts over clears these
+a cap per ticket. A resume you stop leaves the last finished result in `ticket-<n>.json`; only
+the stopped run's own spend is missing. A retry that starts over clears these
 files first in the same run folder.
 
 ### A session stopped by a usage limit, or DONE without a PR
@@ -405,8 +404,8 @@ on a local branch. So:
   <session_id>` with the same flags and the prompt `loop-resume reason=limit …`; the repository's
   `/work-ticket` prompt says that time has passed (check `git status` and the PR's state) and that a
   command the limit cut off runs again. The session must have started under the engine's contract
-  (its marker's `contract=`). The provenance gate runs first. The run gets a new ticket clock, and the no-STATUS resume works
-  in it as in any other run. After the nap the conductor runs the ticket again and the worker finds
+  (its marker's `contract=`). The provenance gate runs first, and the no-STATUS resume works in it
+  as in any other run. After the nap the conductor runs the ticket again and the worker finds
   the kept worktree; so does a later run where you name the ticket, and the picker offers such a
   ticket in drain mode too.
 - **A kept worktree is resumed only when that is still safe.** The worker claims the marker with
@@ -427,7 +426,7 @@ on a local branch. So:
   - When GitHub cannot list the PRs, or the kept files cannot be read, the run is an `error` and
     the marker stays for the next run. When the provenance gate refuses the ticket before the
     resume, the kept work is salvaged and the worktree removed.
-- **A stop or a timeout during the resumed session** ends it like any other run: salvage, remove
+- **A stop during the resumed session** ends it like any other run: salvage, remove
   the worktree, and the next run starts fresh.
 - **Without a session id, a limit still starts over:** the worktree is salvaged and removed (also
   with `LOOP_KEEP_WORKTREE=1`, or the retry would skip the ticket), and the retry cuts a new one
@@ -469,7 +468,7 @@ on a local branch. So:
   merge, and it names a linked PR by number only, because a branch name is text anyone can choose. The result is judged again: `pr-opened`,
   `merged`, `blocked` or, with still no PR, `error`. The resume needs a real "no PR" from GitHub;
   when the PRs cannot be listed, the ticket is an `error` without it. It has the same guards as the
-  no-STATUS resume (a session id, ten minutes on the clock, the provenance gate) but does not count
+  no-STATUS resume (a session id, the provenance gate) but does not count
   toward `LOOP_MAX_RESUMES`.
 
 Files: the resumed run keeps the limited attempt's results. `ticket-<n>.json` is replaced by the
@@ -477,8 +476,8 @@ resume's result when it ends (the old one moves to `.before-resume-1`). The atte
 `.before-resume-*`, `.resume-*` and `.stderr` files get a `.limit-<time>` suffix; the stderr moves
 because its limit message would make a later crash look like a usage limit. `.meta` keys:
 
-- `session=` whenever the run ends on its own and its result names the session (a timeout or a stop
-  leaves it only in `ticket-<n>.json`);
+- `session=` whenever the run ends on its own and its result names the session (a stop leaves it
+  only in `ticket-<n>.json`);
 - `worktree=kept` on a limit that kept one;
 - `started=` (when the session first started, seconds since 1970) and `branch=` (empty when it had
   none) on every limit;
@@ -534,6 +533,15 @@ before the limit.
 
 ## Troubleshooting
 
+- **A ticket runs for hours.** The loop never stops a session for time: a large ticket with several
+  review rounds may take five hours or more, and a clock would throw that work away just before
+  the PR. To see whether the session still works, look at the newest commit on its branch or at
+  its transcript under the loop's config dir. A stuck worker holds up more than its slot: the nap
+  after a usage limit, a stop request, the table and the end of the run all wait for it. To end
+  one, `kill <pid>` its worker (`ps` shows `work-ticket.sh <n>`): the worker salvages the work and
+  removes the worktree. The conductor counts the stopped ticket as failed, so with the ticket
+  before it also failed, it starts nothing new (`LOOP_MAX_CONSECUTIVE_FAILURES`) and lets the
+  running tickets finish.
 - **"another loop is running (pid N)"**: a live conductor owns the lock; `ps -p N` shows it. A stale
   lock is reclaimed by itself, so this means a real second loop.
 - **Ticket ended `error` with no STATUS block**: the session was already resumed
@@ -573,7 +581,7 @@ before the limit.
 - **"start-loop: workers from … are still running"**: a worker still runs from the loop checkout,
   so the launcher does not move it, and it lists each one with its process number. After a normal
   stop they only salvage and end within seconds. If they go on, their conductor was SIGKILLed and
-  they still work their tickets (up to `LOOP_TICKET_TIMEOUT_MIN`): wait, or stop each one with a
+  they still work their tickets: wait, or stop each one with a
   plain `kill <pid>`, which lets it salvage first.
 - **"start-loop: name the tickets, or -n N with N above zero"**: the arguments named no ticket and
   no count. To work the whole backlog on purpose, give `-n` a large enough number.

@@ -21,8 +21,7 @@ This page holds only what this repository decides for itself.
 1. In an ordinary session, pick the tickets, for example every open `type-bug` + `area-auth`
    ticket that touches different files. `/preflight` helps.
 2. Start the loop **in a plain terminal**, never from a Claude Code session (#969):
-   `LOOP_TICKET_TIMEOUT_MIN=360 scripts/claude/start-loop.sh 812 830 842`, by its full path from
-   another folder ("A longer ticket clock" below says why).
+   `scripts/claude/start-loop.sh 812 830 842`, by its full path from another folder.
    `/backlog 812 830 842` prints that line for you. To let the running tickets finish and start
    nothing new, `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout (#1050).
 3. Read each PR. When you are happy with one, **assign yourself**: that is the approval, because
@@ -54,27 +53,25 @@ the engine version of the copy. A one-run environment variable can override some
 | `gh_user` | `koniecdev` | The machine's active `gh` account may be one that cannot write here. |
 | `claude_config_dir` | `.claude-account1` | The Claude account the sessions run on. |
 
-## A longer ticket clock: 360 minutes (#1501)
+## No ticket clock (#1503)
 
-The engine stops a ticket's run after `LOOP_TICKET_TIMEOUT_MIN` minutes (default 240, `LOOP.md` →
-"Knobs"). A ticket stopped late has spent most of its cost and opens no PR, so its work is paid for
-twice. Since the code review runs on Fable (#1318), a review round takes 15 to 30 minutes and the
-gates about 10 more after each fix, so a ticket that opens a PR takes 1.5 to 3.5 hours on Linux. So
-`/backlog` prints the launcher with `LOOP_TICKET_TIMEOUT_MIN=360`. It is an environment variable of
-the engine, not a key of `scripts/claude-loop.conf`: when you start the loop by hand, put it in
-front of the command yourself. A run started without it has a 240-minute clock that its worker
-cannot see: the worker never stops itself for time, and the engine ends a long ticket as `timeout`,
-with no report. The worker's start line in the console shows the clock a run got (`timeout=360m`).
+The loop has no time limit, no ceiling and no stuck-session watchdog on a ticket's run (owner
+decision 2026-11-22). A review finding that asks for one is already decided.
 
-The worker must also know its clock. #1494 (and earlier #1376, #687 and #905) was stopped by the
-engine and shows as `timeout`. #1488 ($79, three rounds and an APPROVE done, one second-pass fix
-left) and #695 ($74) stopped themselves as `blocked` at 208 and 191 minutes, because their
-240-minute clock was close. With 360, a session that still assumes 240 would stop far too early, so
-`/work-ticket` reads its clock from its own environment, never from memory or a document, and a
-session that stops itself for time ends `BLOCKED` with `CATEGORY: out-of-time`, not as a failed
-review. The engine still labels it `loop-blocked` and asks for input, like any block: remove the
-label to queue the ticket again. The prefix goes when the engine carries the value itself. Split a
-ticket that would not fit, rather than raising the clock again.
+Why: a clock measures how long a ticket takes, not whether it is stuck. Every ticket the old clock
+stopped (240 minutes, then 360 for one day) was still working. #1494 and #1376 ended before their
+PR, with the work unpushed on a local branch, no PR, no note on the ticket, and a session that
+cannot be resumed. #687 and #905 already had PRs open and were waiting for CodeQL. #1488 and #695
+stopped themselves early, at 208 and 191 minutes, to beat the clock. A stuck session was never
+seen.
+
+If a worker does get stuck, the other tickets keep running, but the nap after a usage limit, a stop
+request, the table and the end of the run all wait for it. End it with `kill <pid>`
+(`scripts/claude/LOOP.md` → "Troubleshooting"): the worker saves its work on a branch, and the
+conductor counts the ticket as failed. `/ticket` treats an unfinished worker's `.meta` as the
+loop's for 24 hours only (#1309), so kill a worker that runs longer than that before you run
+`/ticket` on its ticket. A `LOOP_TICKET_TIMEOUT_MIN` left in a shell or an old launcher line
+changes nothing.
 
 ## A new engine version
 

@@ -331,8 +331,9 @@ the same either way, so serial only costs wall-clock time. `-j 1` stays availabl
 ## Implementation Notes
 
 - `scripts/claude/work-ticket.sh`: worktree from `origin/main`; skip (exit 12) on an open PR or an
-  existing worktree; the session runs inside the worktree in its own process group, and a stop,
-  a timeout or a SIGKILL of the worker ends its whole process tree; no checks
+  existing worktree; the session runs inside the worktree in its own process group, and a stop
+  or a SIGKILL of the worker ends its whole process tree (the loop has no timeout: amended
+  2026-11-22, #1503); no checks
   wait, no merge; the PR it reports must be open and belong to the ticket (or be merged during the
   session — amended 2026-10-11); salvage, then the
   worktree and its E2E images are removed; every exit writes its outcome to the `.meta` file.

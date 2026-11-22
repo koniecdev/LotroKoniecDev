@@ -35,7 +35,7 @@ public sealed class EditorTests : BunitContext
     private const string SameSourceTextHref = "https://tms.example/hateoas/translations/abc/same-source-text";
 
     /// <summary>Every list field away from its default, in the order the list writes them (#1452).</summary>
-    private const string ListState = "page=2&search=Frodo%20%26%20Sam&status=Draft&conflictsOnly=true&pageSize=25";
+    private const string ListState = "page=2&search=Frodo%20%26%20Sam&match=WholeText&status=Draft&conflictsOnly=true&pageSize=25";
 
     private readonly ITranslationSystemClient _client = Substitute.For<ITranslationSystemClient>();
 

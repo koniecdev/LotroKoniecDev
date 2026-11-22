@@ -30,6 +30,17 @@
                 <input id="search" name="search" type="search" value="@_query.Search"
                        placeholder="Tekst, FileId lub GossipId…" autocomplete="off"/>
             </div>
+            <div class="field field-match">
+                <label for="match">Dopasowanie</label>
+                <div class="select-wrap">
+                    <select id="match" name="match" title="Cały tekst pomija spacje na brzegach i znacznik na końcu, np. [e]">
+                        <option value="" selected="@(_query.Match == TranslationSearchMatch.Contains)">Zawiera</option>
+                        <option value="@TranslationSearchMatch.WholeWord" selected="@(_query.Match == TranslationSearchMatch.WholeWord)">Całe słowo</option>
+                        <option value="@TranslationSearchMatch.WholeText" selected="@(_query.Match == TranslationSearchMatch.WholeText)">Cały tekst</option>
+                    </select>
+                    <span class="select-chev" aria-hidden="true">▾</span>
+                </div>
+            </div>
             <div class="field">
                 <label for="status">Status</label>
                 <div class="select-wrap">
@@ -321,6 +332,13 @@
     private string? ConflictsOnly { get; set; }
 
     /// <summary>
+    /// A string for the same reason as <see cref="ConflictsOnly"/>: an unknown mode falls back to "Zawiera"
+    /// instead of breaking the page.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    private string? Match { get; set; }
+
+    /// <summary>
     /// Set by the redirect after a bulk approve, so the confirmation needs no per-user state on the server
     /// (#322). Null on a plain GET. A manual reload shows the message again, which is harmless.
     /// </summary>
@@ -342,7 +360,13 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        _query = TranslationListQuery.From(Search, Status, Page, PageSize, TranslationListQuery.ParseConflictsOnly(ConflictsOnly));
+        _query = TranslationListQuery.From(
+            Search,
+            Status,
+            Page,
+            PageSize,
+            TranslationListQuery.ParseConflictsOnly(ConflictsOnly),
+            TranslationListQuery.ParseMatch(Match));
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 

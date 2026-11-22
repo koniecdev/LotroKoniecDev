@@ -26,7 +26,8 @@ public sealed class TranslationListQueryTests
         status: "NeedsReview",
         page: 3,
         pageSize: 25,
-        conflictsOnly: true);
+        conflictsOnly: true,
+        match: TranslationSearchMatch.WholeWord);
 
     [Fact]
     public void From_WithNoFilters_BuildsBaseUriWithDefaultPagingAndNoLanguage()
@@ -400,10 +401,10 @@ public sealed class TranslationListQueryTests
     public void ToEditorRelativeUri_WritesThePagersNamesInThePagersOrder()
     {
         TranslationListQuery query = TranslationListQuery.From(
-            search: "axe", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true);
+            search: "axe", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true, match: TranslationSearchMatch.WholeText);
 
         query.ToEditorRelativeUri(RowId)
-            .ShouldBe($"/editor/{RowId.Value}?page=2&search=axe&status=Draft&conflictsOnly=true&pageSize=25");
+            .ShouldBe($"/editor/{RowId.Value}?page=2&search=axe&match=WholeText&status=Draft&conflictsOnly=true&pageSize=25");
     }
 
     [Fact]
@@ -456,6 +457,7 @@ public sealed class TranslationListQueryTests
     [InlineData("page=//evil.example")]
     [InlineData("pageSize=https://evil.example")]
     [InlineData("conflictsOnly=https://evil.example")]
+    [InlineData("match=https://evil.example")]
     [InlineData("returnUrl=https://evil.example")]
     [InlineData("search=//evil.example&returnUrl=https://evil.example&page=2")]
     public void ToListRelativeUri_WhateverTheAddressCarries_StaysOnTheListPageOfThisSite(string editorQuery)
@@ -494,6 +496,9 @@ public sealed class TranslationListQueryTests
     [InlineData("conflictsOnly=on")]
     [InlineData("conflictsOnly=1")]
     [InlineData("conflictsOnly")]
+    [InlineData("match=Banana")]
+    [InlineData("match=7")]
+    [InlineData("match=")]
     [InlineData("search=")]
     [InlineData("search=%20%20")]
     public void FromPageQuery_WithAValueItCannotRead_FallsBackToTheDefaultAsTheListDoes(string editorQuery)
@@ -506,9 +511,11 @@ public sealed class TranslationListQueryTests
     [Fact]
     public void FromPageQuery_ReadsTheNamesInAnyCase_AsTheListsQueryBindingDoes()
     {
-        TranslationListQuery query = TranslationListQuery.FromPageQuery($"/editor/{RowId.Value}?SEARCH=axe&Page=2&STATUS=draft");
+        TranslationListQuery query = TranslationListQuery.FromPageQuery(
+            $"/editor/{RowId.Value}?SEARCH=axe&Page=2&STATUS=draft&MATCH=wholetext");
 
-        query.ShouldBe(TranslationListQuery.From(search: "axe", status: "Draft", page: 2));
+        query.ShouldBe(TranslationListQuery.From(
+            search: "axe", status: "Draft", page: 2, match: TranslationSearchMatch.WholeText));
     }
 
     [Fact]
@@ -539,5 +546,72 @@ public sealed class TranslationListQueryTests
     public void FromPageQuery_ReadsOnlyTheQueryPartOfTheAddress(string uri, string? expectedSearch)
     {
         TranslationListQuery.FromPageQuery(uri).Search.ShouldBe(expectedSearch);
+    }
+
+    [Theory]
+    [InlineData("WholeWord", TranslationSearchMatch.WholeWord)]
+    [InlineData("wholeword", TranslationSearchMatch.WholeWord)]
+    [InlineData("WHOLETEXT", TranslationSearchMatch.WholeText)]
+    [InlineData(" WholeText ", TranslationSearchMatch.WholeText)]
+    [InlineData("Contains", TranslationSearchMatch.Contains)]
+    [InlineData("", TranslationSearchMatch.Contains)]
+    [InlineData("   ", TranslationSearchMatch.Contains)]
+    [InlineData(null, TranslationSearchMatch.Contains)]
+    [InlineData("Banana", TranslationSearchMatch.Contains)]
+    [InlineData("1", TranslationSearchMatch.Contains)]
+    [InlineData("2", TranslationSearchMatch.Contains)]
+    [InlineData("WholeWord,WholeText", TranslationSearchMatch.Contains)]
+    public void ParseMatch_ReadsOnlyAModeNameAndFallsBackToContains(string? value, TranslationSearchMatch expected)
+        => TranslationListQuery.ParseMatch(value).ShouldBe(expected);
+
+    [Fact]
+    public void From_WithAnUndefinedMatch_FallsBackToContains()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "ring", status: null, page: 1, match: (TranslationSearchMatch)7);
+
+        query.Match.ShouldBe(TranslationSearchMatch.Contains);
+        query.ToApiUri(CollectionHref).ShouldNotContain("match=");
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord, "match=WholeWord")]
+    [InlineData(TranslationSearchMatch.WholeText, "match=WholeText")]
+    public void From_WithANewMatchMode_AsksTheApiForIt(TranslationSearchMatch match, string expected)
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: "ring", status: null, page: 1, match: match);
+
+        query.ToApiRequest().Match.ShouldBe(match);
+        query.ToApiUri(CollectionHref).ShouldContain(expected);
+    }
+
+    [Fact]
+    public void From_WithContains_LeavesTheMatchOutOfEveryUri()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "ring", status: null, page: 1, match: TranslationSearchMatch.Contains);
+
+        query.ToApiUri(CollectionHref).ShouldNotContain("match=");
+        query.ToPageRelativeUri(2).ShouldNotContain("match=");
+        query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("match=");
+    }
+
+    [Fact]
+    public void ToPageRelativeUri_WithAMatchMode_KeepsItAcrossPaging()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "ring", status: "Draft", page: 1, conflictsOnly: true, match: TranslationSearchMatch.WholeText);
+
+        query.ToPageRelativeUri(2).ShouldBe("/translations?page=2&search=ring&match=WholeText&status=Draft&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_WithAMatchMode_KeepsIt()
+    {
+        TranslationListQuery query = TranslationListQuery.From(
+            search: "ring", status: null, page: 3, match: TranslationSearchMatch.WholeWord);
+
+        query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 1)
+            .ShouldBe("/translations?page=3&search=ring&match=WholeWord&approved=2&skipped=1");
     }
 }

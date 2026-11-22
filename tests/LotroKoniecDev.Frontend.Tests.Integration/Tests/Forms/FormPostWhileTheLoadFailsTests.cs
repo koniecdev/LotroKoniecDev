@@ -32,7 +32,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     private const string EditorPath = $"/editor/{RowId}";
 
     /// <summary>Every list field away from its default, in the order the list writes them (#1452).</summary>
-    private const string ListState = "page=2&search=Frodo%20%26%20Sam&status=Draft&conflictsOnly=true&pageSize=25";
+    private const string ListState = "page=2&search=Frodo%20%26%20Sam&match=WholeText&status=Draft&conflictsOnly=true&pageSize=25";
 
     /// <summary>The Polish text a 503 from an API turns into (ApiProblemCopy).</summary>
     private const string ServiceUnavailableMessage = "Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.";
@@ -286,6 +286,7 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [InlineData("pageSize=abc")]
     [InlineData("conflictsOnly=on")]
     [InlineData("status=Bogus")]
+    [InlineData("match=7")]
     public async Task Get_EditorWithAListValueItCannotRead_ShowsTheEditorPage(string editorQuery)
     {
         // Arrange: #1452, the real query binding on the Production host. A typed query parameter would turn

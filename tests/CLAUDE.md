@@ -133,7 +133,10 @@ The `||` rule lives in **two types per context, duplicated by design**: `Transla
 (the content escape) and `TranslationLineCarver` (the field boundaries). Each has its own unit
 suite in each context, plus `BothEscapers_…` / `BothCarvers_…` in `ParserContractParityTests`. The
 contexts share the file, never code, so the parity tests are the only thing keeping the copies in
-step: **change one copy, change the other in the same commit.** Parity alone is not enough either:
+step: **change one copy, change the other in the same commit.** The placeholder marker is a third
+such pair (#1437): `DatFormatConstants.Placeholder` with `TranslationSource.CountPlaceholders` in the
+TMS, and `DatFileConstants.PieceSeparator` with `Translation.GetPieces` in the patcher, pinned by
+`BothPlaceholderMarkers_…` and `TmsPlaceholderCount_…`. Parity alone is not enough either:
 in #597 both parsers carved a line the same wrong way, and only the round trip through each
 context's own writer caught it.
 

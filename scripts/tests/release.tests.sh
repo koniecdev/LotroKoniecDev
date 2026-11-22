@@ -18,8 +18,10 @@ REPO_ROOT="$(CDPATH='' cd -- "$SCRIPTS_DIR/.." && pwd)"
 RELEASE_SH="$SCRIPTS_DIR/release.sh"
 TMP_ROOT="$(mktemp -d)"
 
+PTY_PID=""
 stop_leftovers() {
     local pid_file pid
+    [ -z "$PTY_PID" ] || kill "$PTY_PID" 2>/dev/null || true
     for pid_file in "$TMP_ROOT"/case-*/stub/claude.pid; do
         [ -f "$pid_file" ] || continue
         pid="$(cat "$pid_file")"
@@ -38,6 +40,8 @@ export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@test.invalid
 unset GIT_EDITOR VISUAL EDITOR
 
 command -v jq >/dev/null || { echo 'release.tests.sh needs jq' >&2; exit 2; }
+script_version="$(script --version 2>&1 || true)"
+grep -qF util-linux <<< "$script_version" || { echo 'release.tests.sh needs script from util-linux (the terminal cases)' >&2; exit 2; }
 TIMEOUT=()
 if command -v timeout >/dev/null; then
     TIMEOUT=(timeout 60)
@@ -90,6 +94,7 @@ pass() {
 #                                     (deploy_run=<id> adds one for another run, such as a later hand run)
 #   $STUB/release-fail, $STUB/crlf    `gh release create` fails; every answer ends lines with CRLF
 #   $STUB/not-signed-in, $STUB/pulls-fail, $STUB/issue-close-fail   those calls fail
+#   $STUB/release-slow                `gh release create` takes 2 s, then fails
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
@@ -189,6 +194,12 @@ case "${1-}" in
             [ "$1" = --notes-file ] && notes="$2"
             shift
         done
+        if [ -f "$S/release-slow" ]; then
+            touch "$S/release-started"
+            sleep 2
+            echo 'HTTP 502' >&2
+            exit 1
+        fi
         if [ -f "$S/release-fail" ]; then
             echo 'HTTP 422: Validation Failed' >&2
             exit 1
@@ -384,6 +395,7 @@ case "$(cat "$STUB/claude-mode" 2>/dev/null || echo ok)" in
     noheading) printf '%s\n' '{"type":"result","is_error":false,"result":"Jestem Arwena, nie Rin."}' ;;
     exit1) echo 'claude: not signed in' >&2; exit 1 ;;
     sleep) echo "$$" > "$STUB/claude.pid"; exec sleep 30 ;;
+    sleep3) sleep 3; printf '%s\n' '{"type":"result","is_error":false,"result":"A release.\n\n## For translators\n\n- **AI NOTES** (#11)"}' ;;
 esac
 STUB
 
@@ -490,6 +502,52 @@ run_release() {
     LAST_STATUS=0
     LAST_OUTPUT="$(cd "$CLONE" && printf '%b' "$answers" | "${TIMEOUT[@]}" env RELEASE_POLL_SECONDS=0 \
         RELEASE_NOTES_GRACE_SECONDS=5 "$@" "$RELEASE_SH" 2>&1)" || LAST_STATUS=$?
+}
+
+# A run on a terminal (util-linux script), driven by what it prints, never by the clock:
+# pty_start <command for /bin/sh>, then pty_wait_for <text> and pty_send <input>, then pty_end.
+pty_start() {
+    PTY_OUT="$T/pty.out"
+    mkfifo "$T/pty.in"
+    (cd "$CLONE" && SHELL=/bin/sh exec script -qfec "$1" "$PTY_OUT" < "$T/pty.in" > /dev/null 2>&1) &
+    PTY_PID=$!
+    exec 7> "$T/pty.in"
+}
+pty_wait_for() {
+    local _
+    for _ in $(seq 1 600); do
+        if [ -f "$PTY_OUT" ] && grep -qF -- "$1" "$PTY_OUT"; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    LAST_OUTPUT="$(cat "$PTY_OUT" 2>/dev/null || true)"
+    return 1
+}
+pty_send() { printf '%b' "$1" >&7; }
+pty_end() {
+    exec 7>&-
+    LAST_STATUS=0
+    wait "$PTY_PID" || LAST_STATUS=$?
+    PTY_PID=""
+    LAST_OUTPUT="$(cat "$PTY_OUT")"
+}
+PTY_ENV="env PATH='$PATH' RELEASE_POLL_SECONDS=1 RELEASE_NOTES_GRACE_SECONDS=5"
+
+wait_for_file() {
+    local _
+    for _ in $(seq 1 300); do
+        [ ! -f "$1" ] || return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+# run_in_background <answers> — release.sh with $! as its own process id, for a signal.
+run_in_background() {
+    printf '%b' "$1" > "$T/answers"
+    (cd "$CLONE" && exec env RELEASE_POLL_SECONDS=0 RELEASE_NOTES_GRACE_SECONDS=5 "$RELEASE_SH" < "$T/answers" > "$T/out" 2>&1) &
+    BG_PID=$!
 }
 
 out_has() { grep -qF -- "$1" <<< "$LAST_OUTPUT"; }
@@ -1042,22 +1100,53 @@ out_has 'does not contain ADR-0070' || fail 'the stop must name ADR-0070'
 pass 'a release commit without ADR-0070 is never tagged'
 
 new_case 'a key pressed during the wait'
-command -v script >/dev/null || { echo 'release.tests.sh needs script (util-linux) for the terminal case' >&2; exit 2; }
 base
 push
 release_run 500 'status=in_progress prod=pending'
 states 500 queue 'status=in_progress prod=pending' 'status=in_progress prod=pending' 'status=in_progress prod=pending' 'status=waiting prod=waiting'
 approve_ok 500
-LAST_STATUS=0
-LAST_OUTPUT="$(cd "$CLONE" && { sleep 0.5; printf '\n'; sleep 10; printf 'q\n'; sleep 3; } \
-    | SHELL=/bin/sh "${TIMEOUT[@]}" script -qec "env PATH='$PATH' RELEASE_POLL_SECONDS=1 RELEASE_NOTES_GRACE_SECONDS=5 '$RELEASE_SH'" /dev/null 2>&1)" \
-    || LAST_STATUS=$?
-out_has 'Enter = publish' || fail 'the last prompt must be reached'
+pty_start "$PTY_ENV '$RELEASE_SH'"
+pty_wait_for 'Waiting for the CD run of' || fail 'the deploy wait must start'
+pty_send '\n'
+pty_wait_for 'Enter = publish' || fail 'the last prompt must be reached'
+pty_send 'q\n'
+pty_end
 out_has '**AI NOTES**' || fail 'the stub claude must write the notes: a test must never reach the real one'
 logged 'release v' && fail 'an Enter typed while the script waited must never publish'
 no_tag
 out_has 'Stopped. Nothing was tagged or published.' || fail 'the q typed after the prompt must stop it'
 pass 'a line typed while the script waits is thrown away, so only an answer to the prompt publishes'
+
+new_case 'a version typed during the wait'
+base type-refactor
+push
+release_run 500 'status=in_progress prod=pending'
+states 500 queue 'status=in_progress prod=pending' 'status=in_progress prod=pending' 'status=waiting prod=waiting'
+approve_ok 500
+pty_start "$PTY_ENV '$RELEASE_SH'"
+pty_wait_for 'Waiting for the CD run of' || fail 'the deploy wait must start'
+pty_send '0.2.2\n'
+pty_wait_for 'Type a version' || fail 'the version question must be reached'
+pty_send '\n'
+pty_end
+[ "$LAST_STATUS" -eq 0 ] || fail "Enter at the version question must exit 0, got $LAST_STATUS"
+out_has 'Stopped. Nothing was tagged.' || fail 'the Enter typed after the question must stop it'
+[ -z "$(git -C "$ORIGIN" tag --list v0.2.2)" ] || fail 'a version typed during the wait must never be used'
+pass 'a version typed while the script waits is thrown away'
+
+new_case 'an r typed before the notes wait'
+base_on_prod
+push
+echo sleep3 > "$STUB/claude-mode"
+pty_start "env PATH='$PATH' RELEASE_POLL_SECONDS=1 RELEASE_NOTES_GRACE_SECONDS=1 '$RELEASE_SH'"
+pty_wait_for 'Writing the release notes in the background.' || fail 'the notes call must start'
+pty_send 'r\n'
+pty_wait_for 'Enter = publish' || fail 'the last prompt must be reached'
+pty_send '\n'
+pty_end
+released v0.3.0 "$C1"
+grep -qF '**AI NOTES**' "$STUB/release-notes.md" || fail 'an r typed before the wait was offered must not choose the raw list'
+pass 'an r typed before the notes wait is thrown away'
 
 new_case 'the tag push is refused'
 base_on_prod
@@ -1082,8 +1171,7 @@ pass 'a refused tag push removes the local tag, keeps the notes, and a second ru
 new_case 'the tag cannot be made'
 base_on_prod
 push
-mkdir -p "$CLONE/.git/refs/tags"
-: > "$CLONE/.git/refs/tags/v0.3.0.lock"
+git -C "$CLONE" tag v0.3.0/blocker "$C0"
 run_release '\n'
 [ "$LAST_STATUS" -eq 1 ] || fail "a tag that cannot be made must exit 1, got $LAST_STATUS"
 no_tag
@@ -1135,7 +1223,14 @@ run_release '\n'
 [ "$LAST_STATUS" -eq 1 ] || fail "prod not on the release commit after the deploy must stop, got $LAST_STATUS"
 out_has 'but prod no longer runs it: a later deploy replaced it with CD by hand: sha-abc1234' || fail 'the stop must name what prod runs'
 no_tag
-pass 'the release is not tagged when prod no longer runs it after the deploy'
+approve_ok 500
+states 500 on-rerun 'status=waiting prod=waiting'
+: > "$STUB/calls.log"
+run_release '\n'
+released v0.3.0 "$C1"
+out_has "it deployed ${C1} earlier, but a later deploy replaced it" || fail 'the new start must say why it deploys again'
+logged 'rerun 500' || fail 'the new start must run the release run again'
+pass 'the release is not tagged when prod no longer runs it, and a new start deploys it again'
 
 new_case 'only an empty line publishes'
 base_on_prod
@@ -1164,7 +1259,7 @@ new_case 'bad start'
 base
 push
 LAST_STATUS=0
-LAST_OUTPUT="$(cd "$CLONE" && "$RELEASE_SH" --help 2>&1 < /dev/null)" || LAST_STATUS=$?
+LAST_OUTPUT="$(cd "$CLONE" && "${TIMEOUT[@]}" "$RELEASE_SH" --help 2>&1 < /dev/null)" || LAST_STATUS=$?
 [ "$LAST_STATUS" -eq 2 ] || fail "an argument must exit 2, got $LAST_STATUS"
 touch "$STUB/not-signed-in"
 run_release ''
@@ -1185,6 +1280,92 @@ run_release '\n'
 released v0.3.0 "$C1"
 out_has 'WARNING: the "Next release" issue could not be closed. Close it by hand.' || fail 'the failed close must warn'
 pass 'an issue that cannot be closed only warns after the release'
+
+new_case 'stopped while the tag is pushed'
+base_on_prod
+push
+printf '#!/bin/sh\ntouch "%s"\nsleep 2\nexit 1\n' "$T/hook-started" > "$ORIGIN/hooks/pre-receive"
+chmod +x "$ORIGIN/hooks/pre-receive"
+run_in_background '\n'
+wait_for_file "$T/hook-started" || fail 'the push must start'
+kill -TERM "$BG_PID"
+LAST_STATUS=0
+wait "$BG_PID" || LAST_STATUS=$?
+LAST_OUTPUT="$(cat "$T/out")"
+[ "$LAST_STATUS" -eq 143 ] || fail "a stop during the push must exit 143, got $LAST_STATUS"
+[ -z "$(git -C "$CLONE" tag --list v0.3.0)" ] || fail 'the local tag must be removed, or the next run sees the release as done'
+no_tag
+out_has 'did not reach GitHub, so nothing is published and the local tag is removed' || fail 'the stop must say what happened'
+[ -f "$CLONE/.git/release-notes-v0.3.0.md" ] || fail 'the notes must be kept'
+pass 'a stop (Ctrl-C or a kill) during the push removes the local tag'
+
+new_case 'stopped while the release is created'
+base_on_prod
+push
+touch "$STUB/release-slow"
+run_in_background '\n'
+wait_for_file "$STUB/release-started" || fail 'the release create must start'
+kill -TERM "$BG_PID"
+LAST_STATUS=0
+wait "$BG_PID" || LAST_STATUS=$?
+LAST_OUTPUT="$(cat "$T/out")"
+[ "$LAST_STATUS" -eq 143 ] || fail "a stop during the release create must exit 143, got $LAST_STATUS"
+[ "$(tag_of v0.3.0)" = "$C1" ] || fail 'the pushed tag stays'
+out_has 'the tag v0.3.0 is on GitHub, but its release is not published. Finish with:' || fail 'the stop must say how to finish'
+out_has 'gh release create v0.3.0 --verify-tag --latest --title "v0.3.0" --notes-file' || fail 'the finish command must be printed'
+pass 'a stop during the release create prints the commands that finish it'
+
+new_case 'a newest tag that is not on GitHub'
+base_on_prod
+push
+git -C "$CLONE" tag -a v0.2.2 -m v0.2.2 "$C1"
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a local-only newest tag must stop, got $LAST_STATUS"
+out_has 'the newest tag here, v0.2.2, is not on GitHub' || fail 'the stop must name the tag'
+logged 'release v' && fail 'nothing must be published'
+pass 'a newest tag only this clone has stops the run before anything else'
+
+new_case 'the release run deployed earlier, and a later deploy replaced it'
+base
+push
+cd_run 300 'CD by hand: sha-abc1234' workflow_dispatch "$DONE"
+release_run 500 "$DONE"
+: > "$STUB/deployments"
+on_prod 300
+on_prod 500
+states 500 on-rerun 'status=waiting prod=waiting'
+approve_ok 500
+run_release '\n'
+released v0.3.0 "$C1"
+logged 'rerun 500' || fail 'an old deploy that was replaced must be run again'
+[ "$(line_of 'rerun 500')" -lt "$(line_of 'approve 500')" ] || fail 're-run first, then approve'
+pass 'a release run whose old deploy was replaced is run again, not taken as done'
+
+new_case 'no answer at the version question'
+base_on_prod type-refactor
+push
+run_release ''
+[ "$LAST_STATUS" -eq 0 ] || fail "no answer at the version question must exit 0, got $LAST_STATUS"
+out_has 'Stopped. Nothing was tagged.' || fail 'it must stop'
+[ "$(git -C "$ORIGIN" tag | grep -c .)" -eq 1 ] || fail 'no tag must be made'
+pass 'a closed input at the version question stops with no tag'
+
+new_case 'git or gh not installed'
+base
+push
+mkdir -p "$T/min"
+ln -s "$(command -v bash)" "$T/min/bash"
+ln -s "$(command -v dirname)" "$T/min/dirname"
+LAST_STATUS=0
+LAST_OUTPUT="$(cd "$CLONE" && PATH="$T/min" "$RELEASE_SH" 2>&1 < /dev/null)" || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "a missing git must exit 2, got $LAST_STATUS"
+out_has 'git is not installed.' || fail 'the missing git must be named'
+ln -s "$(command -v git)" "$T/min/git"
+LAST_STATUS=0
+LAST_OUTPUT="$(cd "$CLONE" && PATH="$T/min" "$RELEASE_SH" 2>&1 < /dev/null)" || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "a missing gh must exit 2, got $LAST_STATUS"
+out_has 'gh is not installed' || fail 'the missing gh must be named'
+pass 'a missing git or gh exits 2'
 
 new_case 'the workflows still match what the script reads'
 CD_YML="$REPO_ROOT/.github/workflows/cd.yml"

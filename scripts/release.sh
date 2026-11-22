@@ -15,8 +15,9 @@
 #      run name (cd.yml `run-name`): the run's own head_sha is main's tip when it started, not the
 #      commit it deploys. A waiting prod job holds the `prod-mutation` group, so every other run
 #      waiting at the gate is rejected first, and then the release commit's run is approved. A run
-#      whose prod job never started (rejected, cancelled by the CD janitor or by a newer candidate)
-#      is run again in full, never by a hand dispatch, which would skip the N-1 gate.
+#      whose prod job never started (rejected, cancelled by the CD janitor or by a newer candidate),
+#      or whose earlier deploy a later one replaced, is run again in full, never by a hand
+#      dispatch, which would skip the N-1 gate.
 #   5. Proposes the number (next-release.sh), lets the owner type another one.
 #   6. Takes the AI notes, or the raw change list when the call failed. AI never blocks a release.
 #   7. Asks: Enter publishes, e edits the notes, v changes the version, q stops.
@@ -30,8 +31,9 @@
 #                                 notes call's answer, so without it the AI notes are off, and the
 #                                 release goes on with the raw list.
 #
-# Exit: 0 = released, nothing new, or stopped by the owner; 1 = stopped by a failed check, deploy or
-#       publish, or no answer at a prompt; 2 = a missing tool or a bad argument; 130 = Ctrl-C.
+# Exit: 0 = released, nothing new, or stopped by the owner (Enter or no answer at the version
+#       question, q at the last prompt); 1 = stopped by a failed check, deploy or publish, or no
+#       answer at the last prompt; 2 = a missing tool or a bad argument; 130 = Ctrl-C.
 #
 # Bash only: it runs in Git Bash on Windows too (owner decision, 2026-11-22), so it has no .ps1 twin.
 set -euo pipefail
@@ -69,6 +71,9 @@ PROD_EVENT=""
 PROD_TITLE=""
 PROD_URL=""
 AI_OFF=""
+PUBLISH_TAG=""
+PUBLISH_KEEP=""
+RELEASED=0
 
 say() { printf '%s\n' "$*"; }
 
@@ -111,7 +116,7 @@ notes_running() {
     local running
     [ -n "$NOTES_PID" ] || return 1
     running="$(jobs -pr)"
-    grep -qxF -- "$NOTES_PID" <<< "$running"
+    cgrep -qxF -- "$NOTES_PID" <<< "$running"
 }
 
 stop_notes() {
@@ -129,8 +134,36 @@ stop_notes() {
     fi
 }
 
+# The commands that finish the release $PUBLISH_TAG by hand. $1 = yes when the tag is on GitHub.
+finish_lines() {
+    local tag="$PUBLISH_TAG"
+    if [ "$1" != yes ]; then
+        printf '  git tag -a %s %s -m "%s"\n  git push origin %s\n' "$tag" "$R" "$tag" "$tag"
+    fi
+    printf '  gh release create %s --verify-tag --latest --title "%s" --notes-file "%s"\n' "$tag" "$tag" "$PUBLISH_KEEP"
+    printf '  GITHUB_REPOSITORY=%s scripts/ci/next-release-issue.sh close %s <the release URL>\n' "$REPO" "$tag"
+}
+
+# Runs on every exit, Ctrl-C and a failed step included. A publish that stopped half-way must not
+# leave a local tag that the next run takes as released, nor a pushed tag with no word on how to
+# finish. GitHub says whether the tag got there; the push may have ended either way.
+finish_interrupted_publish() {
+    if [ -z "$PUBLISH_TAG" ] || [ "$RELEASED" -eq 1 ] || ! git rev-parse --verify --quiet "refs/tags/${PUBLISH_TAG}" >/dev/null; then
+        return 0
+    fi
+    if git ls-remote --exit-code --tags origin "refs/tags/${PUBLISH_TAG}" >/dev/null 2>&1; then
+        printf 'release.sh: the tag %s is on GitHub, but its release is not published. Finish with:\n%s\n' \
+            "$PUBLISH_TAG" "$(finish_lines yes)" >&2
+    else
+        git tag -d "$PUBLISH_TAG" >/dev/null 2>&1 || true
+        printf 'release.sh: the tag %s did not reach GitHub, so nothing is published and the local tag is removed. Start this script again (it writes new notes), or finish by hand with the notes kept in %s:\n%s\n' \
+            "$PUBLISH_TAG" "$PUBLISH_KEEP" "$(finish_lines no)" >&2
+    fi
+}
+
 cleanup() {
     stop_notes
+    finish_interrupted_publish
     if [ -n "$WORK" ]; then
         rm -rf "$WORK"
     fi
@@ -349,6 +382,18 @@ deploy_release() {
         esac
         case "$conclusion" in
             success)
+                # A deploy this script did not follow may be an old one that a later deploy
+                # replaced (prod did not run the commit when the script started).
+                if [ -z "$W" ] && ! prod_runs_release; then
+                    if [ "$run_status" != completed ]; then
+                        status "  $(run_url "$target"): it deployed ${R} earlier; waiting for the run to end."
+                        nap
+                        continue
+                    fi
+                    rerun "$target" "it deployed ${R} earlier, but a later deploy replaced it"
+                    nap
+                    continue
+                fi
                 W="$target"
                 return 0
                 ;;
@@ -388,7 +433,7 @@ finish_deploy() {
         say "WARNING: the \"${NEXT_RELEASE_JOB}\" job of $(run_url "$W") failed. The release goes on; this script closes the issue at the end."
     fi
     if ! prod_runs_release; then
-        die "$(run_url "$W") deployed ${R}, but prod no longer runs it: a later deploy replaced it with ${PROD_TITLE}${PROD_URL:+ (${PROD_URL})}. Nothing is tagged. Find out why, then start this script again."
+        die "$(run_url "$W") deployed ${R}, but prod no longer runs it: a later deploy replaced it with ${PROD_TITLE}${PROD_URL:+ (${PROD_URL})}. Nothing is tagged. Find out why; a new start of this script deploys ${R} again."
     fi
     say "Prod runs ${R}."
     note="Rejected by scripts/release.sh: ${R} is already deployed by run ${W}."
@@ -524,33 +569,27 @@ edit_notes() {
     fi
 }
 
-# Every failure here keeps the notes in the clone's .git folder (the work folder is deleted on exit)
-# and prints the commands that finish the release by hand.
+# The notes go to the clone's .git folder first (the work folder is deleted on exit), for the
+# by-hand commands. Once the tag exists, every way out, Ctrl-C included, goes through
+# finish_interrupted_publish.
 publish() {
-    local tag="v${VERSION}" url keep finish
-    keep="$(git rev-parse --absolute-git-dir)/release-notes-${tag}.md"
-    cp "$WORK/notes.md" "$keep"
-    finish="  gh release create ${tag} --verify-tag --latest --title \"${tag}\" --notes-file \"${keep}\"
-  scripts/ci/next-release-issue.sh close ${tag} <the release URL>   (with GITHUB_REPOSITORY=${REPO})"
+    local tag="v${VERSION}" url
+    PUBLISH_KEEP="$(git rev-parse --absolute-git-dir)/release-notes-${tag}.md"
+    cp "$WORK/notes.md" "$PUBLISH_KEEP"
     if ! git tag -a "$tag" "$R" -m "$tag"; then
-        die "the tag ${tag} could not be made, so nothing is published. The notes are kept. Fix the cause, then run this script again, or finish by hand:
-  git tag -a ${tag} ${R} -m \"${tag}\"
-  git push origin ${tag}
-${finish}"
+        PUBLISH_TAG="$tag"
+        die "the tag ${tag} could not be made, so nothing is published. Fix the cause, then start this script again (it writes new notes), or finish by hand with the notes kept in ${PUBLISH_KEEP}:
+$(finish_lines no)"
     fi
+    PUBLISH_TAG="$tag"
     if ! git push origin "$tag"; then
-        # A local tag nobody else has would make the next run see this release as done.
-        git tag -d "$tag" >/dev/null 2>&1 || true
-        die "the tag ${tag} could not be pushed, so nothing is published and the local tag is removed. The notes are kept. Fix the cause, then run this script again, or finish by hand:
-  git tag -a ${tag} ${R} -m \"${tag}\"
-  git push origin ${tag}
-${finish}"
+        die "the tag ${tag} could not be pushed."
     fi
     if ! url="$(ghx release create "$tag" --verify-tag --latest --title "$tag" --notes-file "$WORK/notes.md")"; then
-        die "the tag ${tag} is pushed, but the GitHub Release was not created. The tag stays and the notes are kept. Finish with:
-${finish}"
+        die "the GitHub Release ${tag} could not be created."
     fi
-    rm -f "$keep"
+    RELEASED=1
+    rm -f "$PUBLISH_KEEP"
     url="$(tail -n 1 <<< "$url")"
     say "Published ${tag}: ${url}"
     if ! "$SCRIPT_DIR/ci/next-release-issue.sh" close "$tag" "$url"; then
@@ -594,6 +633,15 @@ while IFS= read -r tag; do
     fi
 done <<< "$tags"
 if [ -n "$NEWEST_TAG" ]; then
+    # A tag only this clone has (a run stopped half-way, a hand mistake) would hide what is not
+    # released yet, and the next run would say there is nothing new.
+    remote_rc=0
+    git ls-remote --exit-code --tags origin "refs/tags/${NEWEST_TAG}" >/dev/null || remote_rc=$?
+    case "$remote_rc" in
+        0) ;;
+        2) die "the newest tag here, ${NEWEST_TAG}, is not on GitHub (an earlier run may have stopped half-way). Push it (git push origin ${NEWEST_TAG}) or delete it (git tag -d ${NEWEST_TAG}), then start again." ;;
+        *) die "GitHub could not be asked whether ${NEWEST_TAG} is there (git ls-remote exited ${remote_rc})." ;;
+    esac
     candidates="$(git rev-list --first-parent "$(git rev-parse "${NEWEST_TAG}^{commit}")..origin/main")"
 else
     candidates="$(git rev-list --first-parent origin/main)"

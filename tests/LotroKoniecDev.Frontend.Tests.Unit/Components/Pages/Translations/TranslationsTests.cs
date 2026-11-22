@@ -482,21 +482,24 @@ public sealed class TranslationsTests : BunitContext
             .ShouldBe(["search", "match"]);
     }
 
-    [Fact]
-    public void Render_WhenAMatchModeIsInTheQuery_SelectsItAndAsksTheApiForIt()
+    [Theory]
+    [InlineData("WholeWord")]
+    [InlineData("WholeText")]
+    public void Render_WhenAMatchModeIsInTheQuery_SelectsItAndAsksTheApiForIt(string mode)
     {
         // Only a call that carries the mode gets the page, so a rendered row proves the mode reached the API.
         _client
             .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
-                Arg.Is<string>(uri => uri.Contains("match=WholeText")),
+                Arg.Is<string>(uri => uri.Contains($"match={mode}")),
                 Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
-        Navigation().NavigateTo("/translations?search=start&match=WholeText");
+        Navigation().NavigateTo($"/translations?search=start&match={mode}");
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
-        component.Find("form.filter select#match option[value=WholeText]").HasAttribute("selected").ShouldBeTrue();
-        component.Find("form.filter select#match option[value=\"\"]").HasAttribute("selected").ShouldBeFalse();
+        component.FindAll("form.filter select#match option[selected]")
+            .Select(option => option.GetAttribute("value"))
+            .ShouldBe([mode]);
         component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
     }
 

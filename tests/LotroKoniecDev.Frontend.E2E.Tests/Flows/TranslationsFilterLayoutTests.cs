@@ -12,7 +12,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 public sealed class TranslationsFilterLayoutTests : E2ETestBase
 {
     /// <summary>
-    /// Just under the search field's 12rem flex basis, so a row that squeezes the field fails.
+    /// Just under the search field's 192 px flex basis, so a row that squeezes the field fails.
     /// </summary>
     private const float MinimumSearchWidth = 190;
 

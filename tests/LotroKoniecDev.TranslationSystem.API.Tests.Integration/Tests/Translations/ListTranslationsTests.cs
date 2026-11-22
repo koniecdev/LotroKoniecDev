@@ -622,8 +622,8 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         // Arrange
         await SeedAsync(Row(1, "Ring[E]"), Row(2, "bring"));
 
-        // Act
-        PaginationResponse<TranslationListItemResponse> page = await SearchAsync(" ring ", match);
+        // Act: written by hand, so the test does not depend on what the shared request does with spaces.
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?search=%20ring%20&match={match}");
 
         // Assert
         page.Items.Select(item => item.GossipId).ShouldBe([1L]);

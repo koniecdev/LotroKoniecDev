@@ -239,5 +239,4 @@ internal static class EventIds
     public const int ReviewerRoleGranted = 2790;
     public const int ReviewerRoleRemoved = 2791;
     public const int ReviewerRoleChangeFailed = 2792;
-    public const int ReviewerRoleAlreadyChanged = 2793;
 }

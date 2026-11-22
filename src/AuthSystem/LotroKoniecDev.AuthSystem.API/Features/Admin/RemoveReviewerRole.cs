@@ -60,34 +60,8 @@ internal sealed partial class RemoveReviewerRole : IApiEndpoint
                 return Result.Success();
             }
 
-            IdentityResult identityResult;
-            try
+            if (!await SaveRemovalAsync(account))
             {
-                identityResult = await _userManager.RemoveFromRoleAsync(account, AuthConstants.Roles.Reviewer);
-            }
-            catch (DbUpdateException)
-            {
-                // An overlapping call deleted the same role row first.
-                if (await IsReviewerAsync(account))
-                {
-                    throw;
-                }
-
-                LogReviewerRoleAlreadyChanged(_logger, account.Id);
-                return Result.Success();
-            }
-
-            if (!identityResult.Succeeded)
-            {
-                // A concurrency failure is also how an overlapping call that won shows up here.
-                if (!await IsReviewerAsync(account))
-                {
-                    LogReviewerRoleAlreadyChanged(_logger, account.Id);
-                    return Result.Success();
-                }
-
-                string errors = string.Join(", ", identityResult.Errors.Select(error => error.Code));
-                LogReviewerRoleChangeFailed(_logger, account.Id, errors);
                 return Result.Failure(AuthErrors.ReviewerRoleChangeFailed);
             }
 
@@ -111,7 +85,42 @@ internal sealed partial class RemoveReviewerRole : IApiEndpoint
             _logger = logger;
         }
 
-        // GetRolesAsync queries the database, not the change tracker, so it sees what the other call saved.
+        /// <summary>
+        /// True when the account no longer holds the role after the save. A failed save can still end that
+        /// way: an overlapping call, or a retry of this save after a lost commit answer, deleted the row
+        /// first. The two cannot be told apart, so both go on to the revoke and the log line.
+        /// </summary>
+        private async Task<bool> SaveRemovalAsync(ApplicationUser account)
+        {
+            IdentityResult identityResult;
+            try
+            {
+                identityResult = await _userManager.RemoveFromRoleAsync(account, AuthConstants.Roles.Reviewer);
+            }
+            catch (DbUpdateException)
+            {
+                if (!await IsReviewerAsync(account))
+                {
+                    return true;
+                }
+
+                throw;
+            }
+
+            if (identityResult.Succeeded || !await IsReviewerAsync(account))
+            {
+                return true;
+            }
+
+            string errors = string.Join(", ", identityResult.Errors.Select(error => error.Code));
+            LogReviewerRoleChangeFailed(_logger, account.Id, errors);
+            return false;
+        }
+
+        /// <summary>
+        /// Reads the database, not the change tracker: <c>GetRolesAsync</c> is a query, so it sees the
+        /// row another save deleted. <c>IsInRoleAsync</c> asks the tracker first.
+        /// </summary>
         private async Task<bool> IsReviewerAsync(ApplicationUser account) =>
             (await _userManager.GetRolesAsync(account)).Contains(AuthConstants.Roles.Reviewer);
 
@@ -120,9 +129,6 @@ internal sealed partial class RemoveReviewerRole : IApiEndpoint
 
         [LoggerMessage(EventId = EventIds.ReviewerRoleChangeFailed, Level = LogLevel.Error, Message = "Reviewer role could not be taken from user {UserId}. Errors: {Errors}")]
         private static partial void LogReviewerRoleChangeFailed(ILogger logger, Guid userId, string errors);
-
-        [LoggerMessage(EventId = EventIds.ReviewerRoleAlreadyChanged, Level = LogLevel.Information, Message = "Reviewer role for user {UserId} was already taken away by an overlapping call")]
-        private static partial void LogReviewerRoleAlreadyChanged(ILogger logger, Guid userId);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

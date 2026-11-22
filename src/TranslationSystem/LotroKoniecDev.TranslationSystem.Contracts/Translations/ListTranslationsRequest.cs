@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 /// The list's query options. The API binds this record and every client builds the address from it, so
 /// each option name is written once, as a property name here (#1478). <see cref="Status"/> null means
 /// every status; <see cref="ConflictsOnly"/> keeps the rows whose identical English has different Polish
-/// (#1347).
+/// (#1347); <see cref="Match"/> says how <see cref="Search"/> must match (#1477).
 /// </summary>
 public sealed record ListTranslationsRequest(
     string? Search = null,
@@ -16,7 +16,8 @@ public sealed record ListTranslationsRequest(
     int Page = ListTranslationsRequest.FirstPage,
     int PageSize = ListTranslationsRequest.DefaultPageSize,
     string? Sort = null,
-    bool ConflictsOnly = false)
+    bool ConflictsOnly = false,
+    TranslationSearchMatch Match = TranslationSearchMatch.Contains)
 {
     public const int FirstPage = 1;
     public const int DefaultPageSize = 50;
@@ -39,6 +40,11 @@ public sealed record ListTranslationsRequest(
         if (!string.IsNullOrWhiteSpace(Search))
         {
             parameters.Add(QueryParameter.Of(nameof(Search), Search));
+        }
+
+        if (Match != TranslationSearchMatch.Contains)
+        {
+            parameters.Add(QueryParameter.Of(nameof(Match), Match.ToString()));
         }
 
         if (Status is { } status)

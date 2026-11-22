@@ -405,6 +405,41 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task ListTranslations_PaginationLinks_PreserveTheMatchMode()
+    {
+        // Arrange: three rows whose whole text is the term, one per page (#1477).
+        await SeedAsync(Row(1, "Ring"), Row(2, "ring"), Row(3, "Ring[E]"), Row(4, "bring"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?search=ring&match=WholeText&page=2&pageSize=1");
+
+        // Assert
+        response.TotalCount.ShouldBe(3);
+        foreach (string rel in new[] { Rels.Self, Rels.FirstPage, Rels.LastPage, Rels.PreviousPage, Rels.NextPage })
+        {
+            response.Links.First(l => l.Rel == rel).Href.ShouldContain("match=WholeText", Case.Insensitive);
+        }
+    }
+
+    [Fact]
+    public async Task ListTranslations_PaginationLinks_LeaveOutTheContainsMode()
+    {
+        // Arrange: Contains is the default, so every link that exists today stays the same.
+        await SeedAsync(Row(1, "Ring a"), Row(2, "Ring b"), Row(3, "Ring c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                AdminClient(), "/api/v1/translations?search=ring&match=Contains&page=2&pageSize=1");
+
+        // Assert
+        response.TotalCount.ShouldBe(3);
+        response.Links.ShouldAllBe(link => !link.Href.Contains("match=", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ListTranslations_PaginationLinks_PreserveTheActiveSort()
     {
         // Arrange: three rows, one per page, so page 2 carries every page link.

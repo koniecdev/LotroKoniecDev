@@ -326,6 +326,23 @@ public sealed class TokenEndpointTests : EndpointsTestBase
     }
 
     [Fact]
+    public async Task RefreshTokenGrant_ForAnAccountWithNoRole_ShouldKeepWorking()
+    {
+        // Arrange: the role check compares two empty sets, which must count as equal (#1488).
+        const string password = "TestPass1!";
+        (RegisterRequest request, _) =
+            await UserFactory.RegisterRandomUserWithRequestAsync(ApiClient, Faker, AccountConfirmationEmailSpy, password);
+        await AccountStateFactory.RemoveFromRoleAsync(Factory.Services, request.Email, AuthConstants.Roles.Translator);
+        string refreshToken = await GetRefreshTokenAsync(request.Email, password);
+
+        // Act
+        using HttpResponseMessage refreshResponse = await RequestRefreshGrantAsync(refreshToken);
+
+        // Assert
+        refreshResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task PasswordGrant_AfterARoleChange_ShouldIssueEveryRoleAsAnArray()
     {
         // Arrange

@@ -87,6 +87,63 @@ public sealed class AccountAdministrationTests : BunitContext
     }
 
     [Fact]
+    public void Render_OnTheSecondPageWithAPreviousPageLink_LinksTheFirstPage()
+    {
+        // Arrange
+        AccountListResponse page = new([Account("frodo", AuthConstants.Roles.Translator)], Page: 2, PageSize: 50, TotalCount: 51)
+        {
+            Links = [new LinkDto("https://auth.example/accounts?page=1", Rels.PreviousPage, "GET")]
+        };
+        StubAccounts(page, $"{AccountsHref}?page=2");
+        Navigation().NavigateTo("/admin/accounts?page=2");
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert
+        component.Find("nav.pager a[rel=prev]").GetAttribute("href").ShouldBe("/admin/accounts");
+    }
+
+    [Fact]
+    public void Render_ForAPagePastTheEnd_ShowsNoAccountsAndTheWayBack()
+    {
+        // Arrange
+        AccountListResponse page = new([], Page: 5, PageSize: 50, TotalCount: 3)
+        {
+            Links = [new LinkDto("https://auth.example/accounts?page=4", Rels.PreviousPage, "GET")]
+        };
+        StubAccounts(page, $"{AccountsHref}?page=5");
+        Navigation().NavigateTo("/admin/accounts?page=5");
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert
+        component.Find(".empty h2").TextContent.ShouldBe("Brak kont");
+        component.FindAll("table.data-table").ShouldBeEmpty();
+        component.Find("nav.pager a[rel=prev]").GetAttribute("href").ShouldBe("/admin/accounts?page=4");
+    }
+
+    [Fact]
+    public void Render_ForAnAccountWithADeletionScheduled_ShowsTheBadge()
+    {
+        // Arrange
+        AccountSummaryResponse leaving = Account("bilbo", AuthConstants.Roles.Translator) with
+        {
+            DeletionScheduledAt = new DateTimeOffset(2026, 11, 20, 12, 0, 0, TimeSpan.Zero)
+        };
+        StubAccounts(Page(leaving, Account("frodo", AuthConstants.Roles.Translator)));
+
+        // Act
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Assert
+        IReadOnlyList<AngleSharp.Dom.IElement> rows = component.FindAll("[data-testid=account-row]");
+        rows[0].TextContent.ShouldContain("Usunięcie zaplanowane");
+        rows[1].TextContent.ShouldNotContain("Usunięcie zaplanowane");
+    }
+
+    [Fact]
     public void Render_WhenTheServerDoesNotOfferTheList_ShowsTheRefusal()
     {
         // Arrange: a translator who typed the address gets no accounts rel.
@@ -265,10 +322,10 @@ public sealed class AccountAdministrationTests : BunitContext
         _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>()).Returns(ApiResult.Success(discovery));
     }
 
-    private void StubAccounts(AccountListResponse page)
+    private void StubAccounts(AccountListResponse page, string href = AccountsHref)
     {
         StubDiscovery();
-        _client.GetApiResultAsync<AccountListResponse>(AccountsHref, Arg.Any<CancellationToken>())
+        _client.GetApiResultAsync<AccountListResponse>(href, Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(page));
     }
 }

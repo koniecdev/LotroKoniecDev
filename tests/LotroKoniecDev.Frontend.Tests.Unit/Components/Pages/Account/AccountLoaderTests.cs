@@ -219,6 +219,25 @@ public sealed class AccountLoaderTests
     }
 
     [Fact]
+    public async Task OffersAccountAdministrationAsync_WhenDiscoveryFails_ReturnsFalse()
+    {
+        // Arrange: a failed discovery read only hides the admin link (#1488).
+        _discoveryCache.GetAuthSystemDiscoveryAsync(Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<AuthDiscoveryResponse>(new ProblemDetails
+            {
+                Title = "Usługa chwilowo niedostępna",
+                Status = 503
+            }));
+        AccountLoader loader = CreateLoader(StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}"), out _);
+
+        // Act
+        bool offered = await loader.OffersAccountAdministrationAsync();
+
+        // Assert
+        offered.ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task LoadExportAsync_WhenA200CarriesNoAuthData_IsABadGatewayAndNotAnAccount()
     {
         // "{}" parses with a null AuthData, which the page reads straight away.

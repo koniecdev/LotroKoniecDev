@@ -94,7 +94,12 @@ pass() {
 #                                     (deploy_run=<id> adds one for another run, such as a later hand run)
 #   $STUB/release-fail, $STUB/crlf    `gh release create` fails; every answer ends lines with CRLF
 #   $STUB/not-signed-in, $STUB/pulls-fail, $STUB/issue-close-fail   those calls fail
-#   $STUB/release-slow                `gh release create` takes 2 s, then fails
+#   $STUB/release-slow                `gh release create` waits until the test stopped the script
+#                                     ($STUB/killed), then fails
+#   $STUB/origin-down-on-release      a failing `gh release create` also takes origin away
+#   $STUB/no-release-<tag>            that tag has no GitHub Release (every other tag has one)
+#   $STUB/origin-down, $STUB/uploadpack-budget   origin refuses fetch and ls-remote (always, or
+#                                     after that many calls), through $BIN/uploadpack (ORIGIN_SWITCH)
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
@@ -196,11 +201,15 @@ case "${1-}" in
         done
         if [ -f "$S/release-slow" ]; then
             touch "$S/release-started"
-            sleep 2
+            for _ in $(seq 1 100); do
+                [ ! -f "$S/killed" ] || break
+                sleep 0.1
+            done
             echo 'HTTP 502' >&2
             exit 1
         fi
         if [ -f "$S/release-fail" ]; then
+            [ ! -f "$S/origin-down-on-release" ] || touch "$S/origin-down"
             echo 'HTTP 422: Validation Failed' >&2
             exit 1
         fi
@@ -357,6 +366,14 @@ case "$method $path" in
         run="$(awk -F '\t' -v d="$dep" '$1 == d { print $2 }' "$S/deployments")"
         emit "[{\"state\": \"inactive\", \"target_url\": \"$REPO_URL/actions/runs/${run}/job/1\"}, {\"state\": \"success\", \"target_url\": \"$REPO_URL/actions/runs/${run}/job/1\"}]"
         ;;
+    "GET repos/"*"/releases/tags/"*)
+        tag="${path##*/}"
+        if [ -f "$S/no-release-${tag}" ]; then
+            echo 'gh: Not Found (HTTP 404)' >&2
+            exit 1
+        fi
+        emit "{\"tag_name\": \"${tag}\"}"
+        ;;
     "GET repos/"*"/commits/"*"/pulls")
         [ ! -f "$S/pulls-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         sha="${path#*/commits/}"
@@ -395,7 +412,13 @@ case "$(cat "$STUB/claude-mode" 2>/dev/null || echo ok)" in
     noheading) printf '%s\n' '{"type":"result","is_error":false,"result":"Jestem Arwena, nie Rin."}' ;;
     exit1) echo 'claude: not signed in' >&2; exit 1 ;;
     sleep) echo "$$" > "$STUB/claude.pid"; exec sleep 30 ;;
-    sleep3) sleep 3; printf '%s\n' '{"type":"result","is_error":false,"result":"A release.\n\n## For translators\n\n- **AI NOTES** (#11)"}' ;;
+    waitfile)
+        for _ in $(seq 1 200); do
+            [ ! -f "$STUB/notes-go" ] || break
+            sleep 0.1
+        done
+        printf '%s\n' '{"type":"result","is_error":false,"result":"A release.\n\n## For translators\n\n- **AI NOTES** (#11)"}'
+        ;;
 esac
 STUB
 
@@ -404,7 +427,25 @@ cat > "$BIN/editor" <<'STUB'
 echo 'EDITED BY THE TEST' >> "$1"
 [ ! -f "$STUB/editor-fail" ] || exit 1
 STUB
-chmod +x "$BIN/gh" "$BIN/claude" "$BIN/editor"
+cat > "$BIN/uploadpack" <<'STUB'
+#!/bin/sh
+if [ -f "$STUB/origin-down" ]; then
+    echo 'fatal: the test took origin away' >&2
+    exit 1
+fi
+if [ -f "$STUB/uploadpack-budget" ]; then
+    left="$(cat "$STUB/uploadpack-budget")"
+    if [ "$left" -le 0 ]; then
+        echo 'fatal: the test took origin away' >&2
+        exit 1
+    fi
+    echo $((left - 1)) > "$STUB/uploadpack-budget"
+fi
+exec git upload-pack "$@"
+STUB
+chmod +x "$BIN/gh" "$BIN/claude" "$BIN/editor" "$BIN/uploadpack"
+# Extra arguments for run_release that send origin's fetch and ls-remote through $BIN/uploadpack.
+ORIGIN_SWITCH=(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.uploadpack "GIT_CONFIG_VALUE_0=$BIN/uploadpack")
 export PATH="$BIN:$PATH"
 
 # --- Fixture helpers ------------------------------------------------------------------------------
@@ -544,10 +585,24 @@ wait_for_file() {
 }
 
 # run_in_background <answers> — release.sh with $! as its own process id, for a signal.
+# run_in_background <answers> [env...]
 run_in_background() {
     printf '%b' "$1" > "$T/answers"
-    (cd "$CLONE" && exec env RELEASE_POLL_SECONDS=0 RELEASE_NOTES_GRACE_SECONDS=5 "$RELEASE_SH" < "$T/answers" > "$T/out" 2>&1) &
+    shift
+    (cd "$CLONE" && exec env RELEASE_POLL_SECONDS=0 RELEASE_NOTES_GRACE_SECONDS=5 "$@" "$RELEASE_SH" < "$T/answers" > "$T/out" 2>&1) &
     BG_PID=$!
+}
+
+# The pre-receive hook of a stopped push: it says it started, waits until the test stopped the
+# script (at most 10 s), then refuses. $1 = yes also takes origin away.
+slow_push_hook() {
+    {
+        printf '#!/bin/sh\ntouch "%s"\n' "$T/hook-started"
+        [ "${1:-}" != yes ] || printf 'touch "%s"\n' "$STUB/origin-down"
+        # shellcheck disable=SC2016 # the hook's own shell code, not this script's
+        printf 'for _ in $(seq 1 100); do [ ! -f "%s" ] || break; sleep 0.1; done\nexit 1\n' "$STUB/killed"
+    } > "$ORIGIN/hooks/pre-receive"
+    chmod +x "$ORIGIN/hooks/pre-receive"
 }
 
 out_has() { grep -qF -- "$1" <<< "$LAST_OUTPUT"; }
@@ -581,6 +636,9 @@ out_has 'From now on Ctrl-C stops only this script, not the deploy on GitHub.' |
 [ "$(git -C "$ORIGIN" tag -l --format='%(contents:subject)' v0.3.0)" = v0.3.0 ] || fail 'the tag message must be v0.3.0'
 grep -qF '**AI NOTES**' "$STUB/release-notes.md" || fail 'the AI notes must be published'
 logged 'close 77 closed' || fail 'the Next release issue must be closed'
+if out_has 'its release is not published' || out_has 'did not reach GitHub'; then
+    fail 'a good release must not print the lines of a stopped publish'
+fi
 logged 'comment 77 Released as [v0.3.0](https://github.com/koniecdev/LotroKoniecDev/releases/tag/v0.3.0).' \
     || fail 'the issue must link the release'
 grep -qF 'You write the release notes' "$STUB/claude-stdin.txt" || fail 'the prompt file must reach claude on stdin'
@@ -761,6 +819,8 @@ run_release '\n'
 out_has 'gh release create v0.3.0 --verify-tag --latest --title "v0.3.0" --notes-file' || fail 'the command that finishes the release must be printed'
 out_has 'scripts/ci/next-release-issue.sh close v0.3.0' || fail 'closing the issue by hand must be printed too'
 [ -f "$CLONE/.git/release-notes-v0.3.0.md" ] || fail 'the notes must be kept for that command'
+[ -n "$(git -C "$CLONE" tag --list v0.3.0)" ] || fail 'a pushed tag must stay here too'
+out_has 'did not reach GitHub' && fail 'a tag whose push worked must never be called missing'
 logged 'close 77' && fail 'the issue must stay open'
 pass 'a failed release create keeps the tag and prints the command that finishes it'
 
@@ -855,7 +915,7 @@ approve_ok 500
 run_release '\n'
 released v0.3.0 "$C1"
 [ "$(line_of 'rerun 500')" -lt "$(line_of 'approve 500')" ] || fail 'the run must be re-run, then approved'
-out_has 'ended without starting (it was rejected)' || fail 'the cause must be printed'
+out_has 'was rejected before it started.' || fail 'the cause must be printed'
 out_has 'staging goes back to' || fail 'the staging step back must be said'
 pass 'a candidate rejected before the script started is re-run, then approved'
 
@@ -867,7 +927,7 @@ states 500 on-rerun 'status=waiting prod=waiting'
 approve_ok 500
 run_release '\n'
 released v0.3.0 "$C1"
-out_has 'it was cancelled, by the CD janitor or by a newer candidate' || fail 'the cancel must be named'
+out_has 'was cancelled before it started, by the CD janitor or by a newer candidate.' || fail 'the cancel must be named'
 pass 'a candidate whose prod job was cancelled before it started is re-run'
 
 new_case 'the candidate keeps ending without a deploy'
@@ -1137,10 +1197,12 @@ pass 'a version typed while the script waits is thrown away'
 new_case 'an r typed before the notes wait'
 base_on_prod
 push
-echo sleep3 > "$STUB/claude-mode"
+echo waitfile > "$STUB/claude-mode"
 pty_start "env PATH='$PATH' RELEASE_POLL_SECONDS=1 RELEASE_NOTES_GRACE_SECONDS=1 '$RELEASE_SH'"
 pty_wait_for 'Writing the release notes in the background.' || fail 'the notes call must start'
 pty_send 'r\n'
+pty_wait_for 'The AI notes are still being written.' || fail 'the wait must be offered'
+touch "$STUB/notes-go"
 pty_wait_for 'Enter = publish' || fail 'the last prompt must be reached'
 pty_send '\n'
 pty_end
@@ -1177,6 +1239,9 @@ run_release '\n'
 no_tag
 [ -f "$CLONE/.git/release-notes-v0.3.0.md" ] || fail 'the notes must be kept'
 out_has 'the tag v0.3.0 could not be made, so nothing is published' || fail 'the stop must say why'
+if out_has 'did not reach GitHub' || out_has 'its release is not published'; then
+    fail 'a tag that was never made must not get the lines of a stopped publish'
+fi
 pass 'a tag that cannot be made publishes nothing and keeps the notes'
 
 new_case 'a newer candidate reaches the gate after the approval'
@@ -1228,7 +1293,7 @@ states 500 on-rerun 'status=waiting prod=waiting'
 : > "$STUB/calls.log"
 run_release '\n'
 released v0.3.0 "$C1"
-out_has "it deployed ${C1} earlier, but a later deploy replaced it" || fail 'the new start must say why it deploys again'
+out_has "deployed ${C1} earlier, but a later deploy replaced it." || fail 'the new start must say why it deploys again'
 logged 'rerun 500' || fail 'the new start must run the release run again'
 pass 'the release is not tagged when prod no longer runs it, and a new start deploys it again'
 
@@ -1284,11 +1349,11 @@ pass 'an issue that cannot be closed only warns after the release'
 new_case 'stopped while the tag is pushed'
 base_on_prod
 push
-printf '#!/bin/sh\ntouch "%s"\nsleep 2\nexit 1\n' "$T/hook-started" > "$ORIGIN/hooks/pre-receive"
-chmod +x "$ORIGIN/hooks/pre-receive"
+slow_push_hook
 run_in_background '\n'
 wait_for_file "$T/hook-started" || fail 'the push must start'
 kill -TERM "$BG_PID"
+touch "$STUB/killed"
 LAST_STATUS=0
 wait "$BG_PID" || LAST_STATUS=$?
 LAST_OUTPUT="$(cat "$T/out")"
@@ -1306,6 +1371,7 @@ touch "$STUB/release-slow"
 run_in_background '\n'
 wait_for_file "$STUB/release-started" || fail 'the release create must start'
 kill -TERM "$BG_PID"
+touch "$STUB/killed"
 LAST_STATUS=0
 wait "$BG_PID" || LAST_STATUS=$?
 LAST_OUTPUT="$(cat "$T/out")"
@@ -1366,6 +1432,73 @@ LAST_OUTPUT="$(cd "$CLONE" && PATH="$T/min" "$RELEASE_SH" 2>&1 < /dev/null)" || 
 [ "$LAST_STATUS" -eq 2 ] || fail "a missing gh must exit 2, got $LAST_STATUS"
 out_has 'gh is not installed' || fail 'the missing gh must be named'
 pass 'a missing git or gh exits 2'
+
+new_case 'the release create fails and GitHub cannot be asked'
+base_on_prod
+push
+touch "$STUB/release-fail" "$STUB/origin-down-on-release"
+run_release '\n' "${ORIGIN_SWITCH[@]}"
+[ "$LAST_STATUS" -eq 1 ] || fail "a failed release create must exit 1, got $LAST_STATUS"
+[ "$(tag_of v0.3.0)" = "$C1" ] || fail 'the tag is on origin'
+[ -n "$(git -C "$CLONE" tag --list v0.3.0)" ] || fail 'the local tag must stay: the push worked'
+out_has 'the tag v0.3.0 is on GitHub, but its release is not published. Finish with:' || fail 'a push that worked is known, so the finish lines must be printed'
+out_has 'did not reach GitHub' && fail 'GitHub not answering must never be read as the tag missing'
+pass 'after a push that worked, the finish lines are printed without asking GitHub'
+
+new_case 'stopped while the tag is pushed, and GitHub cannot be asked'
+base_on_prod
+push
+slow_push_hook yes
+run_in_background '\n' "${ORIGIN_SWITCH[@]}"
+wait_for_file "$T/hook-started" || fail 'the push must start'
+kill -TERM "$BG_PID"
+touch "$STUB/killed"
+LAST_STATUS=0
+wait "$BG_PID" || LAST_STATUS=$?
+LAST_OUTPUT="$(cat "$T/out")"
+[ "$LAST_STATUS" -eq 143 ] || fail "a stop during the push must exit 143, got $LAST_STATUS"
+[ -n "$(git -C "$CLONE" tag --list v0.3.0)" ] || fail 'the local tag must stay while nobody knows where the tag is'
+out_has 'GitHub could not be asked whether the tag v0.3.0 got there, so the local tag stays.' || fail 'the unknown answer must be said'
+out_has 'did not reach GitHub' && fail 'an unanswered question must never be read as "not there"'
+pass 'a stop during the push while GitHub cannot be asked keeps the local tag and says so'
+
+new_case 'GitHub cannot be asked about the newest tag'
+base_on_prod
+push
+echo 1 > "$STUB/uploadpack-budget"
+run_release '\n' "${ORIGIN_SWITCH[@]}"
+[ "$LAST_STATUS" -eq 1 ] || fail "an unanswered tag check must stop, got $LAST_STATUS"
+out_has 'GitHub could not be asked whether v0.2.1 is there' || fail 'the stop must say why'
+logged 'release v' && fail 'nothing must be published'
+pass 'a newest-tag check GitHub does not answer stops the run'
+
+new_case 'the newest tag has no GitHub Release'
+base_on_prod
+push
+touch "$STUB/no-release-v0.2.1"
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a newest tag with no release must stop, got $LAST_STATUS"
+out_has 'the newest tag, v0.2.1, has no GitHub Release' || fail 'the stop must name the tag'
+out_has 'gh release create v0.2.1 --verify-tag --latest --title "v0.2.1"' || fail 'the stop must say how to finish it'
+logged 'release v' && fail 'nothing must be published'
+pass 'a newest tag with no GitHub Release (a stopped run) stops the run and says how to finish it'
+
+new_case 'a replaced release run that has not ended yet'
+base
+push
+cd_run 300 'CD by hand: sha-abc1234' workflow_dispatch "$DONE"
+release_run 500 'status=in_progress prod=completed pconc=success steps=12 nr=in_progress'
+states 500 queue 'status=in_progress prod=completed pconc=success steps=12 nr=in_progress' "$DONE"
+: > "$STUB/deployments"
+on_prod 300
+on_prod 500
+states 500 on-rerun 'status=waiting prod=waiting'
+approve_ok 500
+run_release '\n'
+released v0.3.0 "$C1"
+out_has "deployed ${C1} earlier; waiting for the run to end." || fail 'a run that has not ended must be waited for before the re-run'
+logged 'rerun 500' || fail 'the run must be re-run once it ended'
+pass 'a replaced release run is re-run only after it ended'
 
 new_case 'the workflows still match what the script reads'
 CD_YML="$REPO_ROOT/.github/workflows/cd.yml"

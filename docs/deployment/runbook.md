@@ -1357,8 +1357,10 @@ prompt. It:
    "Next release" issue. A failure or a stop here (Ctrl-C included) keeps the notes in
    `.git/release-notes-vX.Y.Z.md` for the by-hand commands it prints. A tag that did not reach
    GitHub is removed again, so the next run does not take the release as done (a new run writes new
-   notes); a tag that reached GitHub stays, and the printed `gh release create` finishes it. A run
-   that finds a newest tag only the clone has stops at the start and says so.
+   notes); a tag that reached GitHub stays, and the printed `gh release create` finishes it. When
+   GitHub cannot be asked whether the tag got there, the local tag stays and both sets of commands
+   are printed. A run stops at the start, and says how to go on, when the newest tag exists only in
+   the clone or has no GitHub Release yet.
 
 Lines typed while the script waits are thrown away before each prompt, so only an answer to the
 prompt itself publishes.

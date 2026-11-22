@@ -33,7 +33,8 @@
 #
 # Exit: 0 = released, nothing new, or stopped by the owner (Enter or no answer at the version
 #       question, q at the last prompt); 1 = stopped by a failed check, deploy or publish, or no
-#       answer at the last prompt; 2 = a missing tool or a bad argument; 130 = Ctrl-C.
+#       answer at the last prompt; 2 = a missing tool or a bad argument; 130 = Ctrl-C; 143 = killed
+#       (SIGTERM).
 #
 # Bash only: it runs in Git Bash on Windows too (owner decision, 2026-11-22), so it has no .ps1 twin.
 set -euo pipefail
@@ -73,6 +74,7 @@ PROD_URL=""
 AI_OFF=""
 PUBLISH_TAG=""
 PUBLISH_KEEP=""
+PUSHED=0
 RELEASED=0
 
 say() { printf '%s\n' "$*"; }
@@ -146,19 +148,32 @@ finish_lines() {
 
 # Runs on every exit, Ctrl-C and a failed step included. A publish that stopped half-way must not
 # leave a local tag that the next run takes as released, nor a pushed tag with no word on how to
-# finish. GitHub says whether the tag got there; the push may have ended either way.
+# finish. A push that returned success is known; only a push that did not is asked about, and an
+# unanswered question is never read as "not there".
 finish_interrupted_publish() {
+    local remote_rc=0
     if [ -z "$PUBLISH_TAG" ] || [ "$RELEASED" -eq 1 ] || ! git rev-parse --verify --quiet "refs/tags/${PUBLISH_TAG}" >/dev/null; then
         return 0
     fi
-    if git ls-remote --exit-code --tags origin "refs/tags/${PUBLISH_TAG}" >/dev/null 2>&1; then
-        printf 'release.sh: the tag %s is on GitHub, but its release is not published. Finish with:\n%s\n' \
-            "$PUBLISH_TAG" "$(finish_lines yes)" >&2
-    else
-        git tag -d "$PUBLISH_TAG" >/dev/null 2>&1 || true
-        printf 'release.sh: the tag %s did not reach GitHub, so nothing is published and the local tag is removed. Start this script again (it writes new notes), or finish by hand with the notes kept in %s:\n%s\n' \
-            "$PUBLISH_TAG" "$PUBLISH_KEEP" "$(finish_lines no)" >&2
+    if [ "$PUSHED" -eq 0 ]; then
+        printf 'release.sh: asking GitHub whether the tag %s got there...\n' "$PUBLISH_TAG" >&2
+        git ls-remote --exit-code --tags origin "refs/tags/${PUBLISH_TAG}" >/dev/null 2>&1 || remote_rc=$?
     fi
+    case "$remote_rc" in
+        0)
+            printf 'release.sh: the tag %s is on GitHub, but its release is not published. Finish with:\n%s\n' \
+                "$PUBLISH_TAG" "$(finish_lines yes)" >&2
+            ;;
+        2)
+            git tag -d "$PUBLISH_TAG" >/dev/null 2>&1 || true
+            printf 'release.sh: the tag %s did not reach GitHub, so nothing is published and the local tag is removed. Start this script again (it writes new notes), or finish by hand with the notes kept in %s:\n%s\n' \
+                "$PUBLISH_TAG" "$PUBLISH_KEEP" "$(finish_lines no)" >&2
+            ;;
+        *)
+            printf 'release.sh: GitHub could not be asked whether the tag %s got there, so the local tag stays. When GitHub has it, finish with:\n%s\nWhen it does not, delete the local tag (git tag -d %s) and start this script again, or finish by hand:\n%s\n' \
+                "$PUBLISH_TAG" "$(finish_lines yes)" "$PUBLISH_TAG" "$(finish_lines no)" >&2
+            ;;
+    esac
 }
 
 cleanup() {
@@ -326,13 +341,14 @@ find_candidate() {
     head -n 1 <<< "$out"
 }
 
+# rerun <run id> <the sentence that says why>
 rerun() {
     local id="$1" why="$2"
     RERUNS=$((RERUNS + 1))
     if [ "$RERUNS" -gt "$MAX_RERUNS" ]; then
-        die "the prod job of $(run_url "$id") ended without a deploy $((MAX_RERUNS + 1)) times. Look at the run, then start again."
+        die "$(run_url "$id") needed a new run $((MAX_RERUNS + 1)) times. Look at the run, then start again."
     fi
-    say "The prod job of $(run_url "$id") ended without starting (${why}). Running the whole run again (${RERUNS} of ${MAX_RERUNS})."
+    say "${why} Running the whole run again (${RERUNS} of ${MAX_RERUNS})."
     say "Its staging deploy runs again too, so staging goes back to ${R} until the next merge."
     if ! gh api -X POST "repos/${REPO}/actions/runs/${id}/rerun" >/dev/null; then
         die "GitHub refused to run $(run_url "$id") again (a run older than 30 days cannot be re-run). Use the manual steps in the runbook, \"Releases\"."
@@ -390,7 +406,7 @@ deploy_release() {
                         nap
                         continue
                     fi
-                    rerun "$target" "it deployed ${R} earlier, but a later deploy replaced it"
+                    rerun "$target" "$(run_url "$target") deployed ${R} earlier, but a later deploy replaced it."
                     nap
                     continue
                 fi
@@ -410,9 +426,9 @@ deploy_release() {
             continue
         fi
         case "$conclusion" in
-            failure) rerun "$target" "it was rejected" ;;
-            cancelled) rerun "$target" "it was cancelled, by the CD janitor or by a newer candidate" ;;
-            *) rerun "$target" "it ended '${conclusion}'" ;;
+            failure) rerun "$target" "The prod job of $(run_url "$target") was rejected before it started." ;;
+            cancelled) rerun "$target" "The prod job of $(run_url "$target") was cancelled before it started, by the CD janitor or by a newer candidate." ;;
+            *) rerun "$target" "The prod job of $(run_url "$target") ended '${conclusion}' before it started." ;;
         esac
         nap
     done
@@ -433,7 +449,7 @@ finish_deploy() {
         say "WARNING: the \"${NEXT_RELEASE_JOB}\" job of $(run_url "$W") failed. The release goes on; this script closes the issue at the end."
     fi
     if ! prod_runs_release; then
-        die "$(run_url "$W") deployed ${R}, but prod no longer runs it: a later deploy replaced it with ${PROD_TITLE}${PROD_URL:+ (${PROD_URL})}. Nothing is tagged. Find out why; a new start of this script deploys ${R} again."
+        die "$(run_url "$W") deployed ${R}, but prod no longer runs it: a later deploy replaced it with ${PROD_TITLE}${PROD_URL:+ (${PROD_URL})}. Nothing is tagged. Find out why; a new start of this script releases the newest deployable commit on main, and deploys it again if prod does not run it."
     fi
     say "Prod runs ${R}."
     note="Rejected by scripts/release.sh: ${R} is already deployed by run ${W}."
@@ -585,6 +601,7 @@ $(finish_lines no)"
     if ! git push origin "$tag"; then
         die "the tag ${tag} could not be pushed."
     fi
+    PUSHED=1
     if ! url="$(ghx release create "$tag" --verify-tag --latest --title "$tag" --notes-file "$WORK/notes.md")"; then
         die "the GitHub Release ${tag} could not be created."
     fi
@@ -639,9 +656,17 @@ if [ -n "$NEWEST_TAG" ]; then
     git ls-remote --exit-code --tags origin "refs/tags/${NEWEST_TAG}" >/dev/null || remote_rc=$?
     case "$remote_rc" in
         0) ;;
-        2) die "the newest tag here, ${NEWEST_TAG}, is not on GitHub (an earlier run may have stopped half-way). Push it (git push origin ${NEWEST_TAG}) or delete it (git tag -d ${NEWEST_TAG}), then start again." ;;
+        2) die "the newest tag here, ${NEWEST_TAG}, is not on GitHub (an earlier run may have stopped half-way). Delete it (git tag -d ${NEWEST_TAG}) and start again. Only if you mean to finish that release by hand: git push origin ${NEWEST_TAG}, then gh release create ${NEWEST_TAG} --verify-tag --latest --title \"${NEWEST_TAG}\" --notes-file <notes>." ;;
         *) die "GitHub could not be asked whether ${NEWEST_TAG} is there (git ls-remote exited ${remote_rc})." ;;
     esac
+    # A tag on GitHub with no GitHub Release is a release a stopped run did not finish.
+    if ! newest_release="$(ghx api "repos/${REPO}/releases/tags/${NEWEST_TAG}" --jq '.tag_name' 2>&1)"; then
+        kept="$(git rev-parse --absolute-git-dir)/release-notes-${NEWEST_TAG}.md"
+        [ -f "$kept" ] || kept="<notes>"
+        die "the newest tag, ${NEWEST_TAG}, has no GitHub Release, or GitHub could not be asked (${newest_release}). If a run stopped after its push, finish that release first:
+  gh release create ${NEWEST_TAG} --verify-tag --latest --title \"${NEWEST_TAG}\" --notes-file \"${kept}\"
+then start again."
+    fi
     candidates="$(git rev-list --first-parent "$(git rev-parse "${NEWEST_TAG}^{commit}")..origin/main")"
 else
     candidates="$(git rev-list --first-parent origin/main)"

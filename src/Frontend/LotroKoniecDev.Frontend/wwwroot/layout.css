@@ -309,6 +309,11 @@ code {
     flex: 1 1 12rem;
 }
 
+/* Wide enough for the longest status, "Do ponownego sprawdzenia", so the row wraps before it cuts it. */
+.filter > .field-status {
+    flex-basis: 16rem;
+}
+
 .filter > .field-match,
 .filter > .field-page-size,
 .filter > .field-conflicts,

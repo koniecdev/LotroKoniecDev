@@ -1,7 +1,9 @@
 using System.Globalization;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Primitives;
 
 namespace LotroKoniecDev.Frontend.Components.Pages.Translations;
 
@@ -15,13 +17,19 @@ internal sealed record TranslationListQuery
     /// <summary>Must be one of <see cref="PageSizeOptions"/>.</summary>
     internal const int DefaultPageSize = 50;
 
+    private const string PagePath = "/translations";
+    private const string EditorPathPrefix = "/editor/";
+    private const string PageName = "page";
+    private const string SearchName = "search";
+    private const string StatusName = "status";
+    private const string ConflictsOnlyName = "conflictsOnly";
+    private const string PageSizeName = "pageSize";
+
     /// <summary>
     /// Any other size, for example from a hand-typed URL, falls back to <see cref="DefaultPageSize"/>, so
     /// the dropdown always shows the size in use (#323). Every value stays inside the API's range of 1-100.
     /// </summary>
     internal static readonly IReadOnlyList<int> PageSizeOptions = [25, 50, 100];
-
-    private const string PagePath = "/translations";
 
     private TranslationListQuery(string? search, TranslationStatus? status, int page, int pageSize, bool conflictsOnly)
     {
@@ -70,14 +78,8 @@ internal sealed record TranslationListQuery
     /// For the pager links. The page's own address is the website's contract with the browser, so it keeps
     /// its own names. It leaves out the default <c>pageSize</c>, so the URL the user sees stays short (#323).
     /// </summary>
-    public string ToPageRelativeUri(int page)
-    {
-        Dictionary<string, string?> parameters = new();
-        AddPagingAndFilterParameters(parameters, Math.Max(page, 1));
-        AddNonDefaultPageSize(parameters);
-
-        return QueryHelpers.AddQueryString(PagePath, parameters);
-    }
+    public string ToPageRelativeUri(int page) =>
+        QueryHelpers.AddQueryString(PagePath, PageQueryParameters(Math.Max(page, 1)));
 
     /// <summary>
     /// The redirect after a bulk approve (#322). The counts ride in the query string, so the confirmation
@@ -85,14 +87,28 @@ internal sealed record TranslationListQuery
     /// </summary>
     public string ToPageRelativeUriWithApprovalResult(int approved, int skipped)
     {
-        Dictionary<string, string?> parameters = new();
-        AddPagingAndFilterParameters(parameters);
-        AddNonDefaultPageSize(parameters);
+        Dictionary<string, string?> parameters = PageQueryParameters(Page);
         parameters["approved"] = approved.ToString(CultureInfo.InvariantCulture);
         parameters["skipped"] = skipped.ToString(CultureInfo.InvariantCulture);
 
         return QueryHelpers.AddQueryString(PagePath, parameters);
     }
+
+    /// <summary>
+    /// The editor's address carries the list state, so the editor can build the way back (#1452). Default
+    /// values stay out, so the list's first page links to a bare <c>/editor/{id}</c>.
+    /// </summary>
+    public string ToEditorRelativeUri(TranslationId id) =>
+        QueryHelpers.AddQueryString(
+            string.Create(CultureInfo.InvariantCulture, $"{EditorPathPrefix}{id.Value}"),
+            PageQueryParameters(PageUnlessFirst()));
+
+    /// <summary>
+    /// The editor's way back to the list (#1452). The path is always the list page, and every value is
+    /// encoded into the query string, so no value can make the link leave the site.
+    /// </summary>
+    public string ToListRelativeUri() =>
+        QueryHelpers.AddQueryString(PagePath, PageQueryParameters(PageUnlessFirst()));
 
     /// <summary>
     /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".
@@ -107,33 +123,62 @@ internal sealed record TranslationListQuery
         return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
     }
 
-    private void AddPagingAndFilterParameters(Dictionary<string, string?> parameters, int? page = null)
+    /// <summary>
+    /// Reads the list state that <see cref="ToEditorRelativeUri"/> wrote into a page address (#1452). Every
+    /// field is read as text, so a value that cannot be read falls back to its default instead of failing
+    /// the page, and nothing but the list's own fields is read.
+    /// </summary>
+    public static TranslationListQuery FromPageQuery(string uri)
     {
-        parameters["page"] = (page ?? Page).ToString(CultureInfo.InvariantCulture);
+        ArgumentNullException.ThrowIfNull(uri);
+
+        Dictionary<string, StringValues> query = QueryHelpers.ParseQuery(QueryPart(uri));
+
+        return new TranslationListQuery(
+            FirstValue(query, SearchName),
+            ParseStatus(FirstValue(query, StatusName)),
+            ParsePage(FirstValue(query, PageName)),
+            ParsePageSize(FirstValue(query, PageSizeName)),
+            ParseConflictsOnly(FirstValue(query, ConflictsOnlyName)));
+    }
+
+    /// <summary>
+    /// The one writer of every page address, so a new list field reaches all of them. A null
+    /// <paramref name="page"/> leaves the page out.
+    /// </summary>
+    private Dictionary<string, string?> PageQueryParameters(int? page)
+    {
+        Dictionary<string, string?> parameters = new();
+
+        if (page is { } pageNumber)
+        {
+            parameters[PageName] = pageNumber.ToString(CultureInfo.InvariantCulture);
+        }
 
         if (Search is not null)
         {
-            parameters["search"] = Search;
+            parameters[SearchName] = Search;
         }
 
         if (Status is { } status)
         {
-            parameters["status"] = status.ToString();
+            parameters[StatusName] = status.ToString();
         }
 
         if (ConflictsOnly)
         {
-            parameters["conflictsOnly"] = "true";
+            parameters[ConflictsOnlyName] = "true";
         }
-    }
 
-    private void AddNonDefaultPageSize(Dictionary<string, string?> parameters)
-    {
         if (PageSize != DefaultPageSize)
         {
-            parameters["pageSize"] = PageSize.ToString(CultureInfo.InvariantCulture);
+            parameters[PageSizeName] = PageSize.ToString(CultureInfo.InvariantCulture);
         }
+
+        return parameters;
     }
+
+    private int? PageUnlessFirst() => Page > 1 ? Page : null;
 
     private static TranslationStatus? ParseStatus(string? status)
     {
@@ -147,4 +192,38 @@ internal sealed record TranslationListQuery
             ? result
             : null;
     }
+
+    /// <summary>
+    /// The same number rules as the list's own query binding. Anything else is the first page.
+    /// </summary>
+    private static int ParsePage(string? page) =>
+        int.TryParse(page, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ? parsed : 1;
+
+    /// <summary>
+    /// A size that cannot be read is the default size, as an unsupported number is.
+    /// </summary>
+    private static int ParsePageSize(string? pageSize) =>
+        int.TryParse(pageSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : DefaultPageSize;
+
+    /// <summary>
+    /// The query part of an absolute or a relative address. <see cref="Uri.Query"/> cannot read a relative
+    /// one, and <see cref="QueryHelpers.ParseQuery"/> would keep a fragment.
+    /// </summary>
+    private static string QueryPart(string uri)
+    {
+        int fragmentStart = uri.IndexOf('#', StringComparison.Ordinal);
+        string withoutFragment = fragmentStart < 0 ? uri : uri[..fragmentStart];
+        int queryStart = withoutFragment.IndexOf('?', StringComparison.Ordinal);
+
+        return queryStart < 0 ? string.Empty : withoutFragment[queryStart..];
+    }
+
+    /// <summary>
+    /// The first value of a repeated name, as Blazor's query binding reads it. A joined value such as
+    /// <c>a,b</c> would match neither page.
+    /// </summary>
+    private static string? FirstValue(Dictionary<string, StringValues> query, string name) =>
+        query.TryGetValue(name, out StringValues values) && values.Count > 0 ? values[0] : null;
 }

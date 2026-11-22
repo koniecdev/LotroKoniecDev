@@ -34,6 +34,9 @@ public sealed class EditorTests : BunitContext
     private const string ApproveHref = "https://tms.example/hateoas/translations/abc/approve";
     private const string SameSourceTextHref = "https://tms.example/hateoas/translations/abc/same-source-text";
 
+    /// <summary>Every list field away from its default, in the order the list writes them (#1452).</summary>
+    private const string ListState = "page=2&search=Frodo%20%26%20Sam&status=Draft&conflictsOnly=true&pageSize=25";
+
     private readonly ITranslationSystemClient _client = Substitute.For<ITranslationSystemClient>();
 
     public EditorTests()
@@ -670,6 +673,178 @@ public sealed class EditorTests : BunitContext
         IElement capped = component.Find(".same-source-capped");
         capped.TextContent.ShouldContain("Pokazano 1 z 60");
         capped.QuerySelectorAll("a").Length.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Render_BackLink_WithNoListStateInTheAddress_GoesToTheListPage()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".head-actions a").GetAttribute("href").ShouldBe("/translations");
+    }
+
+    [Fact]
+    public void Render_BackLink_CarriesTheListStateFromTheEditorsAddress()
+    {
+        // #1452: the way back shows the list the translator came from.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".head-actions a").GetAttribute("href").ShouldBe($"/translations?{ListState}");
+    }
+
+    [Fact]
+    public void Render_BackLink_KeepsASearchWithSpecialCharacters()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?search=a%2Bb%20%26%20%231%25%20%C5%9Ar%C3%B3dziemie");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".head-actions a").GetAttribute("href")
+            .ShouldBe("/translations?search=a%2Bb%20%26%20%231%25%20%C5%9Ar%C3%B3dziemie");
+    }
+
+    [Fact]
+    public void Render_BackLink_LeavesTheEditorsOwnFlagsOut()
+    {
+        // The list reads "approved" as a number, so the editor's flag must never ride back to it.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?search=Frodo&approved=true&saved=true");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".head-actions a").GetAttribute("href").ShouldBe("/translations?search=Frodo");
+    }
+
+    [Theory]
+    [InlineData("search=//evil.example", "/translations?search=%2F%2Fevil.example")]
+    [InlineData("search=https://evil.example", "/translations?search=https%3A%2F%2Fevil.example")]
+    [InlineData("returnUrl=https://evil.example", "/translations")]
+    [InlineData("page=https://evil.example&status=//evil.example", "/translations")]
+    public void Render_BackLink_WithAnAddressInTheQuery_StillGoesToTheListPage(string editorQuery, string expectedHref)
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?{editorQuery}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".head-actions a").GetAttribute("href").ShouldBe(expectedHref);
+    }
+
+    [Fact]
+    public void Render_BackLink_WhileTheRowIsStillLoading_AlreadyCarriesTheListState()
+    {
+        // The page renders once before the row arrives, and the back link is drawn outside the row.
+        Guid id = Guid.NewGuid();
+        TaskCompletionSource<ApiResult<TranslationDetailResponse>> pendingLoad = new();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(pendingLoad.Task);
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".loading-indicator").ShouldNotBeNull();
+        component.Find(".head-actions a").GetAttribute("href").ShouldBe($"/translations?{ListState}");
+    }
+
+    [Fact]
+    public async Task Save_WhenSucceeds_RedirectsWithTheListStateAndOnlyTheSavedFlag()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
+        BunitNavigationManager navigation = Navigation();
+        navigation.NavigateTo($"/editor/{id}?{ListState}&approved=true");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?{ListState}&saved=true");
+    }
+
+    [Fact]
+    public async Task Approve_WhenSucceeds_RedirectsWithTheListStateAndOnlyTheApprovedFlag()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canApprove: true));
+        _client
+            .PostApiResultAsync(ApproveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success());
+        BunitNavigationManager navigation = Navigation();
+        navigation.NavigateTo($"/editor/{id}?{ListState}&saved=true");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?{ListState}&approved=true");
+    }
+
+    [Fact]
+    public async Task Save_WhenSucceeds_TheReloadedEditorStillLinksBackToTheSameList()
+    {
+        // bUnit renders the redirect target again, so the back link after the save comes from the
+        // redirect's own address.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(BuildDetail("Hello.", "Cześć.", canEdit: true)));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+
+        component.WaitForAssertion(() =>
+            component.Find(".head-actions a").GetAttribute("href").ShouldBe($"/translations?{ListState}"));
+    }
+
+    [Fact]
+    public void Render_OtherRowLink_CarriesTheListState()
+    {
+        // "Otwórz" is a detour from the same list, so its back link still shows that list.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        TranslationId otherId = TranslationId.Create(Guid.NewGuid());
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(otherId, 127768437, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find("section.same-source tbody tr a").GetAttribute("href")
+            .ShouldBe($"/editor/{otherId.Value}?{ListState}");
+    }
+
+    [Fact]
+    public void Render_ConflictListLink_StartsANewSearchInsteadOfKeepingTheListState()
+    {
+        // The ticket keeps this link as it is: it opens a new list, it is not the way back.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".same-source-capped a").GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&conflictsOnly=true");
     }
 
     private BunitNavigationManager Navigation() =>

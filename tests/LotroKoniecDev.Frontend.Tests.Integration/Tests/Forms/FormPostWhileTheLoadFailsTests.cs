@@ -29,6 +29,10 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     private const string TmsOrigin = "https://tms.staging.invalid";
     private const string AuthOrigin = "https://auth.staging.invalid";
     private const string RowId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    private const string EditorPath = $"/editor/{RowId}";
+
+    /// <summary>Every list field away from its default, in the order the list writes them (#1452).</summary>
+    private const string ListState = "page=2&search=Frodo%20%26%20Sam&status=Draft&conflictsOnly=true&pageSize=25";
 
     /// <summary>The Polish text a 503 from an API turns into (ApiProblemCopy).</summary>
     private const string ServiceUnavailableMessage = "Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.";
@@ -233,6 +237,76 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
         page.ShouldNotContain("Tłumaczenie zapisano.");
     }
 
+    [Fact]
+    public async Task Post_SaveForm_FromAnAddressWithTheListState_RedirectsWithTheListStateAndTheSavedFlag()
+    {
+        // Arrange: #1452. The editor reads the list state from the real request address on a post.
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.OK };
+        StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, "Witaj, wędrowcze.", $"{EditorPath}?{ListState}"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString
+            .ShouldEndWith($"{EditorPath}?{ListState}&saved=true");
+    }
+
+    [Fact]
+    public async Task Post_SaveForm_FromAnAddressWithTheListState_WhenTheSaveIsRefused_PostsTheRecoveryFormToThatAddress()
+    {
+        // Arrange: the browser posts a form to its action, so the next save keeps the list state only if
+        // the host writes the address with its query there. bUnit draws no action, so only the real host
+        // shows it.
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Conflict };
+        StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, "Witaj, wędrowcze.", $"{EditorPath}?{ListState}"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = await posted.Content.ReadAsStringAsync();
+        Match recoveryForm = RecoveryFormAction().Match(page);
+        recoveryForm.Success.ShouldBeTrue();
+        WebUtility.HtmlDecode(recoveryForm.Groups["action"].Value).ShouldBe($"{EditorPath}?{ListState}");
+    }
+
+    [Theory]
+    [InlineData("page=abc")]
+    [InlineData("pageSize=abc")]
+    [InlineData("conflictsOnly=on")]
+    [InlineData("status=Bogus")]
+    [InlineData("page=2&page=3")]
+    [InlineData("search=//evil.example&returnUrl=https://evil.example")]
+    public async Task Get_EditorWithAListValueItCannotRead_ShowsTheEditorPage(string editorQuery)
+    {
+        // Arrange: #1452, the real query binding on the Production host. A typed query parameter would turn
+        // such a value into the layout's error page; the editor's own load error shows instead.
+        StubTranslationSystem translationSystem = new();
+        StubAuthSystem authSystem = new(HttpStatusCode.ServiceUnavailable);
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem, authSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+
+        // Act
+        using HttpResponseMessage response = await browser.GetAsync($"{EditorPath}?{editorQuery}");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
+        page.ShouldContain("<h1>Edytor tłumaczenia</h1>");
+        page.ShouldContain(ServiceUnavailableMessage);
+    }
+
     [Theory]
     [InlineData("/import-export", "no-such-form")]
     [InlineData("/game-versions", "delete-")]
@@ -266,6 +340,10 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
     [GeneratedRegex("""<textarea id="translated-recovery"[^>]*>(?<text>[^<]*)</textarea>""")]
     private static partial Regex RecoveryTextarea();
 
+    /// <summary>The action of the form that holds the recovery textarea. A form with no action does not match.</summary>
+    [GeneratedRegex("""<form\b[^>]*\baction="(?<action>[^"]*)"[^>]*>(?:(?!</form>).)*?id="translated-recovery""", RegexOptions.Singleline)]
+    private static partial Regex RecoveryFormAction();
+
     private WebApplicationFactory<Program> CreateHost(
         StubTranslationSystem translationSystem,
         StubAuthSystem authSystem) =>
@@ -290,8 +368,8 @@ public sealed partial class FormPostWhileTheLoadFailsTests : IClassFixture<Produ
             })
         };
 
-    private static HttpRequestMessage SavePost(string antiforgeryToken, string draft) =>
-        new(HttpMethod.Post, $"/editor/{RowId}")
+    private static HttpRequestMessage SavePost(string antiforgeryToken, string draft, string path = EditorPath) =>
+        new(HttpMethod.Post, path)
         {
             Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {

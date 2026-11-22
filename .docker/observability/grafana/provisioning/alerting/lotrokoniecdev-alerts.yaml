@@ -3,7 +3,7 @@
 # ADR-0034 §Consequences named exactly what the Azure migration deleted: "the Azure Monitor alert
 # rules (replica restart, 5xx spike, memory/CPU saturation, log-error spike)". Three of the four are
 # project-scoped and live here; box saturation is not ours alone and lives in fleet-alerts.yaml.
-# The two translation save rules at the end come from #687 (ADR-0072).
+# The two translation save rules come from #687 (ADR-0072), the unconfirmed sign-in rule from #1510.
 #
 # Both projects run on the same boxes, so every rule here is scoped to `lotrokoniecdev` — by
 # `service_namespace` for app metrics and `project` for logs and container metrics. TheKittySaver
@@ -254,6 +254,62 @@ groups:
                   absent_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[30m])
                   and on() count(count_over_time(lotro_backup_last_success_timestamp_seconds{box="lotro-prod"}[14d])) > 0
                 )
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: { type: gt, params: [0] }
+                  operator: { type: and }
+                  query: { params: [C] }
+                  reducer: { type: last, params: [] }
+                  type: query
+        noDataState: OK
+        execErrState: Error
+
+      # A sign-in by an account that has not confirmed its e-mail yet (#1510). It is often the only
+      # trace of a confirmation mail that never arrived. The owner chose to mail every one, with no
+      # threshold. One alert instance per account, so a second account sends a mail of its own.
+      - uid: lotro-unconfirmed-sign-in
+        title: LOTRO — an account that has not confirmed its e-mail tried to sign in
+        condition: C
+        for: 0s
+        labels:
+          project: lotrokoniecdev
+          severity: warning
+        annotations:
+          summary: 'Account {{ $labels.UserId }} tried to sign in before confirming its e-mail, on {{ $labels.environment }}'
+          description: >-
+            Someone typed the right password for an account whose e-mail is not confirmed yet. The
+            confirmation mail may never have arrived, or the person has not clicked the link yet.
+            Find the address with
+            SELECT "Email", "EmailConfirmed" FROM authsystem."Users" WHERE "Id" = '<the id>';
+            on the auth database, then follow the runbook (E-mail deliverability, "When someone says
+            an account mail never came") from step 2. The first mail comes within about 90 seconds,
+            or up to 5 minutes when another instance of this rule already fired, and that mail then
+            lists both accounts. A "resolved" mail follows about an hour after the account's last
+            attempt, which does not mean the mail arrived. A repeat comes every 6 hours only while
+            the account keeps trying at least once an hour. This alert cannot see a person who never
+            tries to sign in, one who only asks for a new link on the resend page (a successful
+            resend writes no log line), a wrong password, or an account locked after 5 wrong
+            passwords (for 5 minutes even the right password is logged as a lockout).
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: loki
+            model:
+              refId: A
+              instant: true
+              queryType: instant
+              editorMode: code
+              # Anchored on the template key, not the bare text: auth-api writes a caller's
+              # X-Correlation-ID header and request path into its log lines, and a bare-text filter
+              # would let any anonymous request fire this rule. The text comes from LoginLogText,
+              # and a unit test ties the two together.
+              expr: >-
+                sum by (environment, UserId) (count_over_time({project="lotrokoniecdev", container=~".*auth-api.*"} |= `"@mt":"Failed login: email not confirmed.` | json UserId="UserId" [1h]))
           - refId: C
             datasourceUid: __expr__
             model:

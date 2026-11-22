@@ -32,7 +32,7 @@
 #   worker role in ~/.claude/model-policy.env when present, else high/opus),
 #   LOOP_CONFIG_DIR (which Claude account runs the loop; default: claude_config_dir in the settings),
 #   LOOP_PERMISSION_MODE (default auto), LOOP_UNSAFE, LOOP_MAX_BUDGET_USD,
-#   LOOP_TICKET_TIMEOUT_MIN, LOOP_MAX_RESUMES, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
+#   LOOP_MAX_RESUMES, LOOP_KEEP_WORKTREE, LOOP_SKIP_LABELS,
 #   BASH_MAX_TIMEOUT_MS / BASH_DEFAULT_TIMEOUT_MS (the worker's Bash timeouts),
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE (the provenance gate, when
 #   the settings turn it on; it also fires on explicitly-named tickets, which never touch the

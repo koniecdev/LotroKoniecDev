@@ -9,7 +9,7 @@ A change to anything below changes the contract. Then the engine's `LOOP_CONTRAC
 line in the same pull request that brings the new engine version. Nothing checks that a changed
 line here came with a new number: whoever changes the engine bumps it.
 
-**Contract version: 1.**
+**Contract version: 2.**
 
 ## 1. Files a repository holds
 
@@ -90,7 +90,7 @@ The session runs in its worktree, `<main>/.claude/worktrees/ticket-<n>`, with th
 
 When the engine resumes a session, the prompt is one line of facts and nothing else:
 
-    loop-resume reason=<reason> issue=<n> minutes_left=<m> bash_max_timeout_ms=<ms>[ pr_named=<k>]
+    loop-resume reason=<reason> issue=<n> bash_max_timeout_ms=<ms>[ pr_named=<k>]
 
 | `reason` | When | How often |
 |---|---|---|
@@ -99,8 +99,8 @@ When the engine resumes a session, the prompt is one line of facts and nothing e
 | `limit` | A usage limit stopped the session, and the limit is over. The session runs in the worktree it left, uncommitted files included. | once per run |
 
 What the session does for each reason is written in the repository's
-`.claude/commands/work-ticket.md`, which the session read when it started, never in the engine. A
-resume starts only with at least ten minutes left on the ticket's clock.
+`.claude/commands/work-ticket.md`, which the session read when it started, never in the engine.
+The engine never stops a session for time.
 
 A session goes by the contract it started under, because the prompt it read stays in its
 transcript even when it later rebases its worktree onto a newer `main`:
@@ -150,8 +150,8 @@ transcript even when it later rebases its worktree onto a newer `main`:
 | `loop-salvage/<n>-<YYYYmmdd-HHMMSS>` | A branch with work a session left uncommitted, or committed on no branch. |
 | `loop-blocked` | The label of a blocked ticket. |
 
-`outcome` values: `pr-opened`, `merged`, `blocked`, `error`, `skipped`, `limit`, `timeout`,
-`stopped`, `untrusted`, `no-worktree`.
+`outcome` values: `pr-opened`, `merged`, `blocked`, `error`, `skipped`, `limit`, `stopped`,
+`untrusted`, `no-worktree`.
 
 The conductor's process has `backlog-loop.sh` in its command line. A worker's command line is
 `bash <checkout>/scripts/claude/work-ticket.sh <n> <run folder>`.
@@ -185,7 +185,7 @@ A worker's lines start with `[loop] #<n> <HH:MM:SS> `. A worker that refuses a t
 
 `0` PR opened · `2` blocked · `3` error (also: a repository that must be private and is not, or
 whose visibility GitHub did not report; a red `main`; a gate that cannot read the issue; a fresh
-worktree of another contract) · `4` timeout · `6` usage limit · `10` could not prepare the
+worktree of another contract) · `6` usage limit · `10` could not prepare the
 worktree · `11` refused by the provenance gate · `12` skipped · `13` the PR was merged before the
 session ended · `143` stopped by a signal.
 

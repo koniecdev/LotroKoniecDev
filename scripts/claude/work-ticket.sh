@@ -32,10 +32,6 @@
 #   LOOP_UNSAFE=1           use --dangerously-skip-permissions instead (full overnight autonomy)
 #   LOOP_MAX_BUDGET_USD     optional per-ticket API budget cap; unset by default on purpose (why:
 #                           LOOP.md, "Knobs")
-#   LOOP_TICKET_TIMEOUT_MIN wall-clock kill switch per run of this script, resumes included
-#                           (default: 240, only a guard against a stuck session — why:
-#                           LOOP.md, "Knobs"); the run that resumes after a usage limit
-#                           gets a new one
 #   LOOP_MAX_RESUMES        how many times a session that ends normally without a STATUS line is
 #                           resumed before the ticket counts as an error (default: 2); the one
 #                           resume of a DONE with no open PR and the resume after a usage limit
@@ -51,7 +47,7 @@
 #   LOOP_TRUSTED_ASSOCIATIONS / LOOP_TRUSTED_LOGINS / LOOP_TRUST_GATE — see issue-trust.sh
 #
 # Exit codes: 0 PR opened · 2 blocked · 3 error (incl. a provenance gate that could not reach the API)
-#             4 timeout · 6 usage limit hit (the worktree is kept when the session can be resumed)
+#             6 usage limit hit (the worktree is kept when the session can be resumed)
 #             10 could not prepare the worktree
 #             11 issue refused by the provenance gate (untrusted author or commenter)
 #             12 skipped: the ticket already has an open PR, its worktree already exists, a
@@ -111,11 +107,8 @@ MODEL="${LOOP_MODEL:-${MODEL_POLICY_WORKER_MODEL:-opus}}"
 # says; only LOOP_CONFIG_DIR changes it.
 export CLAUDE_CONFIG_DIR="${LOOP_CONFIG_DIR:-$LOOP_CLAUDE_CONFIG_DIR}"
 PERMISSION_MODE="${LOOP_PERMISSION_MODE:-auto}"
-TIMEOUT_MIN="${LOOP_TICKET_TIMEOUT_MIN:-240}"
 KEEP_WORKTREE="${LOOP_KEEP_WORKTREE:-0}"
 MAX_RESUMES="${LOOP_MAX_RESUMES:-2}"
-# A resume needs time for at least the test suite and the push.
-MIN_RESUME_MIN=10
 # The longest the fetch of a merged PR's head may take. Most such fetches find the commits already
 # here and end in seconds.
 MERGED_FETCH_LIMIT_SEC=60
@@ -161,17 +154,6 @@ case "$MAX_RESUMES" in
     ''|*[!0-9]*)
         meta outcome error
         echo "work-ticket: LOOP_MAX_RESUMES is not a number: '$MAX_RESUMES'" >&2
-        exit 3
-        ;;
-esac
-
-# The clock is first used in shell arithmetic after the session has started. There a bad value
-# ends this script with no outcome and leaves the worktree behind. A leading zero is refused too:
-# the shell reads "090" as an octal number.
-case "$TIMEOUT_MIN" in
-    ''|*[!0-9]*|0*)
-        meta outcome error
-        echo "work-ticket: LOOP_TICKET_TIMEOUT_MIN is not a whole number of minutes above zero, without a leading zero: '$TIMEOUT_MIN'" >&2
         exit 3
         ;;
 esac
@@ -954,8 +936,9 @@ sleeper=""
 # Reads this shell's own job list. Bash takes the job off the running list in the same step in
 # which it reaps it. A stopped job is not on that list either, but with job control off (`set +m`)
 # bash never sees a job stop.
-# The list is read with backquotes, not $(...), and so is the clock in the poll loops of
-# run_session and fetch_merged_head: a stop must reach this script while it waits for its session.
+# The list is read with backquotes, not $(...): run_session reads it in its poll loop, and a stop
+# must reach this script while it waits for its session. The clock in fetch_merged_head's poll
+# loop is read the same way.
 # Bash 5.2 runs a waiting trap when it starts to parse a $(...). At that point it still expects the
 # closing `)`, so the trap's own text does not parse: the trap fails with "unexpected EOF while
 # looking for matching `)'", never runs, and the stop is lost. Bash parses a backquote in
@@ -1006,7 +989,7 @@ stop_sleeper() {
 
 # While `ending` is 1, a stop is only noted. That holds from the claim or the making of the worktree
 # until the session starts, and again from the end of the last session, or while this script ends
-# one itself (a stop, the clock, a failed start), and while a ticket whose PR was merged during a
+# one itself (a stop, a failed start), and while a ticket whose PR was merged during a
 # usage-limit nap ends with no session. Before a session starts, run_session acts on the
 # noted stop. After the last session it changes nothing: the script exits in moments anyway, at
 # most about a minute later when it fetches a merged PR's head, and keeps its real outcome.
@@ -1102,20 +1085,20 @@ export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export BASH_MAX_TIMEOUT_MS="${BASH_MAX_TIMEOUT_MS:-3600000}"
 export BASH_DEFAULT_TIMEOUT_MS="${BASH_DEFAULT_TIMEOUT_MS:-600000}"
 
-# resume_prompt <no-status|no-pr|limit> <minutes left> — the prompt of a resume: one line of facts
+# resume_prompt <no-status|no-pr|limit> — the prompt of a resume: one line of facts
 # (CONTRACT.md, section 3). What the session does with them is written in the repository's own
 # /work-ticket prompt, which the session read at its start. pr_named is the number the session's
 # message linked; a PR's branch name never reaches the prompt, because whoever opens a PR names it.
 resume_prompt() {
     local named=""
     [ "$1" != no-pr ] || named="${pr_named:+ pr_named=$pr_named}"
-    echo "loop-resume reason=$1 issue=$ISSUE minutes_left=$2 bash_max_timeout_ms=$BASH_MAX_TIMEOUT_MS$named"
+    echo "loop-resume reason=$1 issue=$ISSUE bash_max_timeout_ms=$BASH_MAX_TIMEOUT_MS$named"
 }
 
 # run_session <output file> <prompt> [more claude arguments] — one headless run in the worktree;
-# sets claude_rc. The wall clock belongs to the ticket, so a resume gets only what is left of it.
+# sets claude_rc.
 run_session() {
-    local out="$1" now cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
+    local out="$1" cmd=(claude -p "$2" "${session_flags[@]}" "${@:3}")
     # No session starts without a watchdog that can tell when this script is gone.
     if ! open_lifeline; then
         ending=1
@@ -1143,22 +1126,6 @@ run_session() {
         sleeper=$!
         wait "$sleeper"
         sleeper=""
-        # A session that ended in the nap is judged from its result, even past the limit.
-        session_running || break
-        # shellcheck disable=SC2006  # backquotes on purpose, see job_running
-        now=`date +%s`
-        if [ $(( now - start_epoch )) -ge $(( TIMEOUT_MIN * 60 )) ]; then
-            # A stop from here on changes nothing (see `ending`). Its trap would cut the stop below
-            # short, and once the session has ended, nothing would end the command groups that this
-            # stop has already found.
-            ending=1
-            stop_session
-            set -e
-            meta outcome timeout
-            finish
-            log "TIMEOUT after ${TIMEOUT_MIN}m — session killed, changes salvaged"
-            exit 4
-        fi
     done
     wait "$pid"
     claude_rc=$?
@@ -1278,9 +1245,9 @@ if [ -n "$resume_session" ]; then
     : > "$ERR"
     resumes=1
     meta resumes 1
-    log "resuming session $resume_session after a usage limit, in the kept worktree $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
+    log "resuming session $resume_session after a usage limit, in the kept worktree $WT (model=$MODEL, effort=$EFFORT)"
     resuming_kept=1
-    run_session "$OUT.resume-1" "$(resume_prompt limit "$TIMEOUT_MIN")" --resume "$resume_session"
+    run_session "$OUT.resume-1" "$(resume_prompt limit)" --resume "$resume_session"
     resuming_kept=0
     keep_result 1
 else
@@ -1295,7 +1262,7 @@ else
         log "the worktree's settings name contract ${fresh_contract:-none}, and this engine speaks contract $LOOP_CONTRACT: start the loop again from a checkout on the current main; no session started"
         exit 3
     fi
-    log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT, timeout=${TIMEOUT_MIN}m)"
+    log "fresh headless session starting in $WT (model=$MODEL, effort=$EFFORT)"
     # A usage-limit retry that could not resume runs the ticket again in the same run folder: start
     # from clean logs.
     : > "$ERR"
@@ -1345,13 +1312,6 @@ while :; do
         reason=no-status
     fi
     [ -n "$run_session_id" ] || break
-    left_min=$(( TIMEOUT_MIN - ( $(date +%s) - start_epoch ) / 60 ))
-    # A session that ended in its last nap is judged after the clock has run out.
-    [ "$left_min" -ge 0 ] || left_min=0
-    if [ "$left_min" -lt "$MIN_RESUME_MIN" ]; then
-        log "the session needs a resume, but only ${left_min}m of the ticket's clock is left — not resuming"
-        break
-    fi
     # A resume is a new process that may read the issue again, so the gate runs in front of it too:
     # a stranger's comment added since the start must not reach the session.
     if [ "$LOOP_CFG_provenance_gate" = "on" ]; then
@@ -1379,7 +1339,7 @@ while :; do
         status_resumes=$((status_resumes + 1))
         log "the session stopped without a STATUS line — resuming it ($status_resumes of $MAX_RESUMES)"
     fi
-    run_session "$OUT.resume-$resumes" "$(resume_prompt "$reason" "$left_min")" --resume "$run_session_id"
+    run_session "$OUT.resume-$resumes" "$(resume_prompt "$reason")" --resume "$run_session_id"
     keep_result "$resumes"
 done
 

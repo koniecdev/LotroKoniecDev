@@ -89,10 +89,12 @@ everything that matters must be committed and pushed.
    plan" as written: the same brief (the triage's report with its claims, assumptions and ADRs, and
    `/buddy`'s design challenge), the same `/buddy` run or fallback agent, and the same bar for claims
    written into docs, tickets or UI copy. No ticket that reaches it skips it: this run asks
-   nobody, so it is the only moment anything questions the plan. Run it in the FOREGROUND and never pass `name`: a named agent
-   never hands its report back, and the turn ends with no `STATUS` block. `/buddy`'s own last steps
-   (message an idle buddy, report to the user) do not apply here: go straight on. Where a bullet
-   below asks for a revision, it is a fresh `ticket-triage` (`/ticket` step 2). Then:
+   nobody, so it is the only moment anything questions the plan. Run it in the FOREGROUND and
+   never pass `name`: a named agent never hands its report back, and the turn ends with no `STATUS`
+   block. `/buddy`'s own last steps (message an idle buddy, report to the user) do not apply here:
+   go straight on. Where a bullet below asks for a revision, it is a fresh `ticket-triage`
+   (`/ticket` step 2). Then, after a READY (a CLARIFY takes "After a CLARIFY" below instead, and
+   none of these bullets):
    - NOT SOUND on the premise → `STATUS: BLOCKED` (category: false-premise). NOT SOUND on the plan
      only → a revision fixes the plan from its defects, and the challenge runs once more (the last
      run); NOT SOUND
@@ -127,7 +129,8 @@ everything that matters must be committed and pushed.
    no revision and no second run: the next run plans again with the owner's answers. Then:
    - Check its top-ranked owner choice at its `file:line` (`/buddy` §4). If it does not hold, drop
      that one and keep the rest.
-   - Every owner choice it raises is its own item under `QUESTIONS`, in the shape above: a
+   - Every owner choice it raises is its own item under `QUESTIONS`, in the shape above but without
+     its closing ask line, which comes once, at the end of the block (below): a
      `BETTER DESIGN` with `NEEDS OWNER: yes`, each other owner call its report names, and a NOT
      SOUND on the premise or on the plan, whatever its `NEEDS OWNER` says. A NOT SOUND item lists
      the defects. On the plan, it asks the owner to choose between the plan as written and the
@@ -327,3 +330,6 @@ CATEGORY: business-questions | dependency | mis-scope | false-premise | design-c
 QUESTIONS:
 - <every open question (in step 1: the triage's and one per owner choice its challenge raised), or the specific blocker the user must resolve>
 ```
+
+The loop posts a `BLOCKED` block on the issue whole, and this repo is public: write the questions
+in plain words, with no log dumps, no local paths and no raw tool errors.

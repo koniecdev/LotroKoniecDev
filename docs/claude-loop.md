@@ -63,7 +63,8 @@ works around it with a budget.
 - **No cut on the BLOCKED comment.** The worker's whole final message goes on the issue: the old
   4,000-character cut ended #1377's questions mid-sentence, and it made #1507 choose between asking
   every question and fitting the cut. If GitHub refuses the comment, the issue gets a short note
-  instead, and the questions stay in the run's `ticket-<n>.json` (`scripts/claude/LOOP.md`).
+  instead, and the questions stay in the run's `ticket-<n>.json` (`scripts/claude/LOOP.md`). If
+  GitHub refuses the note too, nothing is posted, and the worker's line says so.
 
 Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every
 ticket the old clock stopped (240 minutes, then 360 for one day) was still working. #1494 and

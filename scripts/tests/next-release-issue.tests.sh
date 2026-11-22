@@ -48,6 +48,7 @@ pass() {
 #   $STUB/calls.log                                               one line per write
 #   $STUB/body-<n>.md, $STUB/comments-<n>.md                      what was written to issue <n>
 #   $STUB/list-fail, $STUB/write-fail, $STUB/pulls-fail           those calls fail
+#   $STUB/comment-fail                                            a comment fails
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
@@ -116,6 +117,7 @@ case "$method $path" in
         fi
         ;;
     "POST repos/"*"/comments")
+        [ ! -f "$STUB/comment-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         n="${path%/comments}"
         n="${n##*/}"
         echo "comment ${n}" >> "$STUB/calls.log"
@@ -369,6 +371,18 @@ run_issue update "sha-$(short_head)"
 [ "$LAST_STATUS" -eq 3 ] || fail "a change list that cannot be built must exit 3, got $LAST_STATUS"
 [ "$(log_lines)" -eq 0 ] || fail 'nothing must be written without a change list'
 pass 'an unreadable list, a failed write or a failed change list exits 3 and writes nothing more'
+
+new_case 'a comment or an edit fails'
+merged 120 27 'A feature' type-feature
+touch "$STUB/comment-fail"
+run_issue update "sha-$(short_head)"
+[ "$LAST_STATUS" -eq 3 ] || fail "a failed comment must exit 3, got $LAST_STATUS"
+rm "$STUB/comment-fail"
+open_issue 84 minor
+touch "$STUB/write-fail"
+run_issue update "sha-$(short_head)"
+[ "$LAST_STATUS" -eq 3 ] || fail "a failed edit must exit 3, got $LAST_STATUS"
+pass 'a failed comment or edit exits 3'
 
 new_case 'bad arguments'
 merged 119 26 'A feature' type-feature

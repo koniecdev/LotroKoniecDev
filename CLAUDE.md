@@ -450,9 +450,9 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `pr-verify` and `ci`, and its self-test proves the guard still fires; smoke leg 2 fails if a
   deployed page serves an inline script its own CSP blocks. Real interactivity or an inline script
   is an ADR-first architecture change. A page that draws a named form only after its data loaded
-  puts `<PostedFormTarget>` in its load-failure branch (#1122). A page whose row forms change after a
-  post (the admin's account list, #1488) also redirects after a success, and puts it in its loaded
-  branch for its own forms the fresh list no longer draws, so a second click shows the list.
+  puts `<PostedFormTarget>` in its load-failure branch (#1122). A page whose row forms change after
+  a post (the admin's account list, #1488) also redirects after a success, and puts it in its
+  loaded branch for its own forms the fresh list no longer draws, so a second click shows the list.
 - **Never touch the request inside a `HybridCache` factory (#825).** For a token that can be
   cancelled, `HybridCache` runs the factory on the thread pool without the request's context, so
   `IHttpContextAccessor.HttpContext` is `null` there: a typed client sends no bearer and no caller
@@ -530,10 +530,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
     (SHA-256 digests, constant-time compare, exactly one value each, the address must parse);
     otherwise the connection's own address.
   - The one account key (#1488): on the TMS API's `fixed-by-ip`, a checked token with `Reviewer`
-    counts per account (`account:{sub}`, 300 a minute) and one with `Admin` has no limit (`admin:{sub}`;
-    `RequestRateLimitPartitioner`). So that limiter runs after authentication and before
-    authorization, which still counts the 401s and 403s (#829; ADR-0054 amendment of 2026-11-21).
-    Every other caller keeps the address key.
+    counts per account (`account:{sub}`, 300 a minute) and one with `Admin` has no limit
+    (`admin:{sub}`; `RequestRateLimitPartitioner`). So that limiter runs after authentication and
+    before authorization, which still counts the 401s and 403s (#829; ADR-0054 amendment of
+    2026-11-21). Every other caller keeps the address key.
   - Every address becomes a key through that class's `KeyFor`: an IPv6 address counts as its /64
     and `::ffff:a.b.c.d` as plain IPv4 (#831). A new per-address policy keys through it too, never
     through `RemoteIpAddress.ToString()`.

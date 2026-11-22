@@ -28,8 +28,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
 /// Stores the translator's Polish on an imported row (spec 0001). It never creates a row: an unknown
-/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A non-admin
-/// spends the per-account save budget of ADR-0072 first.
+/// fragment is a 404. Placeholders are stored as they are; the frontend editor checks them. A plain
+/// translator (neither Admin nor Reviewer) spends the per-account save budget of ADR-0072 first.
 /// </summary>
 internal sealed partial class UpsertTranslation : IEndpoint
 {

@@ -449,11 +449,10 @@ the admin account.
   key `admin:{sub}`). One with Reviewer and not Admin gets the key `account:{sub}` and 300 permits.
   The two prefixes differ on purpose: the framework keeps one limiter per key, built by the first
   request that brings it, so one account with a role changed by hand would otherwise keep the
-  limiter of the role that called first.
-  Every other
-  caller keeps the resolver's key and 100 permits, so the rest of this ADR is unchanged for them. An
-  `account:` key can never equal an address key (an IPv4 text, an IPv6 /64 or `unknown`). The policy
-  keeps its name; renaming it would touch every reference and buys nothing.
+  limiter of the role that called first. Every other caller keeps the resolver's key and 100
+  permits, so the rest of this ADR is unchanged for them. An `account:` or `admin:` key can never
+  equal an address key (an IPv4 text, an IPv6 /64 or `unknown`). The policy keeps its name;
+  renaming it would touch every reference and buys nothing.
 - **Only a checked token can name an account.** A failed authentication leaves the user anonymous,
   so an expired, unsigned or forged token lands in the address bucket. The partition never reads the
   bearer itself (the reason ADR-0053 Alternative C gave stays true).

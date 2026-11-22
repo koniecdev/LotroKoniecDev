@@ -112,9 +112,8 @@ Reviewer works without hitting the limits meant for fresh accounts.
   claims and the account's roles differ as sets.
 - **TMS API:** the limiter runs between authentication and authorization; `fixed-by-ip` gives a
   checked token with `Admin` and a GUID `sub` a partition with no limiter under `admin:{sub}`, keys
-  one with `Reviewer`
-  and a GUID `sub` as `account:{sub}` with 300 permits, and keys every other caller as before with
-  100. `UpsertTranslation` spends the save budget only when
+  one with `Reviewer` and a GUID `sub` as `account:{sub}` with 300 permits, and keys every other
+  caller as before with 100. `UpsertTranslation` spends the save budget only when
   `ICurrentUserAccessor.HasDailySaveBudget()` is true (neither `Admin` nor `Reviewer`).
 - **Website:** `/admin/accounts`, Static SSR, Polish labels, one form per row that follows the row's
   link with PUT or DELETE. A successful change redirects to the same page with `changed=granted` or

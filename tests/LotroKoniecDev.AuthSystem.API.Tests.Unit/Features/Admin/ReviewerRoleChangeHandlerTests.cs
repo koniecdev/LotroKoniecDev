@@ -279,6 +279,26 @@ public sealed class ReviewerRoleChangeHandlerTests
         entry.EventId.Id.ShouldBe(EventIds.ReviewerRoleChangeFailed);
     }
 
+    [Fact]
+    public async Task Remove_WhenIdentityRefusesTheWriteAndTheRoleIsStillThere_LogsAnError()
+    {
+        // Arrange
+        using CapturingLoggerFactory loggerFactory = new();
+        StubAccount(AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer);
+        _userManager.IsInRoleAsync(_account, AuthConstants.Roles.Reviewer).Returns(true);
+        _userManager.RemoveFromRoleAsync(_account, AuthConstants.Roles.Reviewer)
+            .Returns(IdentityResult.Failed(new IdentityError { Code = "ConcurrencyFailure" }));
+        RemoveReviewerRole.Handler handler = CreateRemoveHandler(loggerFactory);
+
+        // Act
+        await handler.Handle(new RemoveReviewerRole.Command("admin-1", _account.Id), CancellationToken.None);
+
+        // Assert
+        CapturingLoggerFactory.LogEntry entry = loggerFactory.Entries.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Error);
+        entry.EventId.Id.ShouldBe(EventIds.ReviewerRoleChangeFailed);
+    }
+
     private void StubAccount(params string[] roles)
     {
         _userManager.FindByIdAsync(_account.Id.ToString()).Returns(_account);

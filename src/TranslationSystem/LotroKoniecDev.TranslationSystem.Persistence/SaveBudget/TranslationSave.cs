@@ -3,8 +3,9 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate
 namespace LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 
 /// <summary>
-/// One save a non-admin made inside the budget window (ADR-0072). It holds no business rule and no
-/// history: rows older than the window are deleted on the next budgeted save.
+/// One save a plain translator (neither Admin nor Reviewer) made inside the budget window (ADR-0072).
+/// It holds no business rule and no history: rows older than the window are deleted on the next
+/// budgeted save.
 /// </summary>
 internal sealed class TranslationSave
 {

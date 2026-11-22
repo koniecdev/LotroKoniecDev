@@ -245,6 +245,30 @@ public sealed class AccountAdministrationTests : BunitContext
         Navigation().Uri.ShouldBe(addressBefore);
     }
 
+    [Fact]
+    public async Task Grant_WhenTheApiRefusesAndTheListReloadFails_ShowsBothProblems()
+    {
+        // Arrange: one change spends three permits of the auth API's per-address limit, so a refusal and
+        // a failed reload can come together.
+        StubDiscovery();
+        AccountListResponse page = Page(Account("frodo", [AuthConstants.Roles.Translator], new LinkDto(GrantHref, Rels.GrantReviewer, "PUT")));
+        _client.GetApiResultAsync<AccountListResponse>(AccountsHref, Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(page),
+                ApiResult.Failure<AccountListResponse>(ApiProblemCopy.StatusOnly(StatusCodes.Status429TooManyRequests)));
+        _client.PutApiResultAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(ApiProblemCopy.StatusOnly(StatusCodes.Status429TooManyRequests)));
+        IRenderedComponent<AccountAdministrationComponent> component = Render<AccountAdministrationComponent>();
+
+        // Act
+        await component.Find("table.data-table form").SubmitAsync();
+
+        // Assert
+        component.FindAll(".status-message.status-error").Count.ShouldBe(1);
+        component.FindAll(".error-message").Count.ShouldBe(1);
+        component.FindAll("table.data-table").ShouldBeEmpty();
+    }
+
     [Theory]
     [InlineData("granted", "Nadano rolę Recenzent.")]
     [InlineData("removed", "Odebrano rolę Recenzent.")]

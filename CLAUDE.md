@@ -140,6 +140,7 @@ validator.
 | Touch DAT binary parsing / writing / native interop | delegate to the **`dat-format-expert`** agent |
 | Re-investigate update behaviour, vnum, translation survival, launch flow | **don't**: empirically settled in `docs/knowledge-base/` (start at its README) |
 | Make a non-trivial architectural/modeling decision | skim `docs/adr/`, then **write a new ADR** (`/adr`); anchors: 0001 (no mediator), 0002 (TMS pivot + freeze/unfreeze amendments), 0008 (cloud-agnostic deployment + env strategy), 0009 (browser E2E via Testcontainers + Playwright) |
+| Cut a server release | **`scripts/release.sh` in a terminal, no session** (#1440): it deploys the newest green commit, tags it and publishes after the owner's yes; the "Next release" issue shows when one is due. Runbook → "Releases"; ADR-0070, 2026-11-22 amendment |
 | Deploy/operate the stack, or set env vars per environment | `docs/deployment/runbook.md`: env-var matrix, secret generation, the issuer/redirect/authority/CORS gotchas, bring-up sequence, DB migrations. Ingress: ADR-0034 (Caddy) + **ADR-0041** (no gateway behind it) |
 | Add a proxy/gateway, expose a new service, or wire a client to an API path | **ADR-0041**: no API gateway. Clients resolve endpoints by **rel name** (ADR-0040's vocabulary), never by hardcoded path |
 | Touch the update lifecycle (GameVersion, import diff, invalidation, distribution, CLI sync) | `docs/specs/0001-game-update-lifecycle-and-translation-invalidation.md` |
@@ -182,6 +183,9 @@ gh pr create --fill --body "Closes #<n>"               # PR title mirrors the ti
 scripts/claude/start-loop.sh 123 130 131               # exactly these tickets (the normal use); -j 1 = one at a time; -n 3 = next 3 ready
 touch .claude/backlog-loop.lock/stop-after-running     # from the main checkout: finish the running tickets, start no new ones (#1050); Ctrl-C stops them too
 scripts/claude/next-ticket.sh                          # print the next READY ticket
+
+# Server release — in a plain TERMINAL, never from a Claude Code session (#1440). Runbook → "Releases"
+scripts/release.sh                                     # deploy the newest green commit to prod, then tag + publish after your yes
 
 # TMS — EF Core migrations (the write context owns them; --connection works without appsettings or a live DB).
 # dotnet-ef is a pinned local tool (dotnet tool restore). No --startup-project: dotnet-ef 10.0.9

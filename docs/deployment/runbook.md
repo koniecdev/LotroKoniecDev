@@ -1306,10 +1306,73 @@ the release's images next to the config of the tip of `main` (the compose file, 
 `deploy.sh`), and it skips the N-1 gate with a warning. Before you approve it, check that neither
 the config nor the schema changed in a way the older images cannot run with (#1434).
 
-### Cutting a release
+### When a release is due: the "Next release" issue
 
-The wiki page says v0.1.0 comes once the translators' work is in the daily backup. That backup is
-live since 2026-11-15 (ADR-0071), so v0.1.0 needs only a prod commit that has ADR-0070 (step 2).
+After every successful prod deploy, the `next-release` job of `cd.yml` keeps one open issue,
+"Next release: vX.Y.Z", up to date (#1440). It lists, per group, the changes that run on prod but
+are not released yet, the prod image and the proposed number. It never says "release now": you
+decide when. GitHub tells you when the issue opens and when the proposed number goes from a patch to
+a minor; the other deploys only edit it.
+
+- The number follows the wiki page `Wersje-systemu`: a closing issue with `type-feature` proposes
+  the next minor, otherwise one with `type-bug` the next patch, otherwise nothing (and an open issue
+  is closed). An issue whose title starts with `M4-` is a desktop-app ticket: it is listed in its own
+  group and never raises the server's number. Nothing ever proposes 1.0.0.
+- `scripts/ci/next-release.sh` builds the list, so the issue and the release script always agree.
+- The job takes the image the rollout resolved, never the run's commit. A hand run with a tag that
+  is not `sha-<7 hex>` of a commit on `main` only warns and leaves the issue as it is.
+- The job has `continue-on-error`, so a failure never turns a good deploy red. It still shows red in
+  the run, and the next deploy rebuilds the issue.
+
+### Cutting a release: `scripts/release.sh`
+
+Run it in a terminal, from a clone of the repo, with no Claude session (Git Bash works on Windows):
+
+```bash
+scripts/release.sh
+```
+
+It needs `git` and `gh`, signed in with the login that reviews `production`. Starting it is your
+approval of the one prod deploy it needs, and nothing is published before your yes at its last
+prompt. It:
+
+1. picks the newest commit on `main` that has a CI run (a commit with only a gitleaks run changed
+   only files CI ignores, so it has no images), waits for that CI run, and stops on anything but
+   success. It stops if the commit has no ADR-0070, and exits when the newest tag is already there;
+2. starts the release notes in the background: one `claude -p` call with no tools and no repo
+   context, which only turns the change list into text (prompt: `scripts/release-notes-prompt.txt`);
+3. deploys that commit to prod, unless prod runs it already. It finds the commit's CD run by its run
+   name (`CD for <commit> (CI run <id>, attempt <n>)`), rejects every other run waiting at the gate
+   (older and newer candidates and hand runs: a waiting prod job holds `prod-mutation`), and approves
+   its own. A run whose prod job never started (rejected, cancelled by the CD janitor or by a newer
+   candidate) is run again in full, at most twice, and its staging deploy goes back to that commit
+   until the next merge. A red rollout or a rollback stops it, and nothing is tagged. From the
+   approval on, Ctrl-C stops only the script, not the deploy;
+4. shows the change list and the proposed number. When nothing raises it, Enter stops (prod keeps
+   the deploy) or you type a version;
+5. shows the notes: Enter publishes, `e` edits them in your git editor, `v` changes the version,
+   `q` stops;
+6. tags (`git tag -a`), pushes the tag, publishes the GitHub Release with `--latest` and closes the
+   "Next release" issue. If the release cannot be created after the tag push, the tag stays and the
+   script prints the `gh release create` command that finishes it.
+
+AI never blocks a release: when the call fails (no `claude` CLI, not signed in, a usage limit, an
+answer with no `## ` heading), the notes are the raw change list, with one line that says why. The
+script needs `jq` only to read that answer, so without `jq` the AI notes are off and the raw list is
+used; the release goes on. Settings: `RELEASE_POLL_SECONDS` (default 15).
+
+**Check once, after #1440 merges:** the first CD run of a merge must be named `CD for <sha> (CI run
+<id>, attempt 1)` in the Actions list. If the attempt number is empty, the script never finds its run
+(it would wait at "The CD run … has not started yet"): use the manual steps below and file a bug.
+CD runs from before #1440 are named only "CD", so the first release may deploy prod again; that is
+harmless (the N-1 gate sees an empty span).
+
+### Cutting a release by hand (the fallback)
+
+The script does these steps for you. Use them when it cannot run (no `gh` login that may review
+`production`, a run older than 30 days that cannot be re-run). The wiki page says v0.1.0 comes once
+the translators' work is in the daily backup. That backup is live since 2026-11-15 (ADR-0071), so
+v0.1.0 needs only a prod commit that has ADR-0070 (step 2).
 
 1. **Find the commit prod runs.** The box is the ground truth: its `.env` names the image tag that is
    live, and `deploy.sh` writes it only after a good roll. On the prod box:

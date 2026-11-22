@@ -1,6 +1,7 @@
 # ADR-0070: A release is a git tag, and CD builds each commit once
 
-**Status:** Accepted (amended 2026-11-16 for desktop releases, #45: see the amendment below)
+**Status:** Accepted (amended 2026-11-16 for desktop releases, #45, and 2026-11-22 for the release
+script and the "Next release" issue, #1440: see the amendments below)
 **Date:** 2026-11-12
 **Decision-makers:** Solo maintainer (owner decisions recorded in #1344, 2026-11-12)
 **Amends:** [ADR-0012](0012-continuous-deployment-pipeline.md) §1 and Alternative D (semver images
@@ -280,10 +281,84 @@ no workflow listens to tags or releases anyway. The desktop workflow builds no i
   commits and cancels older runs, so the tip of `main` often has no run of its own and the check
   would block good releases. The runbook asks the owner to look at `main`'s CI before the dispatch.
 
+## Amendment (2026-11-22): the release script and the "Next release" issue
+
+**Ticket:** #1440. **Owner decisions:** the two "Owner decisions" sections in #1440's body
+(2026-11-16 and 2026-11-22) and the `Owner decision` comment of 2026-11-22 on desktop tickets.
+
+### What changes
+
+**§1: a release is still a tag plus a release, now cut by `scripts/release.sh`.** The owner runs it
+in a terminal, with no Claude session. A release is almost all waiting, and a session pays for every
+status check. The steps of the runbook stay as the fallback.
+
+- **Starting the script is the owner's approval of one prod deploy.** It picks the newest commit on
+  `main` with a CI run, waits for that run, and deploys the commit if prod does not run it. A prod job
+  waiting at the gate holds the `prod-mutation` group, so the release commit's own job cannot reach
+  the gate behind it. The script therefore rejects every other run waiting at the gate (older and
+  newer candidates and hand runs) and approves its own. The `production` environment allows
+  self-review, so the owner's `gh` login can do that through the API.
+- **The run name is the link from a commit to its CD run.** A CD run's own `head_sha` is main's tip
+  when the run started, not the commit it tests and deploys (Alt F below has the same cause), and a
+  deployment record names that same run sha. So `cd.yml` names each run
+  `CD for <tested commit> (CI run <id>, attempt <n>)`, or `CD by hand: <tag or sha>`, and the script
+  matches on that name. A hand run never counts as "prod runs the release commit", because its image
+  tag can differ from its record.
+- **A run whose prod job never started is run again in full** (`gh run rerun`, at most twice), never
+  replaced by a hand dispatch with `image_tag`, which would skip the N-1 gate. A re-run keeps its
+  event, so it reuses the images (§2) and proves the span again.
+- **Nothing is published without the owner's yes** at the script's last prompt. Only a commit with
+  this ADR is tagged, and nothing is tagged after a red check, a failed rollout or a rollback.
+- **The notes come from one headless `claude -p` call** with no tools and no repo context, started
+  from an empty folder, while the deploy runs. AI never blocks a release: when the call fails, the
+  notes are the raw change list.
+
+**A new signal: the "Next release" issue.** After every successful prod deploy, a job in `cd.yml`
+keeps one open issue up to date with the changes that run on prod but are not released yet, and the
+proposed number. It lives in `cd.yml` because events of the workflow token start no other workflow.
+It takes the image tag the rollout resolved (a new output of `deploy.yml`), never `github.sha`, and
+it has `continue-on-error`, so it never turns a good deploy red. It never says "release now": the
+owner decides when.
+
+**The proposed number.** A server closing issue with `type-feature` proposes the next minor,
+otherwise one with `type-bug` the next patch, otherwise nothing. A closing issue whose title starts
+with `M4-` is a desktop-app ticket: it is listed apart and never raises the server's number, because
+desktop releases have their own numbers (the 2026-11-16 amendment, wiki `Wersje-systemu`). Closing
+issues of other repositories (a dependabot PR's) never count. Nothing ever proposes 1.0.0 (epic
+#1346).
+
+**§3 is untouched.** The tag and the release the script makes start no workflow, and no workflow
+listens to them.
+
+### Alternatives considered for this amendment
+
+- **A `/release` Claude command** (#1440's first plan). Replaced by the owner on 2026-11-22: the
+  session pays for every status check, and it still needs the owner's yes.
+- **A draft release the owner clicks.** Rejected by the owner: a hand step on every release gets
+  forgotten.
+- **A separate workflow on `deployment_status` or on `workflow_run` of CD** for the issue. Rejected:
+  it cannot read `deploy-prod`'s outputs, and the deployment record names the run's commit, which is
+  the wrong one after a docs-only tip or a hand run.
+- **CD cancels older waiting candidates by itself.** Rejected: a waiting hand run (a rollback) must
+  never be cancelled automatically, it needs `actions: write`, and the script would still have to
+  clear the gate for its own run.
+- **Find a run's commit in its gate job's log** (`deploy_sha=`). Rejected: it parses logs, and logs
+  expire. The run name is set when the run is created, so it can be read before the approval.
+- **Tell a docs-only commit by copying CI's `paths-ignore` into the script.** Rejected: a second copy
+  of GitHub's glob rules drifts. The script reads the runs instead: every push to `main` gets a
+  gitleaks run, and only a commit CI does not ignore gets a CI run.
+- **A wall-clock grace before a commit counts as docs-only, and "the newest CD run created after
+  CI started".** Rejected after a review: a delay in GitHub Actions would make the script release the
+  commit below the tip, and a CD run of an earlier CI attempt can arrive late. The gitleaks run and
+  the CI id and attempt in the run name are exact.
+- **A release-please style bot.** Rejected: ticket titles here describe problems, so its changelog
+  would be the raw titles, and it does not handle the prod approval.
+
 ## References
 
 - #1344 (the bug and both owner decisions), epic #1346, wiki page `Wersje-systemu`
 - #45 and spec 0016 (desktop releases, the 2026-11-16 amendment)
+- #1440 (the release script and the "Next release" issue, the 2026-11-22 amendment)
 - ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023, ADR-0071 (the backup)
 - #1336 (which refs may deploy, and the rollout's provenance check), #1424 (a hand run with
   `image_tag` still builds first)

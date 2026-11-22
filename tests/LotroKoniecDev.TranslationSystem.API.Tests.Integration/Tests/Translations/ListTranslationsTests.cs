@@ -503,7 +503,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
             Row(5, "during"),
             Row(6, "Rings"),
             Row(7, "ring_x"),
-            Row(8, "line one\nring"));
+            Row(8, "line one\nring"),
+            Row(9, "ring2"),
+            Row(10, "2ring"),
+            Row(11, "x_ring"));
 
         // Act
         PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ring", TranslationSearchMatch.WholeWord);
@@ -553,13 +556,17 @@ public sealed class ListTranslationsTests : IAsyncLifetime
             Row(7, "Ring[abcde]"),
             Row(8, "Ring[E][E]"),
             Row(9, "Ring\nother"),
-            Row(10, "The Ring"));
+            Row(10, "The Ring"),
+            Row(11, "Ring[abcd]"),
+            Row(12, "Ring[1]"),
+            Row(13, "Ring[é]"),
+            Row(14, "Ring[]"));
 
         // Act
         PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ring", TranslationSearchMatch.WholeText);
 
-        // Assert
-        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 4L, 5L]);
+        // Assert: a mark is 1 to 4 ASCII letters, nothing else.
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 4L, 5L, 11L]);
     }
 
     [Fact]
@@ -605,6 +612,36 @@ public sealed class ListTranslationsTests : IAsyncLifetime
 
         // Assert
         page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithAPaddedTermInANewMode_TrimsTheTermFirst(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Ring[E]"), Row(2, "bring"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync(" ring ", match);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithABlankTermInANewMode_SearchesNothing(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Ring"), Row(2, "Sword"));
+
+        // Act: the shared request leaves a blank term out, so the address is written by hand.
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?search=%20%20&match={match}");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
     }
 
     [Theory]

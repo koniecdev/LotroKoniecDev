@@ -87,7 +87,9 @@ pass() {
 #   $STUB/runs/<id>/approve-fail      "once" or "always"; approve-fail-then: the state it leaves
 #   $STUB/runs/<id>/rerun-fail, $STUB/can-approve (true | false)
 #   $STUB/deployments                 production deployments, newest first: id, run id
+#                                     (deploy_run=<id> adds one for another run, such as a later hand run)
 #   $STUB/release-fail, $STUB/crlf    `gh release create` fails; every answer ends lines with CRLF
+#   $STUB/not-signed-in, $STUB/pulls-fail, $STUB/issue-close-fail   those calls fail
 BIN="$TMP_ROOT/bin"
 mkdir -p "$BIN"
 cat > "$BIN/gh" <<'STUB'
@@ -123,14 +125,19 @@ read_state() {
         esac
     done
 }
+add_deployment() {
+    { printf '%s\t%s\n' "$((9000 + $(grep -c . "$S/deployments" || true)))" "$1"; cat "$S/deployments"; } > "$S/deployments.new"
+    mv "$S/deployments.new" "$S/deployments"
+}
 apply() {
+    local kv
     printf '%s\n' "$2" > "$1/state"
-    case " $2 " in
-        *" deploy=1 "*)
-            { printf '%s\t%s\n' "$((9000 + $(grep -c . "$S/deployments" || true)))" "$(basename "$1")"; cat "$S/deployments"; } > "$S/deployments.new"
-            mv "$S/deployments.new" "$S/deployments"
-            ;;
-    esac
+    for kv in $2; do
+        case "$kv" in
+            deploy=1) add_deployment "$(basename "$1")" ;;
+            deploy_run=*) add_deployment "${kv#deploy_run=}" ;;
+        esac
+    done
 }
 advance() {
     local line
@@ -217,6 +224,10 @@ done
 
 case "$method $path" in
     "GET user")
+        if [ -f "$S/not-signed-in" ]; then
+            echo 'gh: To get started with GitHub CLI, please run:  gh auth login' >&2
+            exit 4
+        fi
         emit '{"login": "koniecdev"}'
         ;;
     "GET repos/"*"/actions/runs?head_sha="*)
@@ -336,6 +347,7 @@ case "$method $path" in
         emit "[{\"state\": \"inactive\", \"target_url\": \"$REPO_URL/actions/runs/${run}/job/1\"}, {\"state\": \"success\", \"target_url\": \"$REPO_URL/actions/runs/${run}/job/1\"}]"
         ;;
     "GET repos/"*"/commits/"*"/pulls")
+        [ ! -f "$S/pulls-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         sha="${path#*/commits/}"
         emit "$(cat "$S/pulls/${sha%/pulls}.json" 2>/dev/null || echo '[]')"
         ;;
@@ -350,6 +362,7 @@ case "$method $path" in
         log "comment ${n##*/} $(cat "$body_file")"
         ;;
     "PATCH repos/"*"/issues/"*)
+        [ ! -f "$S/issue-close-fail" ] || { echo 'gh: HTTP 502' >&2; exit 1; }
         log "close ${path##*/} ${state}"
         ;;
     *)
@@ -669,7 +682,7 @@ run_release 'q\n'
 [ "$LAST_STATUS" -eq 0 ] || fail "q must exit 0, got $LAST_STATUS"
 out_has 'Stopped. Nothing was tagged or published.' || fail 'q must say nothing was done'
 no_tag
-logged release && fail 'no release must be created'
+logged 'release v' && fail 'no release must be created'
 pass 'q stops with no tag'
 
 new_case 'no answer at the prompt'
@@ -688,6 +701,7 @@ run_release '\n'
 [ "$LAST_STATUS" -eq 1 ] || fail "a failed release create must exit 1, got $LAST_STATUS"
 [ "$(tag_of v0.3.0)" = "$C1" ] || fail 'the pushed tag must stay'
 out_has 'gh release create v0.3.0 --verify-tag --latest --title "v0.3.0" --notes-file' || fail 'the command that finishes the release must be printed'
+out_has 'scripts/ci/next-release-issue.sh close v0.3.0' || fail 'closing the issue by hand must be printed too'
 [ -f "$CLONE/.git/release-notes-v0.3.0.md" ] || fail 'the notes must be kept for that command'
 logged 'close 77' && fail 'the issue must stay open'
 pass 'a failed release create keeps the tag and prints the command that finishes it'
@@ -939,7 +953,7 @@ run_release '\n' RELEASE_JQ=jq-is-not-installed-here
 released v0.3.0 "$C1"
 out_has 'AI notes are off (jq is not installed)' || fail 'the start must say the AI notes are off'
 [ ! -f "$STUB/claude-stdin.txt" ] || fail 'claude must never be called without jq'
-grep -qF '(jq is not installed)' "$STUB/release-notes.md" || fail 'the raw list must say why'
+grep -qF 'The AI release notes are off (jq is not installed)' "$STUB/release-notes.md" || fail 'the raw list must say why'
 pass 'without jq the AI notes are off and the raw list is used'
 
 new_case 'no claude'
@@ -957,7 +971,7 @@ echo sleep > "$STUB/claude-mode"
 run_release 'r\n\n' RELEASE_NOTES_GRACE_SECONDS=1
 released v0.3.0 "$C1"
 out_has 'The AI notes are still being written.' || fail 'the wait must be offered'
-grep -qF 'you chose the raw list' "$STUB/release-notes.md" || fail 'r must give the raw list'
+grep -qF 'These notes are the raw change list: the AI notes were not ready.' "$STUB/release-notes.md" || fail 'r must give the raw list'
 pid="$(cat "$STUB/claude.pid")"
 if kill -0 "$pid" 2>/dev/null; then
     fail 'the notes call must be stopped after r'
@@ -1027,6 +1041,151 @@ out_has 'does not contain ADR-0070' || fail 'the stop must name ADR-0070'
 [ "$(log_count .)" -eq 0 ] || fail 'nothing must be written'
 pass 'a release commit without ADR-0070 is never tagged'
 
+new_case 'a key pressed during the wait'
+command -v script >/dev/null || { echo 'release.tests.sh needs script (util-linux) for the terminal case' >&2; exit 2; }
+base
+push
+release_run 500 'status=in_progress prod=pending'
+states 500 queue 'status=in_progress prod=pending' 'status=in_progress prod=pending' 'status=in_progress prod=pending' 'status=waiting prod=waiting'
+approve_ok 500
+LAST_STATUS=0
+LAST_OUTPUT="$(cd "$CLONE" && { sleep 0.5; printf '\n'; sleep 10; printf 'q\n'; sleep 3; } \
+    | SHELL=/bin/sh "${TIMEOUT[@]}" script -qec "env PATH='$PATH' RELEASE_POLL_SECONDS=1 RELEASE_NOTES_GRACE_SECONDS=5 '$RELEASE_SH'" /dev/null 2>&1)" \
+    || LAST_STATUS=$?
+out_has 'Enter = publish' || fail 'the last prompt must be reached'
+out_has '**AI NOTES**' || fail 'the stub claude must write the notes: a test must never reach the real one'
+logged 'release v' && fail 'an Enter typed while the script waited must never publish'
+no_tag
+out_has 'Stopped. Nothing was tagged or published.' || fail 'the q typed after the prompt must stop it'
+pass 'a line typed while the script waits is thrown away, so only an answer to the prompt publishes'
+
+new_case 'the tag push is refused'
+base_on_prod
+push
+printf '#!/bin/sh\necho "refused by the test" >&2\nexit 1\n' > "$ORIGIN/hooks/pre-receive"
+chmod +x "$ORIGIN/hooks/pre-receive"
+run_release 'e\n\n' GIT_EDITOR="$BIN/editor"
+[ "$LAST_STATUS" -eq 1 ] || fail "a refused push must exit 1, got $LAST_STATUS"
+[ -z "$(git -C "$CLONE" tag --list v0.3.0)" ] || fail 'the local tag must be removed, or the next run sees the release as done'
+no_tag
+logged 'release v' && fail 'no release without a pushed tag'
+grep -qF 'EDITED BY THE TEST' "$CLONE/.git/release-notes-v0.3.0.md" || fail 'the edited notes must be kept'
+out_has "git tag -a v0.3.0 ${C1}" || fail 'the tag command must be printed'
+out_has 'git push origin v0.3.0' || fail 'the push command must be printed'
+out_has 'gh release create v0.3.0' || fail 'the release command must be printed'
+rm "$ORIGIN/hooks/pre-receive"
+: > "$STUB/calls.log"
+run_release '\n'
+released v0.3.0 "$C1"
+pass 'a refused tag push removes the local tag, keeps the notes, and a second run releases'
+
+new_case 'the tag cannot be made'
+base_on_prod
+push
+mkdir -p "$CLONE/.git/refs/tags"
+: > "$CLONE/.git/refs/tags/v0.3.0.lock"
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a tag that cannot be made must exit 1, got $LAST_STATUS"
+no_tag
+[ -f "$CLONE/.git/release-notes-v0.3.0.md" ] || fail 'the notes must be kept'
+out_has 'the tag v0.3.0 could not be made, so nothing is published' || fail 'the stop must say why'
+pass 'a tag that cannot be made publishes nothing and keeps the notes'
+
+new_case 'a newer candidate reaches the gate after the approval'
+base
+push
+release_run 500 'status=waiting prod=waiting'
+states 500 on-approve "$DEPLOYING" "$DEPLOYING" "$DEPLOYING" "$DEPLOYED" "$DONE"
+cd_run 460 "CD for 2222222222222222222222222222222222222222 (CI run 7100, attempt 1)" workflow_run 'status=in_progress prod=pending'
+touch "$STUB/runs/460/tick-on-list"
+states 460 queue 'status=in_progress prod=pending' 'status=waiting prod=waiting'
+run_release '\n'
+released v0.3.0 "$C1"
+logged 'reject 460' && fail 'a candidate that reaches the gate after the approval must be left for the owner'
+pass 'after the approval, other candidates at the gate are left alone'
+
+new_case 'the prod job is skipped'
+base
+push
+release_run 500 'status=completed conclusion=success prod=skipped'
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a skipped prod job must stop, got $LAST_STATUS"
+out_has 'skipped its prod job' || fail 'the stop must say the prod job was skipped'
+logged rerun && fail 'a skipped prod job is never re-run'
+no_tag
+pass 'a skipped prod job (red staging, refused gate) stops with no re-run'
+
+new_case 'the run ended before its prod job'
+base
+push
+release_run 500 'status=completed conclusion=failure prod=none'
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a run that ended before its prod job must stop, got $LAST_STATUS"
+out_has 'ended before its prod job' || fail 'the stop must say why'
+no_tag
+pass 'a run that ended before its prod job stops'
+
+new_case 'a later deploy replaced the release'
+base
+push
+cd_run 300 'CD by hand: sha-abc1234' workflow_dispatch "$DONE"
+release_run 500 'status=waiting prod=waiting'
+states 500 on-approve "$DEPLOYING" "$DEPLOYED" "status=completed conclusion=success prod=completed pconc=success steps=12 nr=success deploy_run=300"
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "prod not on the release commit after the deploy must stop, got $LAST_STATUS"
+out_has 'but prod no longer runs it: a later deploy replaced it with CD by hand: sha-abc1234' || fail 'the stop must name what prod runs'
+no_tag
+pass 'the release is not tagged when prod no longer runs it after the deploy'
+
+new_case 'only an empty line publishes'
+base_on_prod
+push
+run_release 'n\ny\nyes\nq\n'
+[ "$LAST_STATUS" -eq 0 ] || fail "q must exit 0, got $LAST_STATUS"
+out_has "Unknown answer 'y'." || fail 'y must be an unknown answer'
+logged 'release v' && fail 'n, y or yes must never publish'
+no_tag
+pass 'n, y and yes are unknown answers; only Enter publishes'
+
+new_case 'the change list cannot be built'
+base
+push
+release_run 500 'status=waiting prod=waiting'
+approve_ok 500
+touch "$STUB/pulls-fail"
+run_release '\n'
+[ "$LAST_STATUS" -eq 1 ] || fail "a change list that cannot be built must stop, got $LAST_STATUS"
+out_has 'the change list could not be built' || fail 'the stop must say why'
+logged approve && fail 'nothing must be approved before the change list exists'
+no_tag
+pass 'a change list that cannot be built stops before any deploy'
+
+new_case 'bad start'
+base
+push
+LAST_STATUS=0
+LAST_OUTPUT="$(cd "$CLONE" && "$RELEASE_SH" --help 2>&1 < /dev/null)" || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "an argument must exit 2, got $LAST_STATUS"
+touch "$STUB/not-signed-in"
+run_release ''
+[ "$LAST_STATUS" -eq 2 ] || fail "gh signed out must exit 2, got $LAST_STATUS"
+out_has 'gh is not signed in' || fail 'a signed-out gh must be named'
+rm "$STUB/not-signed-in"
+LAST_STATUS=0
+LAST_OUTPUT="$(cd "$T" && printf '' | env RELEASE_POLL_SECONDS=0 "$RELEASE_SH" 2>&1)" || LAST_STATUS=$?
+[ "$LAST_STATUS" -eq 2 ] || fail "outside a clone it must exit 2, got $LAST_STATUS"
+[ "$(log_count .)" -eq 0 ] || fail 'nothing must be written'
+pass 'an argument, a signed-out gh or a folder outside a clone exits 2'
+
+new_case 'the issue cannot be closed'
+base_on_prod
+push
+touch "$STUB/issue-close-fail"
+run_release '\n'
+released v0.3.0 "$C1"
+out_has 'WARNING: the "Next release" issue could not be closed. Close it by hand.' || fail 'the failed close must warn'
+pass 'an issue that cannot be closed only warns after the release'
+
 new_case 'the workflows still match what the script reads'
 CD_YML="$REPO_ROOT/.github/workflows/cd.yml"
 DEPLOY_YML="$REPO_ROOT/.github/workflows/deploy.yml"
@@ -1050,6 +1209,11 @@ for needed in "PROD_JOB='Deploy to prod / Deploy to production (Hetzner)'" "PROD
 done
 # shellcheck disable=SC2016 # workflow expressions, not shell ones
 grep -qF 'image_tag: ${{ steps.tag.outputs.tag }}' "$DEPLOY_YML" || fail 'deploy.yml must output the resolved tag'
+next_release_job="$(awk '/^  next-release:$/ { inside = 1; print; next } inside && /^  [^ ]/ { exit } inside { print }' "$CD_YML")"
+grep -qxF '    continue-on-error: true' <<< "$next_release_job" || fail 'the issue job must never turn a good deploy red'
+# shellcheck disable=SC2016
+grep -qxF "    if: \${{ !cancelled() && needs.deploy-prod.result == 'success' }}" <<< "$next_release_job" \
+    || fail 'the issue job must run only after a successful prod deploy, also when staging was skipped'
 # shellcheck disable=SC2016
 grep -qF 'value: ${{ jobs.deploy.outputs.image_tag }}' "$DEPLOY_YML" || fail 'deploy.yml must pass the tag to its caller'
 # shellcheck disable=SC2016

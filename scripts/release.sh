@@ -31,7 +31,7 @@
 #                                 release goes on with the raw list.
 #
 # Exit: 0 = released, nothing new, or stopped by the owner; 1 = stopped by a failed check, deploy or
-#       publish; 2 = a missing tool or a bad argument.
+#       publish, or no answer at a prompt; 2 = a missing tool or a bad argument; 130 = Ctrl-C.
 #
 # Bash only: it runs in Git Bash on Windows too (owner decision, 2026-11-22), so it has no .ps1 twin.
 set -euo pipefail
@@ -105,9 +105,18 @@ ghx() {
     printf '%s' "${out//$'\r'/}"
 }
 
+# True while the notes call is still one of this script's running jobs. Asking the job table, not
+# `kill -0` on the saved id, so an id the system gave to another process later is never signalled.
+notes_running() {
+    local running
+    [ -n "$NOTES_PID" ] || return 1
+    running="$(jobs -pr)"
+    grep -qxF -- "$NOTES_PID" <<< "$running"
+}
+
 stop_notes() {
     local winpid
-    if [ -n "$NOTES_PID" ] && kill -0 "$NOTES_PID" 2>/dev/null; then
+    if notes_running; then
         case "$(uname -s)" in
             MINGW* | MSYS* | CYGWIN*)
                 # Git Bash's kill ends only its own wrapper of a native program, not claude.exe.
@@ -125,6 +134,15 @@ cleanup() {
     if [ -n "$WORK" ]; then
         rm -rf "$WORK"
     fi
+}
+
+# Throws away lines typed while the script was waiting (for CI, for the deploy). A terminal keeps
+# them, and the next prompt would take an old Enter as the owner's yes to publish.
+drop_typed_ahead() {
+    [ -t 0 ] || return 0
+    while IFS= read -r -t 0 _; do
+        IFS= read -r -t 1 _ || break
+    done
 }
 
 higher_of() {
@@ -235,7 +253,8 @@ review() {
     return 0
 }
 
-# The gate, every poll: approve a waiting run of the release commit and reject every other one.
+# The gate, every poll until the approval: approve a waiting run of the release commit and reject
+# every other run that waits there.
 review_waiting_runs() {
     local waiting id event title note
     waiting="$(ghx api "repos/${REPO}/actions/workflows/cd.yml/runs?status=waiting&per_page=100" \
@@ -255,7 +274,9 @@ review_waiting_runs() {
                 say "Approved the prod deploy of $(run_url "$id")."
                 say "From now on Ctrl-C stops only this script, not the deploy on GitHub."
             fi
-        else
+        elif [ -z "$W" ]; then
+            # Only before the approval: once the release run holds the gate, a newer candidate waits
+            # for it on its own, and the owner decides about it after the release.
             note="Rejected by scripts/release.sh: the release of ${R} is being deployed. Re-run this run after the release if it is still needed."
             if review "$id" rejected "$note"; then
                 say "Rejected $(run_url "$id") (${title}), so the release can go first."
@@ -287,7 +308,7 @@ rerun() {
     LAST_STATUS_LINE=""
 }
 
-# Steps 4: wait, review the gate and follow the run until the release commit is on prod.
+# Step 4: wait, review the gate and follow the run until the release commit is on prod.
 deploy_release() {
     local target info run_status job job_status conclusion steps
     RERUNS=0
@@ -355,7 +376,7 @@ deploy_release() {
 # After the deploy: wait for the whole run (its issue job included), check prod, and reject other
 # runs of the release commit that reach the gate later.
 finish_deploy() {
-    local info out id run_status title nr note
+    local info out id run_status title nr note urls
     while true; do
         info="$(run_info "$W")" || die "CD run ${W} could not be read."
         [ "${info%%"$US"*}" = completed ] && break
@@ -367,7 +388,7 @@ finish_deploy() {
         say "WARNING: the \"${NEXT_RELEASE_JOB}\" job of $(run_url "$W") failed. The release goes on; this script closes the issue at the end."
     fi
     if ! prod_runs_release; then
-        die "the deploy ended, but prod does not run ${R}: it runs ${PROD_TITLE}. Nothing is tagged."
+        die "$(run_url "$W") deployed ${R}, but prod no longer runs it: a later deploy replaced it with ${PROD_TITLE}${PROD_URL:+ (${PROD_URL})}. Nothing is tagged. Find out why, then start this script again."
     fi
     say "Prod runs ${R}."
     note="Rejected by scripts/release.sh: ${R} is already deployed by run ${W}."
@@ -377,13 +398,15 @@ finish_deploy() {
             || die "the CD runs could not be read."
         out="$(awk -F "$US" -v w="$W" '$1 != w' <<< "$out")"
         [ -n "$out" ] || break
+        urls=""
         while IFS="$US" read -r id run_status title; do
             [ -n "$id" ] || continue
             if [ "$run_status" = waiting ] && review "$id" rejected "$note"; then
                 say "Rejected $(run_url "$id"): it would deploy ${R} again."
             fi
+            urls="${urls} $(run_url "$id")"
         done <<< "$out"
-        status "  Waiting for other CD runs of ${R} to reach the gate."
+        status "  Waiting for other CD runs of ${R} to reach the gate, to reject them:${urls}. Ctrl-C ends the wait; the release is then not tagged yet, and a new start goes on from here."
         nap
     done
 }
@@ -414,32 +437,38 @@ start_notes() {
     say "Writing the release notes in the background."
 }
 
+# raw_notes <the line above the list, which is published too>
 raw_notes() {
     {
-        printf '> The AI release notes failed (%s), so these notes are the raw change list.\n\n' "$1"
+        printf '> %s\n\n' "$1"
         cat "$WORK/changes/changes.md"
     } > "$WORK/notes.md"
-    say "Using the raw change list: the AI notes failed (${1})."
+    say "Using the raw change list. ${1}"
+}
+
+ai_failed() {
+    raw_notes "The AI release notes failed ($1), so these notes are the raw change list."
 }
 
 collect_notes() {
     local waited=0 answer rc=0 result
     if [ -n "$AI_OFF" ]; then
-        raw_notes "$AI_OFF"
+        raw_notes "The AI release notes are off (${AI_OFF}), so these notes are the raw change list."
         return 0
     fi
-    while kill -0 "$NOTES_PID" 2>/dev/null && [ "$waited" -lt $((NOTES_GRACE * 5)) ]; do
+    while notes_running && [ "$waited" -lt $((NOTES_GRACE * 5)) ]; do
         sleep 0.2
         waited=$((waited + 1))
     done
-    if kill -0 "$NOTES_PID" 2>/dev/null; then
+    if notes_running; then
+        drop_typed_ahead
         say "The AI notes are still being written. Type r and Enter for the raw list, or wait."
-        while kill -0 "$NOTES_PID" 2>/dev/null; do
+        while notes_running; do
             if IFS= read -r -t 1 answer; then
                 if [ "$answer" = r ]; then
                     stop_notes
                     NOTES_PID=""
-                    raw_notes "you chose the raw list"
+                    raw_notes "These notes are the raw change list: the AI notes were not ready."
                     return 0
                 fi
             elif [ "$?" -le 128 ]; then
@@ -451,15 +480,15 @@ collect_notes() {
     wait "$NOTES_PID" || rc=$?
     NOTES_PID=""
     if [ "$rc" -ne 0 ]; then
-        raw_notes "the claude call exited with ${rc}"
+        ai_failed "the claude call exited with ${rc}"
         return 0
     fi
     result="$("$JQ" -r 'if .is_error == true then empty else (.result // empty) end' "$WORK/notes.json" 2>/dev/null)" || result=""
     result="${result//$'\r'/}"
     if [ -z "$result" ]; then
-        raw_notes "the claude call returned no notes: an error or a usage limit"
+        ai_failed "the claude call returned no notes: an error or a usage limit"
     elif ! cgrep -q '^## ' <<< "$result"; then
-        raw_notes "the answer has no ## heading"
+        ai_failed "the answer has no ## heading"
     else
         printf '%s\n' "$result" > "$WORK/notes.md"
     fi
@@ -495,16 +524,33 @@ edit_notes() {
     fi
 }
 
+# Every failure here keeps the notes in the clone's .git folder (the work folder is deleted on exit)
+# and prints the commands that finish the release by hand.
 publish() {
-    local tag="v${VERSION}" url keep
-    git tag -a "$tag" "$R" -m "$tag" || die "the tag ${tag} could not be made."
-    git push origin "$tag" || die "the tag ${tag} could not be pushed. It exists here; push it with: git push origin ${tag}"
-    if ! url="$(ghx release create "$tag" --verify-tag --latest --title "$tag" --notes-file "$WORK/notes.md")"; then
-        keep="$(git rev-parse --absolute-git-dir)/release-notes-${tag}.md"
-        cp "$WORK/notes.md" "$keep"
-        die "the tag ${tag} is pushed, but the GitHub Release was not created. The tag stays. Finish with:
-  gh release create ${tag} --verify-tag --latest --title \"${tag}\" --notes-file \"${keep}\""
+    local tag="v${VERSION}" url keep finish
+    keep="$(git rev-parse --absolute-git-dir)/release-notes-${tag}.md"
+    cp "$WORK/notes.md" "$keep"
+    finish="  gh release create ${tag} --verify-tag --latest --title \"${tag}\" --notes-file \"${keep}\"
+  scripts/ci/next-release-issue.sh close ${tag} <the release URL>   (with GITHUB_REPOSITORY=${REPO})"
+    if ! git tag -a "$tag" "$R" -m "$tag"; then
+        die "the tag ${tag} could not be made, so nothing is published. The notes are kept. Fix the cause, then run this script again, or finish by hand:
+  git tag -a ${tag} ${R} -m \"${tag}\"
+  git push origin ${tag}
+${finish}"
     fi
+    if ! git push origin "$tag"; then
+        # A local tag nobody else has would make the next run see this release as done.
+        git tag -d "$tag" >/dev/null 2>&1 || true
+        die "the tag ${tag} could not be pushed, so nothing is published and the local tag is removed. The notes are kept. Fix the cause, then run this script again, or finish by hand:
+  git tag -a ${tag} ${R} -m \"${tag}\"
+  git push origin ${tag}
+${finish}"
+    fi
+    if ! url="$(ghx release create "$tag" --verify-tag --latest --title "$tag" --notes-file "$WORK/notes.md")"; then
+        die "the tag ${tag} is pushed, but the GitHub Release was not created. The tag stays and the notes are kept. Finish with:
+${finish}"
+    fi
+    rm -f "$keep"
     url="$(tail -n 1 <<< "$url")"
     say "Published ${tag}: ${url}"
     if ! "$SCRIPT_DIR/ci/next-release-issue.sh" close "$tag" "$url"; then
@@ -624,6 +670,7 @@ cat "$WORK/changes/changes.md"
 say ""
 if [ "$BUMP" = none ]; then
     say "No change raises the version number, so no release is proposed. Prod keeps the new deploy."
+    drop_typed_ahead
     while true; do
         printf 'Type a version (X.Y.Z) to release anyway, or press Enter to stop: '
         IFS= read -r answer || answer=""
@@ -649,6 +696,7 @@ while true; do
     say "===== v${VERSION} on ${R} ====="
     cat "$WORK/notes.md"
     say "====="
+    drop_typed_ahead
     printf 'Enter = publish, e = edit the notes, v = change the version, q = stop: '
     if ! IFS= read -r answer; then
         say ""

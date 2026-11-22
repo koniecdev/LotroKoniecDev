@@ -338,7 +338,7 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_SearchBox_SaysItAlsoFindsFileIdAndGossipId()
     {
-        // #1406: the list shows both ids next to the box, and the search now matches them too.
+        // #1406: the list shows both ids next to the box, and the search matches them.
         StubPage(SinglePageOf(Row(canEdit: true)));
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();

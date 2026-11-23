@@ -800,16 +800,22 @@ rows and is read twice.
 ### 5.5 Translating and approving
 
 **Browsing.** `GET /api/v1/translations` — the public, paginated list. Filters: text search
-(case-insensitive, over both English and Polish, with SQL wildcard characters escaped so a
-literal `%` in game text matches itself; a plain number also finds the rows with that `FileId` or
-`GossipId`, and `FileId:GossipId` finds that one row, on top of the text matches, #1406), status filter, a "conflicts only" filter (#1347: rows
+(case-insensitive, over both English and Polish; a plain number also finds the rows with that
+`FileId` or `GossipId`, and `FileId:GossipId` finds that one row, on top of the text matches, #1406),
+its `match` mode (#1477: `Contains`, the default, finds the term anywhere with `ILIKE` and the SQL
+wildcard characters escaped, so a literal `%` in game text matches itself; `WholeWord` needs no
+letter, digit or `_` right next to the term; `WholeText` needs the whole text to be the term, apart
+from white space at the edges and one grammar mark such as `[E]` at the end; `WholeWord` and
+`WholeText` run as a PostgreSQL regex, `~*`, with every ASCII character that is not a letter or
+digit escaped, and the id match adds rows in every mode), status filter, a "conflicts only" filter (#1347: rows
 whose exactly identical English has two or more different Polish texts, found with one grouped
 subquery). It needs no extra index at today's share of translated rows: about 135 ms on the
 production table on 2026-11-13, with about 535 rows translated. On top of one pass over the table,
 its cost grows with the number of translated rows (about 1.5 s per request with every row
 translated, measured on 800,000 rows), so look at it again when about 100,000 rows have Polish. Page size 1–100 (default 50). Sorting
 always ends with a unique key, so pages never repeat or lose rows. Search is fast thanks to
-trigram indexes (Part 6.2); the id part uses the unique `(FileId, GossipId)` index.
+trigram indexes (Part 6.2), in every `match` mode; the id part uses the unique `(FileId, GossipId)`
+index.
 
 **Editing.** The editor page loads one row (`GET /api/v1/translations/{id}` — this one needs a
 login) and shows English and Polish side by side, with every `<--DO_NOT_TOUCH!-->` placeholder
@@ -948,9 +954,10 @@ back afterwards: as a whole when no auth migration is to blame, account by accou
 - **All timestamps are `timestamptz` normalized to UTC** by a global converter.
 - **Indexes:** unique `(FileId, GossipId)`; unique version; unique `IdentityId` on Translators
   (the provisioning idempotency key); unique `Language` on artifacts; **trigram GIN indexes**
-  (`pg_trgm`) on `SourceText` and `TranslatedText`, which make the `%term%` search fast; a partial
-  index on `Status` for non-removed rows (the only rows lists show); and real foreign keys on the
-  three GameVersion columns of `Translations` (AUDIT-EF-05).
+  (`pg_trgm`) on `SourceText` and `TranslatedText`, which make the `%term%` search and the regex
+  search of the `WholeWord` and `WholeText` modes fast; a partial index on `Status` for non-removed
+  rows (the only rows lists show); and real foreign keys on the three GameVersion columns of
+  `Translations` (AUDIT-EF-05).
 - **A `CHECK` constraint caps `TranslatedText` at the DAT limit** (ADR-0043). It is a `CHECK`
   and not `varchar(n)`, because changing the column type would rewrite the big table during a
   deploy.
@@ -1103,8 +1110,8 @@ Frontend's CSP would block (#670). Wanting interactivity means writing an ADR fi
 | Route | Who | What it does |
 |---|---|---|
 | `/` | public | Landing page with a progress meter (approved / awaiting / total; from a 30 s server-side snapshot — AUDIT-EF-04) and download links |
-| `/translations` | public | Searchable, filterable, paginated list with a "Tylko rozbieżne tłumaczenia" filter; per-row Edit link; admin sees bulk-approve checkboxes |
-| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs. Its address carries the list's search, filters and page, so "Wróć do listy", the reload after a save or an approval, and "Otwórz" keep them (#1452). The back link is rebuilt from those known fields and always points at `/translations` |
+| `/translations` | public | Searchable, filterable, paginated list with a "Dopasowanie" select next to the search box (Zawiera / Całe słowo / Cały tekst, #1477) and a "Tylko rozbieżne tłumaczenia" filter; per-row Edit link; admin sees bulk-approve checkboxes |
+| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs. Its address carries the list's search, match mode, filters and page, so "Wróć do listy", the reload after a save or an approval, and "Otwórz" keep them (#1452). The back link is rebuilt from those known fields and always points at `/translations` |
 | `/dashboard` | logged in | Progress tiles: total / translated / approved / remaining |
 | `/game-versions` | logged in | Version list; admin-only register form and guarded per-row delete |
 | `/import-export` | logged in | Download `polish.txt`; admin-only upload of `exported.txt` with an import summary |

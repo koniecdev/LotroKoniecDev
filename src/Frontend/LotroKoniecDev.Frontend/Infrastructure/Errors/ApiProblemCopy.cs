@@ -112,6 +112,8 @@ internal static partial class ApiProblemCopy
             ["Translations.OverwriteBudgetExhausted"] =
                 "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. "
                 + "Teksty bez tłumaczenia możesz tłumaczyć dalej.",
+            ["Translations.UnknownSearchMatch"] =
+                "Nieznany sposób dopasowania wyszukiwania. Wybierz „Zawiera”, „Całe słowo” albo „Cały tekst”.",
 
             // ── TMS · translation file ─────────────────────────────────────────────────────────
             ["TranslationFiles.NotFound"] =

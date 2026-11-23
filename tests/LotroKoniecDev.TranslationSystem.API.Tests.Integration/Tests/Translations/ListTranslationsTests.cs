@@ -491,6 +491,343 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
     }
 
+    [Fact]
+    public async Task List_WithWholeWord_FindsTheTermOnlyAsAWordOfItsOwn()
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "a ring of gold"),
+            Row(2, "Ring[E]"),
+            Row(3, "RING"),
+            Row(4, "bring"),
+            Row(5, "during"),
+            Row(6, "Rings"),
+            Row(7, "ring_x"),
+            Row(8, "line one\nring"),
+            Row(9, "ring2"),
+            Row(10, "2ring"),
+            Row(11, "x_ring"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ring", TranslationSearchMatch.WholeWord);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 8L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeWord_TreatsPolishLettersAsLetters()
+    {
+        // Arrange: this also proves the test database's locale counts Polish letters as letters.
+        await SeedAsync(Row(1, "Długi łuk"), Row(2, "łuku"), Row(3, "Półłuk"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("łuk", TranslationSearchMatch.WholeWord);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeWordThatEndsInPunctuation_NeedsNoLetterRightBeforeOrAfterTheMatch()
+    {
+        // Arrange: the ticket's rule looks at the characters next to the match, so "Wait..." is no match.
+        await SeedAsync(Row(1, "Hello ... there"), Row(2, "... and"), Row(3, "..."), Row(4, "Wait..."), Row(5, "...more"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("...", TranslationSearchMatch.WholeWord);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeWordOfSeveralWords_MatchesThePhrase()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Reduce Scale now"), Row(2, "Reduce the Scale"), Row(3, "Reduce Scales"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await SearchAsync("reduce scale", TranslationSearchMatch.WholeWord);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeText_IgnoresEdgeWhiteSpaceAndOneGrammarMark()
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Ring"),
+            Row(2, " Ring "),
+            Row(3, "ring"),
+            Row(4, "Ring[E]"),
+            Row(5, "Ring [mn] "),
+            Row(6, "Ring of Fire"),
+            Row(7, "Ring[abcde]"),
+            Row(8, "Ring[E][E]"),
+            Row(9, "Ring\nother"),
+            Row(10, "The Ring"),
+            Row(11, "Ring[abcd]"),
+            Row(12, "Ring[1]"),
+            Row(13, "Ring[é]"),
+            Row(14, "Ring[]"),
+            Row(15, "\tRing\r\n"),
+            Row(16, "other\nRing"),
+            Row(17, "Ring[E]\n"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ring", TranslationSearchMatch.WholeText);
+
+        // Assert: a mark is 1 to 4 ASCII letters, nothing else, and tabs and line breaks at the edges count as white space.
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 4L, 5L, 11L, 15L, 17L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeTextTypedWithItsMark_FindsOnlyTheMarkedText()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Ring[E]"), Row(2, "Ring"), Row(3, "Ring[F]"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("Ring[E]", TranslationSearchMatch.WholeText);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithWholeText_MatchesThePolishTextToo()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "One Ring", "Pierścień"),
+            Translated(2, "Ring of power", "Pierścień mocy"),
+            Row(3, "Pierścień nie"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await SearchAsync("PIERŚCIEŃ", TranslationSearchMatch.WholeText);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithANewMode_IgnoresTheCaseOfPolishLetters(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "żółw"), Row(2, "żółwie"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ŻÓŁW", match);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithAPaddedTermInANewMode_TrimsTheTermFirst(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Ring[E]"), Row(2, "bring"));
+
+        // Act: written by hand, so the test does not depend on what the shared request does with spaces.
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?search=%20ring%20&match={match}");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithABlankTermInANewMode_SearchesNothing(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "Ring"), Row(2, "Sword"));
+
+        // Act: the shared request leaves a blank term out, so the address is written by hand.
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?search=%20%20&match={match}");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Theory]
+    [MemberData(nameof(SpecialCharacterCases))]
+    public async Task List_WithASpecialCharacterInANewMode_MatchesItLiterally(TranslationSearchMatch match, string character)
+    {
+        // Arrange: unescaped, most of these would match "abc" or "ac", or break the pattern.
+        await SeedAsync(Row(1, $"a{character}c"), Row(2, "abc"), Row(3, "ac"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync($"a{character}c", match);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord, "🎁")]
+    [InlineData(TranslationSearchMatch.WholeText, "🎁")]
+    [InlineData(TranslationSearchMatch.WholeWord, "Ⅻ")]
+    [InlineData(TranslationSearchMatch.WholeText, "Ⅻ")]
+    [InlineData(TranslationSearchMatch.WholeWord, "„Ⅻ”")]
+    [InlineData(TranslationSearchMatch.WholeText, "„Ⅻ”")]
+    public async Task List_WithANonAsciiSymbolInANewMode_MatchesItLiterally(TranslationSearchMatch match, string term)
+    {
+        // Arrange: a backslash inside an emoji would split it, and Npgsql would refuse the text.
+        await SeedAsync(Row(1, term), Row(2, "x"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync(term, match);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithANewModeAndAStatus_AppliesBoth(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Ring", TranslationStatus.Draft),
+            Row(2, "Ring"),
+            Row(3, "Rings", TranslationStatus.Draft));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync($"?search=ring&match={match}&status=Draft");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithANewModeAndConflictsOnly_ListsOnlyTheMatchingConflictGroup()
+    {
+        // Arrange
+        await SeedAsync(
+            Translated(1, "Ring", "Pierścień"),
+            Translated(2, "Ring", "Obrączka"),
+            Translated(3, "Ring of Fire", "Krąg ognia"),
+            Translated(4, "Ring of Fire", "Pierścień ognia"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsync("?search=ring&match=WholeText&conflictsOnly=true");
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithANumberInANewMode_ListsTheIdMatchAndTheModesTextMatch(TranslationSearchMatch match)
+    {
+        // Arrange: "1000" contains the term, so only the contains mode lists it.
+        await SeedAsync(Row(100, "Kill wolves"), Row(200, "100"), Row(300, "1000"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync("100", match);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([100L, 200L]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithAFileIdInANewMode_ListsEveryLiveRowOfThatFile(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Frodo"),
+            Row(2, "Samwise"),
+            Row(1, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await SearchAsync(FileId.ToString(CultureInfo.InvariantCulture), match);
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.GossipId)).ShouldBe([(FileId, 1L), (FileId, 2L)]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithFileIdColonGossipIdInANewMode_ListsThatRow(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(
+            Row(6396484, "Frodo"),
+            Row(6396485, "Samwise"),
+            Row(6396484, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await SearchAsync($"{FileId}:6396484", match);
+
+        // Assert
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        (item.FileId, item.GossipId).ShouldBe((FileId, 6396484L));
+    }
+
+    [Theory]
+    [InlineData("Contains")]
+    [InlineData("")]
+    public async Task List_WithContainsOrNoMatch_FindsTheTermAnywhere(string matchOption)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "bring"), Row(2, "Ring"), Row(3, "Sword"));
+        string query = matchOption.Length == 0 ? "?search=ring" : $"?search=ring&match={matchOption}";
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync(query);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
+    }
+
+    [Theory]
+    [InlineData("match=foo")]
+    [InlineData("match=wholeword")]
+    [InlineData("match=")]
+    public async Task List_WithAMatchThatDoesNotBind_ShouldReturn400(string option)
+    {
+        // Act: like the status, the mode binds by its exact enum name.
+        HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations?search=ring&{option}");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType.ShouldNotBeNull().MediaType.ShouldBe("application/problem+json");
+    }
+
+    [Theory]
+    [InlineData("match=7")]
+    [InlineData("match=-1")]
+    [InlineData("match=WholeWord,WholeText")]
+    public async Task List_WithAMatchThatIsNoMode_ShouldReturn400WithItsCode(string option)
+    {
+        // Act: binding accepts a number and a comma list, so the handler refuses the undefined value.
+        HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations?search=ring&{option}");
+        using JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        problem.RootElement.GetProperty("errorCode").GetString().ShouldBe("Translations.UnknownSearchMatch");
+    }
+
     [Theory]
     [MemberData(nameof(RoundTripCases))]
     public async Task List_WithAnAddressBuiltFromTheSharedRequest_AppliesEveryOption(
@@ -508,7 +845,9 @@ public sealed class ListTranslationsTests : IAsyncLifetime
             Translated(5, "Dwarf[D]", "Krasnolud"),
             Translated(6, "Dwarf[D]", "Krasnoludek"),
             Translated(7, "Stout heart", "Dzielne serce"),
-            Row(8, "Stout-axe[D]"));
+            Row(8, "Stout-axe[D]"),
+            Translated(9, "Stoutly[D]", "Dzielnie"),
+            Translated(10, "Stoutly[D]", "Mężnie"));
 
         // Act
         PaginationResponse<TranslationListItemResponse> page =
@@ -737,13 +1076,14 @@ public sealed class ListTranslationsTests : IAsyncLifetime
 
     public static TheoryData<ListTranslationsRequest, long[], int> RoundTripCases() => new()
     {
-        { new ListTranslationsRequest(), [1, 2, 3, 4, 5, 6, 7, 8], 8 },
-        { new ListTranslationsRequest(Search: "Stout"), [1, 2, 3, 4, 7, 8], 6 },
-        { new ListTranslationsRequest(Status: TranslationStatus.Draft), [1, 2, 3, 5, 6, 7], 6 },
-        { new ListTranslationsRequest(Page: 2), [], 8 },
-        { new ListTranslationsRequest(PageSize: 3), [1, 2, 3], 8 },
-        { new ListTranslationsRequest(Sort: "gossipId:desc"), [8, 7, 6, 5, 4, 3, 2, 1], 8 },
-        { new ListTranslationsRequest(ConflictsOnly: true), [1, 2, 3, 4, 5, 6], 6 },
+        { new ListTranslationsRequest(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 10 },
+        { new ListTranslationsRequest(Search: "Stout"), [1, 2, 3, 4, 7, 8, 9, 10], 8 },
+        { new ListTranslationsRequest(Search: "Stout", Match: TranslationSearchMatch.WholeWord), [1, 2, 3, 4, 7, 8], 6 },
+        { new ListTranslationsRequest(Status: TranslationStatus.Draft), [1, 2, 3, 5, 6, 7, 9, 10], 8 },
+        { new ListTranslationsRequest(Page: 2), [], 10 },
+        { new ListTranslationsRequest(PageSize: 3), [1, 2, 3], 10 },
+        { new ListTranslationsRequest(Sort: "gossipId:desc"), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1], 10 },
+        { new ListTranslationsRequest(ConflictsOnly: true), [1, 2, 3, 4, 5, 6, 9, 10], 8 },
         {
             new ListTranslationsRequest(
                 Search: "Stout",
@@ -751,7 +1091,8 @@ public sealed class ListTranslationsTests : IAsyncLifetime
                 Page: 2,
                 PageSize: 2,
                 Sort: "gossipId:desc",
-                ConflictsOnly: true),
+                ConflictsOnly: true,
+                Match: TranslationSearchMatch.WholeWord),
             [1],
             3
         }
@@ -783,6 +1124,21 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         { ":5", 5, 5 }
     };
 
+    public static TheoryData<TranslationSearchMatch, string> SpecialCharacterCases()
+    {
+        TheoryData<TranslationSearchMatch, string> cases = new();
+        string[] characters = [".", "*", "+", "?", "(", ")", "[", "]", "{", "}", "|", "^", "$", "\\", "%", "_", "-", "#", "\t"];
+        foreach (TranslationSearchMatch match in new[] { TranslationSearchMatch.WholeWord, TranslationSearchMatch.WholeText })
+        {
+            foreach (string character in characters)
+            {
+                cases.Add(match, character);
+            }
+        }
+
+        return cases;
+    }
+
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)
     {
         HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations{queryString}");
@@ -796,6 +1152,9 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     /// </summary>
     private Task<PaginationResponse<TranslationListItemResponse>> ListAsync(ListTranslationsRequest request) =>
         ListAsync(QueryHelpers.AddQueryString(string.Empty, request.ToQueryParameters()));
+
+    private Task<PaginationResponse<TranslationListItemResponse>> SearchAsync(string term, TranslationSearchMatch match)
+        => ListAsync(new ListTranslationsRequest(Search: term, Match: match));
 
     private HttpClient TranslatorClient()
     {

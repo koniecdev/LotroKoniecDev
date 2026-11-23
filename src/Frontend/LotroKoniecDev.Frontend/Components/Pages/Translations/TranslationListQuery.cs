@@ -24,6 +24,7 @@ internal sealed record TranslationListQuery
     private const string SearchName = "search";
     private const string StatusName = "status";
     private const string ConflictsOnlyName = "conflictsOnly";
+    private const string MatchName = "match";
     private const string PageSizeName = "pageSize";
 
     /// <summary>
@@ -32,13 +33,20 @@ internal sealed record TranslationListQuery
     /// </summary>
     internal static readonly IReadOnlyList<int> PageSizeOptions = [25, 50, 100];
 
-    private TranslationListQuery(string? search, TranslationStatus? status, int page, int pageSize, bool conflictsOnly)
+    private TranslationListQuery(
+        string? search,
+        TranslationStatus? status,
+        int page,
+        int pageSize,
+        bool conflictsOnly,
+        TranslationSearchMatch match)
     {
         Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Status = status;
         Page = Math.Max(page, 1);
         PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
         ConflictsOnly = conflictsOnly;
+        Match = Enum.IsDefined(match) ? match : TranslationSearchMatch.Contains;
     }
 
     public string? Search { get; }
@@ -54,6 +62,9 @@ internal sealed record TranslationListQuery
     /// </summary>
     public bool ConflictsOnly { get; }
 
+    /// <summary>How <see cref="Search"/> must match: anywhere, as a whole word or as the whole text (#1477).</summary>
+    public TranslationSearchMatch Match { get; }
+
     /// <summary>
     /// Only <c>true</c>, in any case, turns the filter on. Any other value means off, as an unknown status
     /// means "all".
@@ -61,8 +72,32 @@ internal sealed record TranslationListQuery
     public static bool ParseConflictsOnly(string? conflictsOnly) =>
         bool.TryParse(conflictsOnly, out bool isOn) && isOn;
 
+    /// <summary>
+    /// A mode's name, in any case. Anything else, a number included, means
+    /// <see cref="TranslationSearchMatch.Contains"/>, as an unknown status means "all".
+    /// </summary>
+    public static TranslationSearchMatch ParseMatch(string? match)
+    {
+        if (string.IsNullOrWhiteSpace(match))
+        {
+            return TranslationSearchMatch.Contains;
+        }
+
+        string trimmed = match.Trim();
+        return Enum.GetValues<TranslationSearchMatch>()
+            .FirstOrDefault(
+                mode => string.Equals(mode.ToString(), trimmed, StringComparison.OrdinalIgnoreCase),
+                TranslationSearchMatch.Contains);
+    }
+
     public ListTranslationsRequest ToApiRequest()
-        => new(Search: Search, Status: Status, Page: Page, PageSize: PageSize, ConflictsOnly: ConflictsOnly);
+        => new(
+            Search: Search,
+            Status: Status,
+            Page: Page,
+            PageSize: PageSize,
+            ConflictsOnly: ConflictsOnly,
+            Match: Match);
 
     /// <summary>
     /// The API's option names come from <see cref="ListTranslationsRequest"/>, the record the API binds,
@@ -119,9 +154,16 @@ internal sealed record TranslationListQuery
         string? status,
         int page,
         int? pageSize = null,
-        bool conflictsOnly = false)
+        bool conflictsOnly = false,
+        TranslationSearchMatch match = TranslationSearchMatch.Contains)
     {
-        return new TranslationListQuery(search, ParseStatus(status), page, pageSize ?? DefaultPageSize, conflictsOnly);
+        return new TranslationListQuery(
+            search,
+            ParseStatus(status),
+            page,
+            pageSize ?? DefaultPageSize,
+            conflictsOnly,
+            match);
     }
 
     /// <summary>
@@ -140,7 +182,8 @@ internal sealed record TranslationListQuery
             ParseStatus(FirstValue(query, StatusName)),
             ParsePage(FirstValue(query, PageName)),
             ParsePageSize(FirstValue(query, PageSizeName)),
-            ParseConflictsOnly(FirstValue(query, ConflictsOnlyName)));
+            ParseConflictsOnly(FirstValue(query, ConflictsOnlyName)),
+            ParseMatch(FirstValue(query, MatchName)));
     }
 
     /// <summary>
@@ -159,6 +202,11 @@ internal sealed record TranslationListQuery
         if (Search is not null)
         {
             parameters[SearchName] = Search;
+        }
+
+        if (Match is not TranslationSearchMatch.Contains)
+        {
+            parameters[MatchName] = Match.ToString();
         }
 
         if (Status is { } status)

@@ -405,12 +405,12 @@ public sealed class TranslationsTests : BunitContext
         // #1452: the editor builds its way back from these fields.
         TranslationListItemResponse row = Row(canEdit: true);
         StubPage(SinglePageOf(row));
-        Navigation().NavigateTo("/translations?search=Frodo&status=Draft&page=2&pageSize=25&conflictsOnly=true");
+        Navigation().NavigateTo("/translations?search=Frodo&status=Draft&page=2&pageSize=25&conflictsOnly=true&match=WholeWord");
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
         component.Find("td.col-actions a").GetAttribute("href")
-            .ShouldBe($"/editor/{row.Id.Value}?page=2&search=Frodo&status=Draft&conflictsOnly=true&pageSize=25");
+            .ShouldBe($"/editor/{row.Id.Value}?page=2&search=Frodo&match=WholeWord&status=Draft&conflictsOnly=true&pageSize=25");
     }
 
     [Fact]
@@ -443,7 +443,8 @@ public sealed class TranslationsTests : BunitContext
         // The back link and the list page must agree on every name. Only the API call that carries the
         // whole state gets the page, so a rendered row proves the list read every field.
         TranslationListQuery state = TranslationListQuery.From(
-            search: "Frodo & Sam", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true);
+            search: "Frodo & Sam", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true,
+            match: TranslationSearchMatch.WholeText);
         _client
             .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
                 state.ToApiUri(StubDiscoveryCache.HrefFor(Rels.Translations)),
@@ -458,6 +459,70 @@ public sealed class TranslationsTests : BunitContext
         component.Find("#status option[value=\"Draft\"]").HasAttribute("selected").ShouldBeTrue();
         component.Find("#pageSize option[value=\"25\"]").HasAttribute("selected").ShouldBeTrue();
         component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBeTrue();
+        component.Find("form.filter select#match option[value=\"WholeText\"]").HasAttribute("selected").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Render_AlwaysOffersTheMatchSelectRightAfterTheSearchBox()
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement select = component.Find("form.filter select#match");
+        select.GetAttribute("name").ShouldBe("match");
+        component.Find("label[for=match]").TextContent.ShouldBe("Dopasowanie");
+        select.QuerySelectorAll("option")
+            .Select(option => (option.GetAttribute("value"), option.TextContent.Trim()))
+            .ShouldBe([("", "Zawiera"), ("WholeWord", "Całe słowo"), ("WholeText", "Cały tekst")]);
+        select.QuerySelector("option[value=\"\"]").ShouldNotBeNull().HasAttribute("selected").ShouldBeTrue();
+        component.FindAll("form.filter > .field")
+            .Select(field => field.QuerySelector("input, select")?.Id)
+            .Take(2)
+            .ShouldBe(["search", "match"]);
+    }
+
+    [Theory]
+    [InlineData("WholeWord")]
+    [InlineData("WholeText")]
+    public void Render_WhenAMatchModeIsInTheQuery_SelectsItAndAsksTheApiForIt(string mode)
+    {
+        // Only a call that carries the mode gets the page, so a rendered row proves the mode reached the API.
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                Arg.Is<string>(uri => uri.Contains($"match={mode}")),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
+        Navigation().NavigateTo($"/translations?search=start&match={mode}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("form.filter select#match option[selected]")
+            .Select(option => option.GetAttribute("value"))
+            .ShouldBe([mode]);
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("match=7")]
+    [InlineData("match=1")]
+    [InlineData("match=banana")]
+    [InlineData("match=")]
+    [InlineData("match")]
+    public void Render_WithAnUnknownMatchInTheUrl_ShowsTheListAndFallsBackToContains(string query)
+    {
+        // A hand-typed link must never break the page, and the API must never see a mode it would refuse.
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                Arg.Is<string>(uri => !uri.Contains("match=")),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
+        Navigation().NavigateTo($"/translations?search=start&{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("form.filter select#match option[value=\"\"]").HasAttribute("selected").ShouldBeTrue();
     }
 
     private IRenderedComponent<TranslationsComponent> RenderPage() =>

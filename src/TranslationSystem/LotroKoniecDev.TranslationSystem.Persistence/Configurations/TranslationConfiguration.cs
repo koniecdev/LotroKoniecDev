@@ -64,13 +64,13 @@ internal sealed class TranslationConfiguration : IEntityTypeConfiguration<Transl
             ownedBuilder.Property(source => source.ArgsId)
                 .HasColumnName(nameof(TranslationSource.ArgsId));
 
-            // Serves the ILIKE '%term%' search in ListTranslations.
+            // Serves the ILIKE '%term%' and the regex (~*) searches in ListTranslations.
             ownedBuilder.HasIndex(source => source.Text)
                 .HasMethod("gin")
                 .HasOperators("gin_trgm_ops");
         });
 
-        // Serves the ILIKE '%term%' search in ListTranslations.
+        // Serves the ILIKE '%term%' and the regex (~*) searches in ListTranslations.
         builder.HasIndex(translation => translation.TranslatedText)
             .HasMethod("gin")
             .HasOperators("gin_trgm_ops");

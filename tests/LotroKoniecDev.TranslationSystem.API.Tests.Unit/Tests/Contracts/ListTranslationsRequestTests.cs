@@ -48,13 +48,15 @@ public sealed class ListTranslationsRequestTests
             Page: 3,
             PageSize: 25,
             Sort: "gossipId:desc",
-            ConflictsOnly: true);
+            ConflictsOnly: true,
+            Match: TranslationSearchMatch.WholeText);
 
         IReadOnlyList<KeyValuePair<string, string?>> parameters = request.ToQueryParameters();
 
         parameters.ShouldBe(
         [
             new KeyValuePair<string, string?>("search", "Stout-axe"),
+            new KeyValuePair<string, string?>("match", "WholeText"),
             new KeyValuePair<string, string?>("status", "NeedsReview"),
             new KeyValuePair<string, string?>("sort", "gossipId:desc"),
             new KeyValuePair<string, string?>("conflictsOnly", "true"),
@@ -101,6 +103,32 @@ public sealed class ListTranslationsRequestTests
             new KeyValuePair<string, string?>("conflictsOnly", "true"),
             new KeyValuePair<string, string?>("page", "7"),
             new KeyValuePair<string, string?>("pageSize", "25")
+        ]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord, "WholeWord")]
+    [InlineData(TranslationSearchMatch.WholeText, "WholeText")]
+    public void ToQueryParameters_WithANewMatchMode_WritesItsName(TranslationSearchMatch match, string expected)
+    {
+        IReadOnlyList<KeyValuePair<string, string?>> parameters =
+            new ListTranslationsRequest(Search: "ring", Match: match).ToQueryParameters();
+
+        parameters.ShouldContain(new KeyValuePair<string, string?>("match", expected));
+    }
+
+    [Fact]
+    public void ToQueryParameters_WithContains_LeavesTheMatchOut()
+    {
+        // Contains is the default, so an address with no match keeps its meaning (#1477).
+        IReadOnlyList<KeyValuePair<string, string?>> parameters =
+            new ListTranslationsRequest(Search: "ring", Match: TranslationSearchMatch.Contains).ToQueryParameters();
+
+        parameters.ShouldBe(
+        [
+            new KeyValuePair<string, string?>("search", "ring"),
+            new KeyValuePair<string, string?>("page", "1"),
+            new KeyValuePair<string, string?>("pageSize", "50")
         ]);
     }
 

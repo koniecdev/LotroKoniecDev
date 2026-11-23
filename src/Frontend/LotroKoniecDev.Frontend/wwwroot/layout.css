@@ -291,16 +291,39 @@ code {
     padding-bottom: 8px;
 }
 
+/* A wrapping row, so a narrow desktop window moves the last fields to a second line instead of squeezing
+   the search box (#1477). Search and status grow; the rest keep their natural width. The bases are in px,
+   because the text in the controls has a fixed px size. */
 .filter {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 18px;
-    display: grid;
-    grid-template-columns: 1fr 1fr auto auto auto;
+    display: flex;
+    flex-wrap: wrap;
     gap: 14px;
-    align-items: end;
+    align-items: flex-end;
     box-shadow: var(--shadow);
+}
+
+.filter > .field {
+    flex: 1 1 192px;
+}
+
+/* Wide enough for the longest status, "Do ponownego sprawdzenia", so the row wraps before it cuts it. */
+.filter > .field-status {
+    flex-basis: 256px;
+}
+
+.filter > .field-match,
+.filter > .field-page-size,
+.filter > .field-conflicts,
+.filter > .filter-actions {
+    flex: 0 0 auto;
+}
+
+.filter > .filter-actions {
+    margin-left: auto;
 }
 
 .field-conflicts .checkbox {
@@ -1779,6 +1802,7 @@ main:has(> .home-banner) {
     }
 
     .filter {
+        display: grid;
         grid-template-columns: 1fr;
         gap: 12px;
     }

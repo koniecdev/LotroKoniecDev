@@ -1,8 +1,13 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Security.Claims;
+using System.Text;
+using System.Text.RegularExpressions;
 using LotroKoniecDev.Hateoas.ContentNegotiation;
 using LotroKoniecDev.SharedKernel.Authorization;
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
@@ -24,7 +29,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
 /// by nature; every action still needs a login, so other callers get no action links.
 /// <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more different
-/// Polish texts (#1347).
+/// Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
@@ -38,11 +43,31 @@ internal sealed class ListTranslations : IEndpoint
         int Page,
         int PageSize,
         string? Sort,
-        bool ConflictsOnly)
+        bool ConflictsOnly,
+        TranslationSearchMatch Match)
         : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable;
 
     internal sealed class Handler : IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>>
     {
+        private const string LikeEscapeCharacter = "\\";
+
+        /// <summary>
+        /// PostgreSQL regex syntax, not .NET's: Npgsql sends the pattern to PostgreSQL as <c>~*</c>. A word
+        /// edge is a lookaround, because <c>\m</c> and <c>\M</c> never match a term that starts or ends
+        /// with a non-letter, such as <c>Ring[E]</c>.
+        /// </summary>
+        private const string WordStart = "(?<![[:alnum:]_])";
+
+        private const string WordEnd = "(?![[:alnum:]_])";
+
+        private const string TextStart = "^\\s*";
+
+        /// <summary>
+        /// White space at the end, and one grammar mark such as <c>[E]</c> or <c>[mn]</c>: 1 to 4 ASCII
+        /// letters. Longer bracket text is not a mark, so it must be typed.
+        /// </summary>
+        private const string TextEnd = "\\s*(\\[[A-Za-z]{1,4}\\])?\\s*$";
+
         private readonly IApplicationReadDbContext _readDbContext;
 
         public Handler(IApplicationReadDbContext readDbContext)
@@ -54,6 +79,15 @@ internal sealed class ListTranslations : IEndpoint
             Query query,
             CancellationToken cancellationToken)
         {
+            // Binding takes a number or a comma list too, so match=7 arrives here as an undefined value.
+            if (!Enum.IsDefined(query.Match))
+            {
+                return Result.Failure<PaginationResponse<TranslationListItemResponse>>(new Error(
+                    "Translations.UnknownSearchMatch",
+                    $"Search match '{query.Match}' is not supported; use Contains, WholeWord or WholeText.",
+                    TypeOfError.Validation));
+            }
+
             IQueryable<TranslationReadModel> filtered = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null);
 
@@ -64,29 +98,7 @@ internal sealed class ListTranslations : IEndpoint
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                string term = query.Search.Trim();
-
-                // LOTRO source text contains both % and _, so they must match themselves.
-                string pattern = $"%{EscapeLike(term)}%";
-
-                // Numbers appear in game texts too, so an id match only adds rows to the text match (#1406).
-                // EF drops the comparisons whose value is null, so a text term keeps the plain text query.
-                TranslationSearchIds ids = TranslationSearchTermParser.Parse(term);
-                int? fileId = ids.FileId;
-                long? gossipId = ids.GossipId;
-                int? pairFileId = ids.PairFileId;
-                long? pairGossipId = ids.PairGossipId;
-
-                filtered = filtered.Where(translation =>
-                    EF.Functions.ILike(translation.SourceText, pattern, LikeEscapeCharacter)
-                    || translation.TranslatedText != null
-                       && EF.Functions.ILike(translation.TranslatedText, pattern, LikeEscapeCharacter)
-                    || fileId != null && translation.FileId == fileId
-                    || gossipId != null && translation.GossipId == gossipId
-                    || pairFileId != null
-                       && pairGossipId != null
-                       && translation.FileId == pairFileId
-                       && translation.GossipId == pairGossipId);
+                filtered = WhereTheSearchMatches(filtered, query.Search.Trim(), query.Match);
             }
 
             if (query.ConflictsOnly)
@@ -154,13 +166,84 @@ internal sealed class ListTranslations : IEndpoint
                 && conflictingSourceTexts.Contains(translation.SourceText));
         }
 
-        private const string LikeEscapeCharacter = "\\";
+        private static IQueryable<TranslationReadModel> WhereTheSearchMatches(
+            IQueryable<TranslationReadModel> filtered,
+            string term,
+            TranslationSearchMatch match)
+        {
+            // Numbers appear in game texts too, so an id match only adds rows to the text match, in every mode
+            // (#1406). EF drops the comparisons whose value is null, so a text term keeps the plain text query.
+            TranslationSearchIds ids = TranslationSearchTermParser.Parse(term);
+            int? fileId = ids.FileId;
+            long? gossipId = ids.GossipId;
+            int? pairFileId = ids.PairFileId;
+            long? pairGossipId = ids.PairGossipId;
+
+            if (match is TranslationSearchMatch.Contains)
+            {
+                // LOTRO source text contains both % and _, so they must match themselves.
+                string likePattern = $"%{EscapeLike(term)}%";
+                return filtered.Where(translation =>
+                    EF.Functions.ILike(translation.SourceText, likePattern, LikeEscapeCharacter)
+                    || translation.TranslatedText != null
+                       && EF.Functions.ILike(translation.TranslatedText, likePattern, LikeEscapeCharacter)
+                    || fileId != null && translation.FileId == fileId
+                    || gossipId != null && translation.GossipId == gossipId
+                    || pairFileId != null
+                       && pairGossipId != null
+                       && translation.FileId == pairFileId
+                       && translation.GossipId == pairGossipId);
+            }
+
+            string escapedTerm = EscapeRegex(term);
+            string regexPattern = match switch
+            {
+                TranslationSearchMatch.WholeWord => $"{WordStart}{escapedTerm}{WordEnd}",
+                TranslationSearchMatch.WholeText => $"{TextStart}{escapedTerm}{TextEnd}",
+                _ => throw new UnreachableException($"Search match '{match}' has no regex pattern.")
+            };
+
+            // The options stay a literal: Npgsql translates IsMatch only when they are a constant.
+            return filtered.Where(translation =>
+                Regex.IsMatch(translation.SourceText, regexPattern, RegexOptions.IgnoreCase)
+                || translation.TranslatedText != null
+                   && Regex.IsMatch(translation.TranslatedText, regexPattern, RegexOptions.IgnoreCase)
+                || fileId != null && translation.FileId == fileId
+                || gossipId != null && translation.GossipId == gossipId
+                || pairFileId != null
+                   && pairGossipId != null
+                   && translation.FileId == pairFileId
+                   && translation.GossipId == pairGossipId);
+        }
 
         private static string EscapeLike(string term)
             => term
                 .Replace("\\", "\\\\")
                 .Replace("%", "\\%")
                 .Replace("_", "\\_");
+
+        /// <summary>
+        /// In PostgreSQL's regex syntax a backslash before an ASCII character that is not a letter or a
+        /// digit means that character itself, and every special character is ASCII. A backslash before a
+        /// letter is an escape (<c>\d</c>), so letters and digits stay bare. Non-ASCII characters stay bare
+        /// too: a backslash between the two halves of an emoji breaks the text, and Npgsql then fails the
+        /// request.
+        /// </summary>
+        private static string EscapeRegex(string term)
+        {
+            StringBuilder escaped = new(term.Length * 2);
+            foreach (char character in term)
+            {
+                if (char.IsAscii(character) && !char.IsAsciiLetterOrDigit(character))
+                {
+                    escaped.Append('\\');
+                }
+
+                escaped.Append(character);
+            }
+
+            return escaped.ToString();
+        }
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -179,7 +262,8 @@ internal sealed class ListTranslations : IEndpoint
                     request.Page,
                     request.PageSize,
                     request.Sort,
-                    request.ConflictsOnly);
+                    request.ConflictsOnly,
+                    request.Match);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 

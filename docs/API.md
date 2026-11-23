@@ -411,7 +411,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`; a status name is case-sensitive) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`, `match=foo` or an empty `match=`; a status or match name is case-sensitive. Also a `match` that binds to a number which is not a mode, such as `match=7`, `match=-1` or `match=WholeWord,WholeText` (binding adds the names of a comma list up to 3): `Translations.UnknownSearchMatch`.) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
@@ -426,7 +426,8 @@ unknown name, such as the old `lang`, is ignored.
 
 | Param | Type | Default | Meaning |
 |---|---|---|---|
-| `search` | string? | — | case-insensitive substring of the English source **or** the Polish (LIKE special characters escaped). A term made only of the digits 0–9 also matches the rows whose `FileId` or `GossipId` equals it, and `FileId:GossipId` also matches that one row (#1406). An id match only adds rows: the text match always runs |
+| `search` | string? | — | case-insensitive search of the English source **or** the Polish, trimmed first; `match` decides how it must match. Every character of the term matches itself. A term made only of the digits 0–9 also matches the rows whose `FileId` or `GossipId` equals it, and `FileId:GossipId` also matches that one row (#1406). An id match only adds rows, in every `match` mode: the text match always runs |
+| `match` | `TranslationSearchMatch` | `Contains` | how `search` must match (#1477): `Contains` anywhere in the text (`ILIKE`, LIKE special characters escaped); `WholeWord` with no letter, digit or `_` right before or after it; `WholeText` the whole text, ignoring white space at both edges and one grammar mark at the end (`[`, 1 to 4 ASCII letters, `]`, such as `[E]`). `WholeWord` and `WholeText` run as a PostgreSQL regex (`~*`) with every ASCII character that is not a letter or digit escaped. Without `search` it changes nothing. The pager links keep it, and leave out `Contains` |
 | `status` | `TranslationStatus`? | — | filter; `NeedsReview` is the "needs retranslation" view |
 | `page` | int | `1` | at least 1 |
 | `pageSize` | int | `50` | clamped to 1–100 |

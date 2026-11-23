@@ -176,6 +176,7 @@ public sealed class TranslationSlipCheckerTests
     [Theory]
     [InlineData("Read the book.", "Przeczytaj \"Księgę\".")]
     [InlineData("Read the book.", "Przeczytaj \"Księgę\" i \"Kronikę\".")]
+    [InlineData("Read the book.", "Przeczytaj \"Księgę.")]
     public void Check_WhenThePolishHasAStraightDoubleQuote_FindsOneQuoteSlipWithTheSpeechRule(string sourceText, string translatedText)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -190,6 +191,7 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("One line.", "Wiersz" + Br + Br + "drugi.")]
     [InlineData("Line one" + Br + "Line two.", "Wiersz pierwszy\nWiersz drugi.")]
     [InlineData("Line one" + Br + "Line two.", "Wiersz pierwszy\r\nWiersz drugi.")]
+    [InlineData("Hello." + Br + "[m]", "Cześć.[m]")]
     public void Check_WhenTheCountOfTypedLineBreaksDiffers_FindsALineBreakSlip(string sourceText, string translatedText)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -212,6 +214,8 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Necklace[E]", "Naszyjnik[e]", "Tłumaczenie kończy się znacznikiem [e], a tekst angielski znacznikiem [E].")]
     [InlineData("Ring [Pl] ", "Pierścień [Plf] ", "Tłumaczenie kończy się znacznikiem [Plf], a tekst angielski znacznikiem [Pl].")]
     [InlineData("Sword[nvps]", "Miecz", "Tekst angielski kończy się znacznikiem [nvps], a tłumaczenie nie.")]
+    [InlineData("Necklace[E]", "Naszyjnik E]", "Tekst angielski kończy się znacznikiem [E], a tłumaczenie nie.")]
+    [InlineData("Swords[ps]", "Miecze[ps", "Tekst angielski kończy się znacznikiem [ps], a tłumaczenie nie.")]
     public void Check_WhenTheGrammarMarkAtTheEndDiffers_FindsAMarkSlipNamingBothMarks(string sourceText, string translatedText, string expected)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -236,6 +240,9 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Hello", "OK]")]
     [InlineData("Hello ", "abcd] ")]
     [InlineData("ab]", "Cześć")]
+    [InlineData("Hello", "x ab]")]
+    [InlineData("[Not Used]", "[Nieużywane]")]
+    [InlineData("Hello", "Cześć[ab")]
     [InlineData("Sword[D]" + Br, "Miecz" + Br)]
     public void Check_WhenTheGrammarMarksAgreeOrNeitherSideHasOne_FindsNoSlip(string sourceText, string translatedText)
     {
@@ -249,6 +256,7 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("'Hello.'", "„Cześć.”")]
     [InlineData("'Hello.'", GameQuote + "Cześć." + GameQuote)]
     [InlineData(" 'Hello.'", " Cześć.'")]
+    [InlineData("\t'Hello.'", "\tCześć.'")]
     public void Check_WhenTheEnglishStartsWithAnApostropheAndThePolishDoesNot_FindsAnOpeningSlip(string sourceText, string translatedText)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -261,6 +269,7 @@ public sealed class TranslationSlipCheckerTests
     [Theory]
     [InlineData("'Hello.'", "'Cześć.'")]
     [InlineData(" 'Hello.'", " 'Cześć.'")]
+    [InlineData("\t'Hello.'", "\t'Cześć.'")]
     [InlineData("Hello.", "'Cześć.'")]
     [InlineData("He said 'Hello.'", "Powiedział „Cześć.”")]
     [InlineData("He said 'Hello.'", "Powiedział " + GameQuote + "Cześć." + GameQuote)]
@@ -321,6 +330,7 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("'Hello.'", "'Cześć'")]
     [InlineData("Hello. [D]", "Cześć [D]")]
     [InlineData("Hello." + Br, "Cześć" + Br)]
+    [InlineData("Hello.[m]" + Br, "Cześć." + Br)]
     public void Check_WhenTheLastSignBeforeTheMarkDiffers_FindsAFinalSignSlip(string sourceText, string translatedText)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -364,6 +374,8 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Hello.", "Cześć\u0903", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     [InlineData("Hello.", "Cześć\u20DD", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     [InlineData("Hello.\n", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
+    [InlineData("Hello.\r", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
+    [InlineData("Level 5.", "Poziom 5", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     public void Check_AFinalSignSlip_NamesWhatEachSideEndsWith(string sourceText, string translatedText, string expected)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);

@@ -55,8 +55,10 @@ Critical format facts:
 - **Piece lengths are CHARACTER counts, not byte counts** — bytes on disk = `count * 2` (UTF-16LE,
   `Encoding.Unicode`). Mixing this up corrupts every following offset.
 - `<--DO_NOT_TOUCH!-->` (`DatFileConstants.PieceSeparator`) is the **piece boundary** in exported
-  text: N+1 pieces ⇔ N argument slots (true on all 792,500 exported rows, checked 2026-11-22 in
-  #1437). A translation must keep the same piece count; translators
+  text: N+1 pieces ⇔ N argument slots. Checked 2026-11-22 in #1437: on all 792,500 exported rows
+  the placeholder count equals the argument count. That cannot tell a 0-piece fragment from one
+  with one empty piece (both export as ""), so never refuse a fragment for its piece count on read.
+  A translation must keep the same piece count; translators
   reorder arguments via `args_order`, never by editing the marker.
 - `args_order`/`args_id` columns: `NULL` or `1-2-3` — **1-indexed in the file, 0-indexed
   internally** (`Fragment.TryReorderArgRefs` takes 0-indexed source positions and returns `false`

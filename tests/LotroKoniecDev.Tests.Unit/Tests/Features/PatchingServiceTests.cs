@@ -1118,9 +1118,11 @@ public sealed class PatchingServiceTests
         SetupTranslations(CreateTranslation(content: PolishWithPieces(2)));
 
         // Act
-        _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
+        Result<PatchSummaryResponse> result = _sut.ApplyTranslations("/translations/polish.txt", "/game/client_local_English.dat");
 
-        // Assert
+        // Assert: the counters show that the piece count refused the row, not another guard.
+        result.Value.SourceMovedTranslations.ShouldBe(0);
+        result.Value.Warnings.ShouldContain(warning => warning.Contains("text piece(s)"));
         _datFileHandler.DidNotReceive().PutSubfileData(
             Arg.Any<int>(), TextFileId, Arg.Any<byte[]>(), Arg.Any<int>(), Arg.Any<int>());
     }

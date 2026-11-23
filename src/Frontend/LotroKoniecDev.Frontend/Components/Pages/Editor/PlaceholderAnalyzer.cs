@@ -5,7 +5,8 @@ namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 /// <summary>
 /// Counts and splits out the argument placeholder, so the editor can highlight it without interactive
 /// code. The marker is part of the <c>||</c> file contract; the Frontend takes the translation API's
-/// copy, so the editor's count and the API's refusal use one string.
+/// copy of the string. <see cref="Count"/> is its own loop and must count the way the API's
+/// <c>TranslationSource.CountPlaceholders</c> does (whole markers, ordinal, no overlap).
 /// </summary>
 internal static class PlaceholderAnalyzer
 {

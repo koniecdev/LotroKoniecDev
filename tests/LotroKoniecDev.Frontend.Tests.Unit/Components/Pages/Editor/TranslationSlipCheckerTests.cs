@@ -330,7 +330,6 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("'Hello.'", "'Cześć'")]
     [InlineData("Hello. [D]", "Cześć [D]")]
     [InlineData("Hello." + Br, "Cześć" + Br)]
-    [InlineData("Hello.[m]" + Br, "Cześć." + Br)]
     public void Check_WhenTheLastSignBeforeTheMarkDiffers_FindsAFinalSignSlip(string sourceText, string translatedText)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
@@ -375,12 +374,22 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Hello.", "Cześć\u20DD", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     [InlineData("Hello.\n", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
     [InlineData("Hello.\r", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
+    [InlineData("'Hello.'", "'Cześć.''", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest ').")]
     [InlineData("Level 5.", "Poziom 5", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     public void Check_AFinalSignSlip_NamesWhatEachSideEndsWith(string sourceText, string translatedText, string expected)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
 
         slips.Single().Message.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Check_AMarkBeforeATrailingRunOfLineBreaks_StaysBecauseTheMarkIsTrimmedFirst()
+    {
+        // The owner's order trims the mark, then the run of \n, so a mark in front of the run is not "at the very end".
+        IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check("Hello.[m]" + Br, "Cześć." + Br);
+
+        slips.Single().Message.ShouldBe("Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest ]), w tłumaczeniu kropka (.).");
     }
 
     [Fact]

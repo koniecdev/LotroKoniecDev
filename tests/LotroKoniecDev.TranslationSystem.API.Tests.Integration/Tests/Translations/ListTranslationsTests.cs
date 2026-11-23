@@ -745,6 +745,25 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Theory]
     [InlineData(TranslationSearchMatch.WholeWord)]
     [InlineData(TranslationSearchMatch.WholeText)]
+    public async Task List_WithAFileIdInANewMode_ListsEveryLiveRowOfThatFile(TranslationSearchMatch match)
+    {
+        // Arrange
+        await SeedAsync(
+            Row(1, "Frodo"),
+            Row(2, "Samwise"),
+            Row(1, "Gandalf", fileId: OtherFileId));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await SearchAsync(FileId.ToString(CultureInfo.InvariantCulture), match);
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.GossipId)).ShouldBe([(FileId, 1L), (FileId, 2L)]);
+    }
+
+    [Theory]
+    [InlineData(TranslationSearchMatch.WholeWord)]
+    [InlineData(TranslationSearchMatch.WholeText)]
     public async Task List_WithFileIdColonGossipIdInANewMode_ListsThatRow(TranslationSearchMatch match)
     {
         // Arrange

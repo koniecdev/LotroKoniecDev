@@ -411,7 +411,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`, `match=foo` or an empty `match=`; a status or match name is case-sensitive. Also a `match` that binds to a number which is not a mode, such as `match=7`, `match=-1` or `match=WholeWord,WholeText` (binding adds the names of a comma list up to 3): `Translations.UnknownSearchMatch`. A number or a comma list that adds up to a mode, such as `match=1` or `match=Contains,WholeWord`, binds to that mode) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`, `match=foo` or an empty `match=`; a status or match name is case-sensitive. Also a `match` that binds to a number which is not a mode, such as `match=7`, `match=-1` or `match=WholeWord,WholeText` (binding adds the names of a comma list up to 3): `Translations.UnknownSearchMatch`.) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |

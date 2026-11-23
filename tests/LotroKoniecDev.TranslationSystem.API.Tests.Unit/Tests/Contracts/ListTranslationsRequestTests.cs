@@ -49,7 +49,8 @@ public sealed class ListTranslationsRequestTests
             PageSize: 25,
             Sort: "gossipId:desc",
             ConflictsOnly: true,
-            Match: TranslationSearchMatch.WholeText);
+            Match: TranslationSearchMatch.WholeText,
+            Mine: true);
 
         IReadOnlyList<KeyValuePair<string, string?>> parameters = request.ToQueryParameters();
 
@@ -60,6 +61,7 @@ public sealed class ListTranslationsRequestTests
             new KeyValuePair<string, string?>("status", "NeedsReview"),
             new KeyValuePair<string, string?>("sort", "gossipId:desc"),
             new KeyValuePair<string, string?>("conflictsOnly", "true"),
+            new KeyValuePair<string, string?>("mine", "true"),
             new KeyValuePair<string, string?>("page", "3"),
             new KeyValuePair<string, string?>("pageSize", "25")
         ]);

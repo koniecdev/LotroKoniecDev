@@ -10,7 +10,9 @@ using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
+using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.API.Auth;
+using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
 using LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
@@ -19,7 +21,9 @@ using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
+using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
@@ -29,13 +33,16 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
 /// by nature; every action still needs a login, so other callers get no action links.
 /// <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more different
-/// Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
+/// Polish texts (#1347). <c>match</c> picks how the search term must match (#1477). <c>mine</c> keeps the
+/// rows whose current Polish text the caller saved; the caller comes from the token, and a caller with no
+/// token or no translator profile gets an empty page (#1491).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
     /// <summary>
     /// <see cref="ListTranslationsRequest"/> already holds the page limits, and the endpoint is the only
-    /// place that builds this query.
+    /// place that builds this query. <see cref="Caller"/> is the token's subject, never a value from the
+    /// address.
     /// </summary>
     internal sealed record Query(
         string? Search,
@@ -44,7 +51,9 @@ internal sealed class ListTranslations : IEndpoint
         int PageSize,
         string? Sort,
         bool ConflictsOnly,
-        TranslationSearchMatch Match)
+        TranslationSearchMatch Match,
+        bool Mine,
+        ValueMaybe<IdentityId> Caller)
         : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable;
 
     internal sealed class Handler : IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>>
@@ -91,6 +100,20 @@ internal sealed class ListTranslations : IEndpoint
             IQueryable<TranslationReadModel> filtered = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null);
 
+            if (query.Mine)
+            {
+                // A profile, not a role: an admin's own saves are theirs too.
+                TranslatorId? callerTranslatorId = await FindCallerTranslatorIdAsync(query.Caller, cancellationToken);
+                if (callerTranslatorId is not { } translatorId)
+                {
+                    return Result.Success(EmptyPage(query));
+                }
+
+                // Today the row keeps only the author of its current text. When every save becomes a
+                // proposal (#1384), this filter and its order move to the newest proposal (spec 0014).
+                filtered = filtered.Where(translation => translation.SubmittedById == translatorId);
+            }
+
             if (query.Status is { } status)
             {
                 filtered = filtered.Where(translation => translation.Status == status);
@@ -108,17 +131,7 @@ internal sealed class ListTranslations : IEndpoint
 
             int totalCount = await filtered.CountAsync(cancellationToken);
 
-            IQueryable<TranslationReadModel> ordered = string.IsNullOrWhiteSpace(query.Sort)
-                ? filtered
-                    .OrderBy(translation => translation.FileId)
-                    .ThenBy(translation => translation.GossipId)
-                : filtered.ApplyMultipleSorting(
-                    query.Sort,
-                    GetSortProperty,
-                    translation => translation.FileId,
-                    translation => translation.GossipId);
-
-            List<TranslationListItemResponse> items = await ordered
+            List<TranslationListItemResponse> items = await Order(filtered, query)
                 .ApplyPagination(query.Page, query.PageSize)
                 .Select(TranslationProjections.ToListItem)
                 .ToListAsync(cancellationToken);
@@ -130,6 +143,56 @@ internal sealed class ListTranslations : IEndpoint
                 PageSize = query.PageSize,
                 TotalCount = totalCount
             });
+        }
+
+        /// <summary>
+        /// An explicit sort always wins. Without one, "mine" shows the newest change first (#1491). That is
+        /// <c>UpdatedAt</c>, which an approve, an import or a restore moves too: the row keeps no time of
+        /// the save itself.
+        /// </summary>
+        private static IQueryable<TranslationReadModel> Order(IQueryable<TranslationReadModel> filtered, Query query)
+        {
+            if (!string.IsNullOrWhiteSpace(query.Sort))
+            {
+                return filtered.ApplyMultipleSorting(
+                    query.Sort,
+                    GetSortProperty,
+                    translation => translation.FileId,
+                    translation => translation.GossipId);
+            }
+
+            return query.Mine
+                ? filtered
+                    .OrderByDescending(translation => translation.UpdatedAt)
+                    .ThenBy(translation => translation.FileId)
+                    .ThenBy(translation => translation.GossipId)
+                : filtered
+                    .OrderBy(translation => translation.FileId)
+                    .ThenBy(translation => translation.GossipId);
+        }
+
+        private static PaginationResponse<TranslationListItemResponse> EmptyPage(Query query) => new()
+        {
+            Items = [],
+            Page = query.Page,
+            PageSize = query.PageSize,
+            TotalCount = 0
+        };
+
+        private async Task<TranslatorId?> FindCallerTranslatorIdAsync(
+            ValueMaybe<IdentityId> caller,
+            CancellationToken cancellationToken)
+        {
+            if (caller.HasNoValue)
+            {
+                return null;
+            }
+
+            IdentityId identityId = caller.Value;
+            TranslatorReadModel? translator = await _readDbContext.Translators
+                .FirstOrDefaultAsync(profile => profile.IdentityId == identityId, cancellationToken);
+
+            return translator?.Id;
         }
 
         /// <summary>
@@ -253,6 +316,7 @@ internal sealed class ListTranslations : IEndpoint
                 IQueryHandler<Query, Result<PaginationResponse<TranslationListItemResponse>>> handler,
                 ITranslationAggregateLinkFactory translationLinkFactory,
                 IPaginationLinkFactory paginationLinkFactory,
+                ICurrentUserAccessor currentUserAccessor,
                 ClaimsPrincipal user,
                 CancellationToken cancellationToken) =>
             {
@@ -263,7 +327,9 @@ internal sealed class ListTranslations : IEndpoint
                     request.PageSize,
                     request.Sort,
                     request.ConflictsOnly,
-                    request.Match);
+                    request.Match,
+                    request.Mine,
+                    currentUserAccessor.MaybeIdentityId);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
 

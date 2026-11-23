@@ -37,6 +37,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     private readonly TranslationSystemApiFactory _factory;
     private GameVersionId _versionId;
     private TranslatorId _seederId;
+    private Guid _seederSubject;
 
     public TranslationAggregateHateoasTests(TranslationSystemApiFactory factory)
     {
@@ -61,6 +62,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         await dbContext.SaveChangesAsync();
         _versionId = gameVersion.Id;
         _seederId = seeder.Id;
+        _seederSubject = seeder.IdentityId.Value;
     }
 
     public Task DisposeAsync() => Task.CompletedTask;
@@ -386,6 +388,33 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
         foreach (string rel in new[] { Rels.Self, Rels.FirstPage, Rels.LastPage, Rels.PreviousPage, Rels.NextPage })
         {
             response.Links.First(l => l.Rel == rel).Href.ShouldContain("conflictsOnly=true", Case.Insensitive);
+        }
+    }
+
+    [Fact]
+    public async Task ListTranslations_PaginationLinks_PreserveMine()
+    {
+        // Arrange: three rows the caller saved, one per page (#1491).
+        await SeedAsync(
+            Row(1, "a", TranslationStatus.Draft),
+            Row(2, "b", TranslationStatus.Draft),
+            Row(3, "c", TranslationStatus.Draft));
+        HttpClient seederClient = _factory.CreateClient();
+        seederClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessToken(
+                AuthConstants.Roles.Translator, AuthConstants.Scopes.Api, _seederSubject));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> response =
+            await GetHateoasAsync<PaginationResponse<TranslationListItemResponse>>(
+                seederClient, "/api/v1/translations?mine=true&page=2&pageSize=1");
+
+        // Assert
+        response.TotalCount.ShouldBe(3);
+        foreach (string rel in new[] { Rels.Self, Rels.FirstPage, Rels.LastPage, Rels.PreviousPage, Rels.NextPage })
+        {
+            response.Links.First(l => l.Rel == rel).Href.ShouldContain("mine=true", Case.Insensitive);
         }
     }
 

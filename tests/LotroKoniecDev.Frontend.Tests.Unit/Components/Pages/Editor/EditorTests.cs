@@ -745,6 +745,7 @@ public sealed class EditorTests : BunitContext
     [InlineData("Line one\nline two")]
     [InlineData("Line one\r\nline two")]
     [InlineData("Line one\rline two")]
+    [InlineData("Interrupted!\n")]
     [InlineData("")]
     [InlineData("   ")]
     public void Render_WhenThePanelIsCappedAndTheEnglishCannotBeASearch_HasNoLinkToAllRows(string sourceText)
@@ -802,7 +803,26 @@ public sealed class EditorTests : BunitContext
         IHtmlCollection<IElement> links = capped.QuerySelectorAll("a");
         links.Length.ShouldBe(1);
         links[0].ClassList.ShouldContain("same-source-conflict-link");
+        links[0].GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
         capped.TextContent.ShouldNotContain("·");
+    }
+
+    [Theory]
+    [InlineData("  Interrupted!  ")]
+    [InlineData("\tInterrupted!")]
+    [InlineData("\u00A0Interrupted!")]
+    public void Render_WhenThePanelIsCappedAndTheEnglishHasSpacesAtTheEdges_SearchesForTheTrimmedText(string sourceText)
+    {
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-all").GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
     }
 
     [Fact]

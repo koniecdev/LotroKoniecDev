@@ -495,9 +495,10 @@
             .ToPageRelativeUri(1);
 
     /// <summary>
-    /// Every row with this English, past the panel's cap (#1492). The "Cały tekst" search can add a few
-    /// rows, such as the same text with a grammar mark. When <see cref="ListSearchFor"/> returns null there
-    /// is no link, because a list with no search shows every row.
+    /// Every row with this English, past the panel's cap (#1492). The "Cały tekst" search ignores case and a
+    /// grammar mark, and it also matches the Polish and the ids (docs/API.md), so the list can show more rows.
+    /// Like the conflict link, it opens a new list. When <see cref="ListSearchFor"/> returns null there is no
+    /// link, because a list with no search shows every row.
     /// </summary>
     private static string? AllRowsListHref(string sourceText) =>
         ListSearchFor(sourceText) is { } search

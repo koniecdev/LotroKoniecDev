@@ -1271,7 +1271,30 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithMineForACallerWithNoTranslatorProfile_ReturnsAnEmptyPage()
     {
-        // Arrange: a profile is made on the first save, so a caller without one saved nothing.
+        // Arrange: a token with no usable name gets no profile (INV-4.4), and with no profile there is no
+        // save to list.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"));
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessToken(
+                AuthConstants.Roles.Translator, AuthConstants.Scopes.Api, Guid.NewGuid(), displayName: "", email: ""));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations?mine=true");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task List_WithMineForACallerWhoSavedNothing_ReturnsAnEmptyPage()
+    {
+        // Arrange: the first request makes this caller's profile (INV-4.4), and it holds no save.
         await SeedAsync(Translated(1, "Decayed", "Zgniły"));
 
         // Act
@@ -1312,7 +1335,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         { new ListTranslationsRequest(PageSize: 3), [1, 2, 3], 10 },
         { new ListTranslationsRequest(Sort: "gossipId:desc"), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1], 10 },
         { new ListTranslationsRequest(ConflictsOnly: true), [1, 2, 3, 4, 5, 6, 9, 10], 8 },
-        // This caller has no translator profile, so "mine" holds nothing.
+        // This caller saved nothing, so "mine" holds nothing.
         { new ListTranslationsRequest(Mine: true), [], 0 },
         {
             new ListTranslationsRequest(

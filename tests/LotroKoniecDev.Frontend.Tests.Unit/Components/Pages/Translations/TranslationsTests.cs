@@ -399,6 +399,67 @@ public sealed class TranslationsTests : BunitContext
         component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBe(expectedOn);
     }
 
+    [Fact]
+    public void Render_EditLink_CarriesTheListStateToTheEditor()
+    {
+        // #1452: the editor builds its way back from these fields.
+        TranslationListItemResponse row = Row(canEdit: true);
+        StubPage(SinglePageOf(row));
+        Navigation().NavigateTo("/translations?search=Frodo&status=Draft&page=2&pageSize=25&conflictsOnly=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("td.col-actions a").GetAttribute("href")
+            .ShouldBe($"/editor/{row.Id.Value}?page=2&search=Frodo&status=Draft&conflictsOnly=true&pageSize=25");
+    }
+
+    [Fact]
+    public void Render_EditLinkOnTheDefaultList_IsTheBareEditorAddress()
+    {
+        TranslationListItemResponse row = Row(canEdit: true);
+        StubPage(SinglePageOf(row));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("td.col-actions a").GetAttribute("href").ShouldBe($"/editor/{row.Id.Value}");
+    }
+
+    [Fact]
+    public void Render_EditLinkAfterABulkApprove_LeavesTheApprovalCountsOut()
+    {
+        // The editor reads "approved" as its own flag, so the list's count must never reach it.
+        TranslationListItemResponse row = Row(canEdit: true, canApprove: true);
+        StubPage(AdminPageOf(row));
+        Navigation().NavigateTo("/translations?search=Frodo&approved=2&skipped=1");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("td.col-actions a").GetAttribute("href").ShouldBe($"/editor/{row.Id.Value}?search=Frodo");
+    }
+
+    [Fact]
+    public void Render_AtTheEditorsBackLink_ShowsTheSameListAgain()
+    {
+        // The back link and the list page must agree on every name. Only the API call that carries the
+        // whole state gets the page, so a rendered row proves the list read every field.
+        TranslationListQuery state = TranslationListQuery.From(
+            search: "Frodo & Sam", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true);
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                state.ToApiUri(StubDiscoveryCache.HrefFor(Rels.Translations)),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
+        Navigation().NavigateTo(state.ToListRelativeUri());
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("form.filter input#search").GetAttribute("value").ShouldBe("Frodo & Sam");
+        component.Find("#status option[value=\"Draft\"]").HasAttribute("selected").ShouldBeTrue();
+        component.Find("#pageSize option[value=\"25\"]").HasAttribute("selected").ShouldBeTrue();
+        component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBeTrue();
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
 

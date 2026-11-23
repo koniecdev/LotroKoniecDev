@@ -15,7 +15,8 @@ all-in-container variant)
 M3 ships the Blazor SSR Frontend and the golden account loop (register → confirm e-mail → log in
 via OIDC → log out) spanning **two origins** — the Frontend and the AuthSystem's own Identity Razor
 Pages. We want a browser end-to-end test for that loop that needs **no seeded database and no
-`exported.txt`**, runnable from a fresh clone.
+`exported.txt`**, runnable from a fresh clone. (A later flow may seed its own data through the site:
+see the amendment under §5.)
 
 Code facts that constrain the design:
 
@@ -103,6 +104,12 @@ The first flow is **register → confirm (Mailpit link) → login (FE OIDC) → 
 `*.E2E.Tests`, so `pr-verify`/`ci` skip it by the existing convention; it runs via `e2e.yml`
 (`workflow_dispatch`) and local `dotnet test`, exactly like our API-E2E. Wiring it onto a routine
 gate is deferred (cost; mirrors TheKittySaver's deferral).
+
+**Amendment (2026-11-22, #1452):** "no seed" describes the first flow only. A later flow that needs
+translation rows seeds them through the site, as a user would: it signs in as the admin the auth
+host's Testing profile seeds, registers a game version and uploads an `exported.txt` it builds in
+memory (`TranslationListWayBackTests`). It still runs from a fresh clone, with no seeded database and
+no file in the repo. Its rows carry a token no other flow uses, because every flow shares one stack.
 
 ### 6. Reject FluentDocker and reject a dedicated `compose.playwright.yaml`
 

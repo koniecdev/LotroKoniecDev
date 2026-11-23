@@ -1,6 +1,5 @@
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
-@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Translations
@@ -12,6 +11,7 @@
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
 @using LotroKoniecDev.TranslationSystem.Primitives.Constants
+@using Microsoft.AspNetCore.WebUtilities
 @inject TranslationEditorLoader Loader
 @inject NavigationManager Navigation
 
@@ -26,7 +26,7 @@
         </p>
     </div>
     <div class="head-actions">
-        <a class="btn btn-ghost" href="/translations">← Wróć do listy</a>
+        <a class="btn btn-ghost" href="@_listQuery.ToListRelativeUri()">← Wróć do listy</a>
     </div>
 </section>
 
@@ -322,6 +322,12 @@
     private string? _draftText;
     private string? _postedFormName;
 
+    /// <summary>
+    /// The list state the editor's address carries, for every way back to the list (#1452). It has a value
+    /// before the first render, because the page renders once while the row still loads.
+    /// </summary>
+    private TranslationListQuery _listQuery = TranslationListQuery.From(null, null, 1);
+
     [Parameter]
     public Guid Id { get; set; }
 
@@ -349,6 +355,7 @@
 
     protected override async Task OnParametersSetAsync()
     {
+        _listQuery = TranslationListQuery.FromPageQuery(Navigation.Uri);
         _postedFormName = PostedForm.NameOf(HttpContext);
 
         ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
@@ -431,10 +438,10 @@
 
     /// <summary>
     /// Redirect after post (#321): a reload is a plain GET, and the fresh load shows the server's new
-    /// links, such as the approve button after a save.
+    /// links, such as the approve button after a save. It keeps the list state and only its own flag.
     /// </summary>
     private string EditorUriWithFlag(string successFlag) =>
-        string.Create(CultureInfo.InvariantCulture, $"/editor/{Id}?{successFlag}=true");
+        QueryHelpers.AddQueryString(_listQuery.ToEditorRelativeUri(TranslationId.FromValue(Id)), successFlag, "true");
 
     /// <summary>
     /// Its own state, so a failed panel never hides the row (#1347). Skipped on a post: a good save or
@@ -463,8 +470,11 @@
         }
     }
 
-    private static string OtherRowHref(TranslationId id) =>
-        string.Create(CultureInfo.InvariantCulture, $"/editor/{id.Value}");
+    /// <summary>
+    /// Another row is a detour from the same list, so it keeps the list state for the way back.
+    /// </summary>
+    private string OtherRowHref(TranslationId id) =>
+        _listQuery.ToEditorRelativeUri(id);
 
     /// <summary>
     /// The list's conflict filter is the uncapped view of these rows. The English goes in as the search term

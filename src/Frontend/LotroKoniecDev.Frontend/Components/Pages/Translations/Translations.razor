@@ -383,8 +383,11 @@
         _bulkProblem = result.ProblemDetails;
     }
 
-    private static string EditorHref(TranslationListItemResponse item) =>
-        $"/editor/{item.Id.Value}";
+    /// <summary>
+    /// The editor gets the list state, so its way back shows this list again (#1452).
+    /// </summary>
+    private string EditorHref(TranslationListItemResponse item) =>
+        _query.ToEditorRelativeUri(item.Id);
 
     /// <summary>
     /// The auth API has its own copy of this rule (<c>AuthSystem.API.Common.PolishPlural</c>, #1032).

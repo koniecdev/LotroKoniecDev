@@ -21,9 +21,9 @@ using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Editor;
 
 /// <summary>
-/// Pins what the <see cref="PlaceholderAnalyzer"/> tests cannot reach: the placeholder highlight and the
-/// count warning on the rendered page. It also covers the redirect after post (#321) and the recovery
-/// form a failed save leaves (#1122).
+/// Pins what the <see cref="PlaceholderAnalyzer"/> and <see cref="TranslationSlipChecker"/> tests cannot
+/// reach: the placeholder highlight, the count warning and the slip warnings on the rendered page. It also
+/// covers the redirect after post (#321) and the recovery form a failed save leaves (#1122).
 /// </summary>
 public sealed class EditorTests : BunitContext
 {
@@ -96,6 +96,57 @@ public sealed class EditorTests : BunitContext
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
         component.FindAll(".status-warning").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenThePolishHasSlips_ShowsOneLinePerSlipAfterThePlaceholderWarningAndAboveTheEditor()
+    {
+        StubLoad(BuildDetail(
+            sourceText: $"You have {Token} of {Token} items[D]",
+            translatedText: $"Masz {Token} przedmiotów "));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IReadOnlyList<IElement> warnings = component.FindAll(".status-warning");
+        warnings.Count.ShouldBe(2);
+        warnings[0].TextContent.ShouldContain("Liczba znaczników się nie zgadza");
+        warnings[1].ClassList.ShouldContain("translation-slips");
+        warnings[1].QuerySelectorAll("p").Select(line => line.TextContent).ShouldBe(
+        [
+            "Na końcu tłumaczenia jest spacja, a w angielskim nie ma.",
+            "Tekst angielski kończy się znacznikiem [D], a tłumaczenie nie."
+        ]);
+        warnings[1].NextElementSibling.ShouldNotBeNull().ClassList.ShouldContain("editor-grid");
+    }
+
+    [Fact]
+    public void Render_WhenThePolishMatchesTheEnglishOnEveryPoint_ShowsNoSlipWarning()
+    {
+        StubLoad(BuildDetail(sourceText: "'The Age of the Elves is over.'", translatedText: "'Czas elfów dobiegł końca.'"));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll(".translation-slips").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenTheRowHasNoPolishYet_ShowsNoSlipWarning()
+    {
+        StubLoad(BuildDetail(sourceText: " 'Hello.' [D] ", translatedText: null));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll(".translation-slips").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenTheRowIsReadOnly_StillShowsItsSlipsToTheReader()
+    {
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć", canEdit: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".translation-slips").TextContent.ShouldContain("Inny znak na końcu niż w angielskim");
     }
 
     [Fact]

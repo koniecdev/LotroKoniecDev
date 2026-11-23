@@ -185,13 +185,22 @@ public sealed partial class LinkPreviewTagsTests : IClassFixture<ProductionFront
         });
         // Only a guard against a hung run: the first frame comes long before it.
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(30));
+        string firstFrame;
+        string update;
 
-        // Act
-        using HttpResponseMessage response = await client.GetAsync("/", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-        using StreamReader body = new(await response.Content.ReadAsStreamAsync(timeout.Token));
-        string firstFrame = await ReadUntilAsync(body, "</head>", timeout.Token);
-        server.Release();
-        string update = await body.ReadToEndAsync(timeout.Token);
+        try
+        {
+            // Act
+            using HttpResponseMessage response = await client.GetAsync("/", HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            using StreamReader body = new(await response.Content.ReadAsStreamAsync(timeout.Token));
+            firstFrame = await ReadUntilAsync(body, "</head>", timeout.Token);
+            server.Release();
+            update = await body.ReadToEndAsync(timeout.Token);
+        }
+        finally
+        {
+            server.Release();
+        }
 
         // Assert
         string head = HeadOf(firstFrame);
@@ -278,34 +287,4 @@ public sealed partial class LinkPreviewTagsTests : IClassFixture<ProductionFront
 
     [GeneratedRegex("""<meta\b[^>]*?\b(?<attribute>property|name)="(?<key>[^"]*)"[^>]*?\bcontent="(?<content>[^"]*)""")]
     private static partial Regex MetaTagRegex();
-
-    /// <summary>
-    /// A translation API that holds every call until the test releases it, so the home page has sent its
-    /// first frame and waits for its data. It answers 404, so the page then shows its calm notice.
-    /// </summary>
-    private sealed class HeldServer : HttpMessageHandler
-    {
-        private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public void Release()
-        {
-            _released.TrySetResult();
-        }
-
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            await _released.Task.WaitAsync(cancellationToken);
-
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            // A test that fails before its release must not leave the page's call waiting.
-            Release();
-            base.Dispose(disposing);
-        }
-    }
 }

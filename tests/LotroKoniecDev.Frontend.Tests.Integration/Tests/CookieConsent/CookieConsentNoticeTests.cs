@@ -1,4 +1,3 @@
-using System.Net;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -131,35 +130,4 @@ public sealed class CookieConsentNoticeTests : IClassFixture<ProductionFrontendF
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.AddHttpClient(DashboardTranslationSystem.ClientName)
                 .ConfigurePrimaryHttpMessageHandler(translationSystem)));
-
-    /// <summary>
-    /// The translation API answers 404, so the home page shows its calm notice at once and never calls out of
-    /// the test.
-    /// </summary>
-    private sealed class NotFoundServer : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-    }
-
-    /// <summary>Holds its answer until the test releases it, so the page has to stream.</summary>
-    private sealed class HeldServer : HttpMessageHandler
-    {
-        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public TaskCompletionSource RequestArrived { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public void Release() => _release.TrySetResult();
-
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            RequestArrived.TrySetResult();
-            await _release.Task.WaitAsync(cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.NotFound);
-        }
-    }
 }

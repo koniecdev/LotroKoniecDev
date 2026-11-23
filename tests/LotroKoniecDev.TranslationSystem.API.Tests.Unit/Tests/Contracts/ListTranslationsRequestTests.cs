@@ -120,7 +120,7 @@ public sealed class ListTranslationsRequestTests
     [Fact]
     public void ToQueryParameters_WithContains_LeavesTheMatchOut()
     {
-        // Contains is the default, so every address that exists today stays the same (#1477).
+        // Contains is the default, so an address with no match keeps its meaning (#1477).
         IReadOnlyList<KeyValuePair<string, string?>> parameters =
             new ListTranslationsRequest(Search: "ring", Match: TranslationSearchMatch.Contains).ToQueryParameters();
 

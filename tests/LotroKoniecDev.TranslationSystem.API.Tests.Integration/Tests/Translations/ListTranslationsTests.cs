@@ -556,7 +556,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task List_WithWholeText_IgnoresEdgeSpacesAndOneGrammarMark()
+    public async Task List_WithWholeText_IgnoresEdgeWhiteSpaceAndOneGrammarMark()
     {
         // Arrange
         await SeedAsync(
@@ -573,13 +573,16 @@ public sealed class ListTranslationsTests : IAsyncLifetime
             Row(11, "Ring[abcd]"),
             Row(12, "Ring[1]"),
             Row(13, "Ring[é]"),
-            Row(14, "Ring[]"));
+            Row(14, "Ring[]"),
+            Row(15, "\tRing\r\n"),
+            Row(16, "other\nRing"),
+            Row(17, "Ring[E]\n"));
 
         // Act
         PaginationResponse<TranslationListItemResponse> page = await SearchAsync("ring", TranslationSearchMatch.WholeText);
 
-        // Assert: a mark is 1 to 4 ASCII letters, nothing else.
-        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 4L, 5L, 11L]);
+        // Assert: a mark is 1 to 4 ASCII letters, nothing else, and tabs and line breaks at the edges count as white space.
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L, 4L, 5L, 11L, 15L, 17L]);
     }
 
     [Fact]
@@ -1124,7 +1127,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     public static TheoryData<TranslationSearchMatch, string> SpecialCharacterCases()
     {
         TheoryData<TranslationSearchMatch, string> cases = new();
-        string[] characters = [".", "*", "+", "?", "(", ")", "[", "]", "{", "}", "|", "^", "$", "\\", "%", "_", "-", "#"];
+        string[] characters = [".", "*", "+", "?", "(", ")", "[", "]", "{", "}", "|", "^", "$", "\\", "%", "_", "-", "#", "\t"];
         foreach (TranslationSearchMatch match in new[] { TranslationSearchMatch.WholeWord, TranslationSearchMatch.WholeText })
         {
             foreach (string character in characters)

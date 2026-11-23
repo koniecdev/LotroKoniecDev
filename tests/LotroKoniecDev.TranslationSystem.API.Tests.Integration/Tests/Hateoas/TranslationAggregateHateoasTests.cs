@@ -426,7 +426,7 @@ public sealed class TranslationAggregateHateoasTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_PaginationLinks_LeaveOutTheContainsMode()
     {
-        // Arrange: Contains is the default, so every link that exists today stays the same.
+        // Arrange: Contains is the default, so a link with no match keeps its meaning.
         await SeedAsync(Row(1, "Ring a"), Row(2, "Ring b"), Row(3, "Ring c"));
 
         // Act

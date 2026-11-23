@@ -805,9 +805,9 @@ rows and is read twice.
 its `match` mode (#1477: `Contains`, the default, finds the term anywhere with `ILIKE` and the SQL
 wildcard characters escaped, so a literal `%` in game text matches itself; `WholeWord` needs no
 letter, digit or `_` right next to the term; `WholeText` needs the whole text to be the term, apart
-from white space at the edges and one grammar mark such as `[E]` at the end; the two new modes run
-as a PostgreSQL regex, `~*`, with every ASCII character that is not a letter or digit escaped, and
-the id match adds rows in every mode), status filter, a "conflicts only" filter (#1347: rows
+from white space at the edges and one grammar mark such as `[E]` at the end; `WholeWord` and
+`WholeText` run as a PostgreSQL regex, `~*`, with every ASCII character that is not a letter or
+digit escaped, and the id match adds rows in every mode), status filter, a "conflicts only" filter (#1347: rows
 whose exactly identical English has two or more different Polish texts, found with one grouped
 subquery). It needs no extra index at today's share of translated rows: about 135 ms on the
 production table on 2026-11-13, with about 535 rows translated. On top of one pass over the table,
@@ -955,9 +955,9 @@ back afterwards: as a whole when no auth migration is to blame, account by accou
 - **Indexes:** unique `(FileId, GossipId)`; unique version; unique `IdentityId` on Translators
   (the provisioning idempotency key); unique `Language` on artifacts; **trigram GIN indexes**
   (`pg_trgm`) on `SourceText` and `TranslatedText`, which make the `%term%` search and the regex
-search of the two other `match` modes fast; a partial
-  index on `Status` for non-removed rows (the only rows lists show); and real foreign keys on the
-  three GameVersion columns of `Translations` (AUDIT-EF-05).
+  search of the `WholeWord` and `WholeText` modes fast; a partial index on `Status` for non-removed
+  rows (the only rows lists show); and real foreign keys on the three GameVersion columns of
+  `Translations` (AUDIT-EF-05).
 - **A `CHECK` constraint caps `TranslatedText` at the DAT limit** (ADR-0043). It is a `CHECK`
   and not `varchar(n)`, because changing the column type would rewrite the big table during a
   deploy.

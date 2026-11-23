@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq.Expressions;
 using System.Security.Claims;
@@ -195,9 +196,12 @@ internal sealed class ListTranslations : IEndpoint
             }
 
             string escapedTerm = EscapeRegex(term);
-            string regexPattern = match is TranslationSearchMatch.WholeWord
-                ? $"{WordStart}{escapedTerm}{WordEnd}"
-                : $"{TextStart}{escapedTerm}{TextEnd}";
+            string regexPattern = match switch
+            {
+                TranslationSearchMatch.WholeWord => $"{WordStart}{escapedTerm}{WordEnd}",
+                TranslationSearchMatch.WholeText => $"{TextStart}{escapedTerm}{TextEnd}",
+                _ => throw new UnreachableException($"Search match '{match}' has no regex pattern.")
+            };
 
             // The options stay a literal: Npgsql translates IsMatch only when they are a constant.
             return filtered.Where(translation =>

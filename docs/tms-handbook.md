@@ -801,14 +801,15 @@ rows and is read twice.
 
 **Browsing.** `GET /api/v1/translations` — the public, paginated list. Filters: text search
 (case-insensitive, over both English and Polish, with SQL wildcard characters escaped so a
-literal `%` in game text matches itself), status filter, a "conflicts only" filter (#1347: rows
+literal `%` in game text matches itself; a plain number also finds the rows with that `FileId` or
+`GossipId`, and `FileId:GossipId` finds that one row, on top of the text matches, #1406), status filter, a "conflicts only" filter (#1347: rows
 whose exactly identical English has two or more different Polish texts, found with one grouped
 subquery). It needs no extra index at today's share of translated rows: about 135 ms on the
 production table on 2026-11-13, with about 535 rows translated. On top of one pass over the table,
 its cost grows with the number of translated rows (about 1.5 s per request with every row
 translated, measured on 800,000 rows), so look at it again when about 100,000 rows have Polish. Page size 1–100 (default 50). Sorting
 always ends with a unique key, so pages never repeat or lose rows. Search is fast thanks to
-trigram indexes (Part 6.2).
+trigram indexes (Part 6.2); the id part uses the unique `(FileId, GossipId)` index.
 
 **Editing.** The editor page loads one row (`GET /api/v1/translations/{id}` — this one needs a
 login) and shows English and Polish side by side, with every `<--DO_NOT_TOUCH!-->` placeholder

@@ -79,7 +79,7 @@ The web application at the heart of the project — where the human translation 
 - **Import** a version-bound game export (`exported.txt`). The import runs a **diff** against the
   existing catalog and reports what changed: *added / English-changed / invalidated / removed /
   unchanged*, plus the rows that were our own Polish coming back from a patched game file.
-- **Browse, search and filter** the whole catalog — by English or Polish text, and by status
+- **Browse, search and filter** the whole catalog — by English or Polish text, FileId or GossipId, and by status
   (*untranslated · draft · approved · needs review*) — with pagination.
 - **Translate** in a **side-by-side editor**: read-only English on the left, the Polish translation
   on the right, with live validation of the `<--DO_NOT_TOUCH!-->` argument placeholders (so dynamic

@@ -328,6 +328,11 @@
 {
     private const string BulkApproveFormName = "bulk-approve";
 
+    private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);
+    private ApiResult<PaginationResponse<TranslationListItemResponse>>? _result;
+    private ProblemDetails? _bulkProblem;
+    private string? _bulkNotice;
+
     [SupplyParameterFromQuery]
     private string? Search { get; set; }
 
@@ -377,11 +382,6 @@
     // not bind to a collection. Only ticked rows are posted.
     [SupplyParameterFromForm(FormName = BulkApproveFormName)]
     private Dictionary<Guid, bool>? SelectedRows { get; set; }
-
-    private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);
-    private ApiResult<PaginationResponse<TranslationListItemResponse>>? _result;
-    private ProblemDetails? _bulkProblem;
-    private string? _bulkNotice;
 
     protected override async Task OnParametersSetAsync()
     {

@@ -34,24 +34,6 @@ internal sealed record TranslationListQuery
     /// </summary>
     internal static readonly IReadOnlyList<int> PageSizeOptions = [25, 50, 100];
 
-    private TranslationListQuery(
-        string? search,
-        TranslationStatus? status,
-        int page,
-        int pageSize,
-        bool conflictsOnly,
-        TranslationSearchMatch match,
-        bool mine)
-    {
-        Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
-        Status = status;
-        Page = Math.Max(page, 1);
-        PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
-        ConflictsOnly = conflictsOnly;
-        Match = Enum.IsDefined(match) ? match : TranslationSearchMatch.Contains;
-        Mine = mine;
-    }
-
     public string? Search { get; }
 
     public TranslationStatus? Status { get; }
@@ -200,6 +182,24 @@ internal sealed record TranslationListQuery
             ParseConflictsOnly(FirstValue(query, ConflictsOnlyName)),
             ParseMatch(FirstValue(query, MatchName)),
             ParseMine(FirstValue(query, MineName)));
+    }
+
+    private TranslationListQuery(
+        string? search,
+        TranslationStatus? status,
+        int page,
+        int pageSize,
+        bool conflictsOnly,
+        TranslationSearchMatch match,
+        bool mine)
+    {
+        Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+        Status = status;
+        Page = Math.Max(page, 1);
+        PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
+        ConflictsOnly = conflictsOnly;
+        Match = Enum.IsDefined(match) ? match : TranslationSearchMatch.Contains;
+        Mine = mine;
     }
 
     /// <summary>

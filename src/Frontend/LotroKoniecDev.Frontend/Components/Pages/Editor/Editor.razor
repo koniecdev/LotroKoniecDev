@@ -487,7 +487,7 @@
     /// <summary>
     /// The list's conflict filter is the uncapped view of these rows. The list's search also finds other rows
     /// (a longer text that contains this one, or an id: docs/API.md), so the list can show conflict rows of
-    /// other texts too. A text <see cref="ListSearchFor"/> refuses links to the whole conflict list.
+    /// other texts too. When <see cref="ListSearchFor"/> returns null, the link opens the whole conflict list.
     /// </summary>
     private static string ConflictListHref(string sourceText) =>
         TranslationListQuery
@@ -496,8 +496,8 @@
 
     /// <summary>
     /// Every row with this English, past the panel's cap (#1492). The "Cały tekst" search can add a few
-    /// rows, such as the same text with a grammar mark. A text <see cref="ListSearchFor"/> refuses gets no
-    /// link, because the list would then show every row.
+    /// rows, such as the same text with a grammar mark. When <see cref="ListSearchFor"/> returns null there
+    /// is no link, because a list with no search shows every row.
     /// </summary>
     private static string? AllRowsListHref(string sourceText) =>
         ListSearchFor(sourceText) is { } search
@@ -508,7 +508,7 @@
 
     /// <summary>
     /// The English as a list search term, or null when it cannot be one: it is blank, it is too long, or it
-    /// has a line break, which the list's search box would drop on the next submit.
+    /// has a line break. The list's search box drops a line break inside the text on the next submit.
     /// </summary>
     private static string? ListSearchFor(string sourceText) =>
         !string.IsNullOrWhiteSpace(sourceText)

@@ -65,6 +65,14 @@ public sealed class TranslationSlipCheckerTests
     }
 
     [Fact]
+    public void Check_WhenTheEnglishEndsWithARealLineBreak_KeepsThePolishLineBreaksAsTheSaveDoes()
+    {
+        IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check("Hello.\n", "Cześć.\r\n");
+
+        slips.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Check_WhenTheEnterTheSaveRemovesHidesASpace_StillFindsTheSpace()
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check("Hello.", "Cześć. \r\n");
@@ -317,6 +325,8 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Wait.", "Czekaj..")]
     [InlineData("Hello", "Cześć")]
     [InlineData("Hello." + Br + Br, "Cześć." + Br + Br)]
+    [InlineData("Hello." + Br + Br, "Cześć." + Br + " " + Br)]
+    [InlineData("Hello." + Br + Br, "Cześć." + Br + "\t " + Br)]
     [InlineData("'Hello.'", "'Cześć.'")]
     [InlineData("He said 'Hello!'", "Powiedział „Cześć!”")]
     public void Check_WhenTheLastSignsAgree_FindsNoSlip(string sourceText, string translatedText)
@@ -332,11 +342,35 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Go:", "Idź!", "Inny znak na końcu niż w angielskim: w angielskim dwukropek (:), w tłumaczeniu wykrzyknik (!).")]
     [InlineData("You have " + Token, "Masz " + Token + ".", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest >), w tłumaczeniu kropka (.).")]
     [InlineData("[D]", "Tekst.[D]", "Inny znak na końcu niż w angielskim: w angielskim brak znaku, w tłumaczeniu kropka (.).")]
+    [InlineData("'Hello.'", "'Cześć. '", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest spacja).")]
+    [InlineData("'Hello.'", "'Cześć.\t'", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest tabulator).")]
+    [InlineData("Hello.", "Cześć 😀", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
+    [InlineData("Hello.", "Czesc\u0301", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
+    [InlineData("Hello.", "Cześć.\u00A0", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest niewidoczny znak U+00A0).")]
+    [InlineData("Hello.", "Cześć.\u200B", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest niewidoczny znak U+200B).")]
+    [InlineData("Hello.", "Cześć.\u0007", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest niewidoczny znak U+0007).")]
     public void Check_AFinalSignSlip_NamesWhatEachSideEndsWith(string sourceText, string translatedText, string expected)
     {
         IReadOnlyList<TranslationSlip> slips = TranslationSlipChecker.Check(sourceText, translatedText);
 
         slips.Single().Message.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Check_WhenBothTextsEndWithALongRunOfTypedLineBreaks_CopiesEachTextOnlyAFewTimes()
+    {
+        // A posted text can be far longer than the textarea allows, so cutting the run one line break at a
+        // time, with a copy each, would grow with the square of its length (#1489 review).
+        string run = string.Concat(Enumerable.Repeat(Br, 16_383));
+        string sourceText = "Hello." + run;
+        string translatedText = "Cześć." + run;
+        TranslationSlipChecker.Check("Warm-up.", "Rozgrzewka.");
+
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        TranslationSlipChecker.Check(sourceText, translatedText);
+        long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        allocated.ShouldBeLessThan(2 * 1024 * 1024);
     }
 
     [Fact]

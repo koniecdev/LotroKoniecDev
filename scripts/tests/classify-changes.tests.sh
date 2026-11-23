@@ -230,7 +230,7 @@ expect 'code=false guards=false images=false' 'the desktop release workflow'    
 echo
 echo '── read by an integration test: the .NET gate runs too (#1163) ──────────────────────────────'
 expect 'code=true guards=true images=false'  'the script CD runs on a prod box (DeadLetterExpiryTests reads it)' 'scripts/hetzner/deploy.sh'
-expect 'code=true guards=true images=false'  'the LOTRO alert rules (TranslationSaveBudgetLogRuleTests reads them)' '.docker/observability/grafana/provisioning/alerting/lotrokoniecdev-alerts.yaml'
+expect 'code=true guards=true images=false'  'the LOTRO alert rules (two log rule tests read them)' '.docker/observability/grafana/provisioning/alerting/lotrokoniecdev-alerts.yaml'
 expect 'code=false guards=false images=false' 'another observability config stays inert'      '.docker/observability/loki/loki.yaml'
 expect 'code=false guards=false images=false' 'the fleet alert rules stay inert'               '.docker/observability/grafana/provisioning/alerting/fleet-alerts.yaml'
 

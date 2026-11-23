@@ -33,6 +33,14 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- The Grafana rule that mails an unconfirmed sign-in (#1510). UnconfirmedSignInLogRuleTests
+             checks it against the log text; classify-changes.sh lists the file as a code input. -->
+        <Content Include="..\..\.docker\observability\grafana\provisioning\alerting\lotrokoniecdev-alerts.yaml"
+                 Link="TestData\lotrokoniecdev-alerts.yaml"
+                 CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+
+    <ItemGroup>
         <Compile Include="..\Shared\CapturingLoggerFactory.cs" Link="Shared\CapturingLoggerFactory.cs" />
         <Compile Include="..\Shared\TimerWatchingTimeProvider.cs" Link="Shared\TimerWatchingTimeProvider.cs" />
     </ItemGroup>

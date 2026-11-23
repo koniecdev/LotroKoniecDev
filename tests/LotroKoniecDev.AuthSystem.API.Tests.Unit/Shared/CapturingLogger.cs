@@ -8,6 +8,8 @@ namespace LotroKoniecDev.AuthSystem.API.Tests.Unit.Shared;
 /// </summary>
 internal sealed class CapturingLogger<T> : ILogger<T>
 {
+    private const string OriginalFormatKey = "{OriginalFormat}";
+
     private readonly List<LogEntry> _entries = [];
 
     public IReadOnlyList<LogEntry> Entries => _entries;
@@ -24,8 +26,16 @@ internal sealed class CapturingLogger<T> : ILogger<T>
         Func<TState, Exception?, string> formatter)
     {
         ArgumentNullException.ThrowIfNull(formatter);
-        _entries.Add(new LogEntry(logLevel, eventId.Id, formatter(state, exception)));
+        _entries.Add(new LogEntry(logLevel, eventId.Id, formatter(state, exception), TemplateOf(state)));
     }
 
-    internal sealed record LogEntry(LogLevel Level, int EventId, string Message);
+    /// <summary>
+    /// The template is what Serilog writes as <c>"@mt"</c>, the text a Grafana log rule anchors on.
+    /// </summary>
+    private static string? TemplateOf<TState>(TState state) =>
+        state is IReadOnlyList<KeyValuePair<string, object?>> properties
+            ? properties.FirstOrDefault(property => property.Key == OriginalFormatKey).Value as string
+            : null;
+
+    internal sealed record LogEntry(LogLevel Level, int EventId, string Message, string? Template);
 }

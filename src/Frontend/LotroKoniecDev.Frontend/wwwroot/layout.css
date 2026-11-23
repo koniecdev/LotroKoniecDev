@@ -318,6 +318,7 @@ code {
 .filter > .field-match,
 .filter > .field-page-size,
 .filter > .field-conflicts,
+.filter > .field-mine,
 .filter > .filter-actions {
     flex: 0 0 auto;
 }
@@ -326,7 +327,8 @@ code {
     margin-left: auto;
 }
 
-.field-conflicts .checkbox {
+.field-conflicts .checkbox,
+.field-mine .checkbox {
     padding: 12px 0;
 }
 

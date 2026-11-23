@@ -25,6 +25,7 @@ internal sealed record TranslationListQuery
     private const string StatusName = "status";
     private const string ConflictsOnlyName = "conflictsOnly";
     private const string MatchName = "match";
+    private const string MineName = "mine";
     private const string PageSizeName = "pageSize";
 
     /// <summary>
@@ -39,7 +40,8 @@ internal sealed record TranslationListQuery
         int page,
         int pageSize,
         bool conflictsOnly,
-        TranslationSearchMatch match)
+        TranslationSearchMatch match,
+        bool mine)
     {
         Search = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
         Status = status;
@@ -47,6 +49,7 @@ internal sealed record TranslationListQuery
         PageSize = PageSizeOptions.Contains(pageSize) ? pageSize : DefaultPageSize;
         ConflictsOnly = conflictsOnly;
         Match = Enum.IsDefined(match) ? match : TranslationSearchMatch.Contains;
+        Mine = mine;
     }
 
     public string? Search { get; }
@@ -66,11 +69,20 @@ internal sealed record TranslationListQuery
     public TranslationSearchMatch Match { get; }
 
     /// <summary>
+    /// Only the rows whose current Polish text the signed-in user saved (#1491). The page turns it off for a
+    /// visitor, so a visitor's list never sends it.
+    /// </summary>
+    public bool Mine { get; }
+
+    /// <summary>
     /// Only <c>true</c>, in any case, turns the filter on. Any other value means off, as an unknown status
     /// means "all".
     /// </summary>
     public static bool ParseConflictsOnly(string? conflictsOnly) =>
         bool.TryParse(conflictsOnly, out bool isOn) && isOn;
+
+    /// <summary>The same rule as <see cref="ParseConflictsOnly"/>.</summary>
+    public static bool ParseMine(string? mine) => ParseConflictsOnly(mine);
 
     /// <summary>
     /// A mode's name, in any case. Anything else, a number included, means
@@ -97,7 +109,8 @@ internal sealed record TranslationListQuery
             Page: Page,
             PageSize: PageSize,
             ConflictsOnly: ConflictsOnly,
-            Match: Match);
+            Match: Match,
+            Mine: Mine);
 
     /// <summary>
     /// The API's option names come from <see cref="ListTranslationsRequest"/>, the record the API binds,
@@ -155,7 +168,8 @@ internal sealed record TranslationListQuery
         int page,
         int? pageSize = null,
         bool conflictsOnly = false,
-        TranslationSearchMatch match = TranslationSearchMatch.Contains)
+        TranslationSearchMatch match = TranslationSearchMatch.Contains,
+        bool mine = false)
     {
         return new TranslationListQuery(
             search,
@@ -163,7 +177,8 @@ internal sealed record TranslationListQuery
             page,
             pageSize ?? DefaultPageSize,
             conflictsOnly,
-            match);
+            match,
+            mine);
     }
 
     /// <summary>
@@ -183,7 +198,8 @@ internal sealed record TranslationListQuery
             ParsePage(FirstValue(query, PageName)),
             ParsePageSize(FirstValue(query, PageSizeName)),
             ParseConflictsOnly(FirstValue(query, ConflictsOnlyName)),
-            ParseMatch(FirstValue(query, MatchName)));
+            ParseMatch(FirstValue(query, MatchName)),
+            ParseMine(FirstValue(query, MineName)));
     }
 
     /// <summary>
@@ -217,6 +233,11 @@ internal sealed record TranslationListQuery
         if (ConflictsOnly)
         {
             parameters[ConflictsOnlyName] = "true";
+        }
+
+        if (Mine)
+        {
+            parameters[MineName] = "true";
         }
 
         if (PageSize != DefaultPageSize)

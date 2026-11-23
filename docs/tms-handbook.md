@@ -823,7 +823,9 @@ highlighted. For a NeedsReview row it also shows `PreviousSourceText`. Below the
 wiersze z tym samym tekstem" panel follows the row's `same-source-text` rel
 (`GET /api/v1/translations/{id}/same-source-text`, #1347): the other live rows with exactly the same
 English, their Polish, status and last saver, with a warning when their Polish texts differ. It only
-shows; nothing is copied. Saving sends
+shows; nothing is copied. It shows at most 50 rows; when there are more, "Pokaż wszystkie (N) na
+liście" opens the list with a "Cały tekst" search for this English (#1492), unless the English is
+blank, has a line break or is longer than 200 characters. Saving sends
 `PUT /api/v1/translations` with `(FileId, GossipId, TranslatedText)`. The handler:
 
 1. loads the row by fragment key — unknown key → 404 (rows are *born from imports*, never from
@@ -1115,7 +1117,7 @@ Frontend's CSP would block (#670). Wanting interactivity means writing an ADR fi
 |---|---|---|
 | `/` | public | Landing page with a progress meter (approved / awaiting / total; from a 30 s server-side snapshot — AUDIT-EF-04) and download links |
 | `/translations` | public | Searchable, filterable, paginated list with a "Dopasowanie" select next to the search box (Zawiera / Całe słowo / Cały tekst, #1477) and a "Tylko rozbieżne tłumaczenia" filter; a signed-in user also gets "Tylko moje": the rows whose current Polish text they saved last, newest change first (#1491; a visitor's `mine` is dropped); per-row Edit link; admin sees bulk-approve checkboxes |
-| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English and a warning when their Polish differs. Its address carries the list's search, match mode, filters ("Tylko moje" too) and page, so "Wróć do listy", the reload after a save or an approval, and "Otwórz" keep them (#1452). The back link is rebuilt from those known fields and always points at `/translations` |
+| `/editor/{id}` | logged in | Side-by-side editor: English (and previous English for NeedsReview) vs Polish; placeholder highlighting and mismatch warning; Save + Approve; the other rows with the same English (at most 50, with a link to the list for the rest, #1492) and a warning when their Polish differs. Its address carries the list's search, match mode, filters ("Tylko moje" too) and page, so "Wróć do listy", the reload after a save or an approval, and "Otwórz" keep them (#1452). The back link is rebuilt from those known fields and always points at `/translations` |
 | `/dashboard` | logged in | Progress tiles: total / translated / approved / remaining |
 | `/game-versions` | logged in | Version list; admin-only register form and guarded per-row delete |
 | `/import-export` | logged in | Download `polish.txt`; admin-only upload of `exported.txt` with an import summary |

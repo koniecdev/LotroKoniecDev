@@ -17,6 +17,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
@@ -1232,8 +1233,9 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [Fact]
     public async Task List_WithMineAndNoToken_ReturnsAnEmptyPage()
     {
-        // Arrange: an anonymous caller saved nothing, and the public list never answers 401 (#1491).
-        await SeedAsync(Translated(1, "Decayed", "Zgniły"));
+        // Arrange: an anonymous caller saved nothing, and the public list never answers 401 (#1491). The
+        // untranslated row has no author, so a filter on a missing caller would list it.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"), Row(2, "Untouched"));
 
         // Act
         HttpResponseMessage response = await _factory.CreateClient().GetAsync("/api/v1/translations?mine=true");
@@ -1250,9 +1252,10 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     public async Task List_WithMineAndAnExpiredToken_ReturnsAnEmptyPageNotTheTokensRows()
     {
         // Arrange: the refused token names a caller who saved a row; a refused token is no caller at all.
+        // The untranslated row has no author, so a filter on a missing caller would list it.
         Guid callerSubject = Guid.NewGuid();
         TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
-        await SeedAsync(Saved(1, "Decayed", "Zgniły", callerId, Now));
+        await SeedAsync(Saved(1, "Decayed", "Zgniły", callerId, Now), Row(2, "Untouched"));
         HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken(callerSubject));
@@ -1272,13 +1275,14 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     public async Task List_WithMineForACallerWithNoTranslatorProfile_ReturnsAnEmptyPage()
     {
         // Arrange: a token with no usable name gets no profile (INV-4.4), and with no profile there is no
-        // save to list.
-        await SeedAsync(Translated(1, "Decayed", "Zgniły"));
+        // save to list. The untranslated row has no author, so a filter on a missing profile would list it.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"), Row(2, "Untouched"));
+        Guid subject = Guid.NewGuid();
         HttpClient client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer",
             TranslationSystemApiFactory.CreateAccessToken(
-                AuthConstants.Roles.Translator, AuthConstants.Scopes.Api, Guid.NewGuid(), displayName: "", email: ""));
+                AuthConstants.Roles.Translator, AuthConstants.Scopes.Api, subject, displayName: "", email: ""));
 
         // Act
         HttpResponseMessage response = await client.GetAsync("/api/v1/translations?mine=true");
@@ -1289,6 +1293,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         response.StatusCode.ShouldBe(HttpStatusCode.OK);
         page.Items.ShouldBeEmpty();
         page.TotalCount.ShouldBe(0);
+        (await TranslatorExistsAsync(subject)).ShouldBeFalse();
     }
 
     [Fact]
@@ -1442,6 +1447,14 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         dbContext.Translations.AddRange(rows);
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task<bool> TranslatorExistsAsync(Guid subject)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        IdentityId identityId = IdentityId.Create(subject);
+        return await dbContext.Translators.AnyAsync(translator => translator.IdentityId == identityId);
     }
 
     private async Task<TranslatorId> SeedTranslatorAsync(Guid subject, string displayName)

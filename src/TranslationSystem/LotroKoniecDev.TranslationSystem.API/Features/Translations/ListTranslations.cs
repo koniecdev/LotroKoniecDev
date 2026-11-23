@@ -23,7 +23,6 @@ using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
-using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslatorAggregate;
 using Microsoft.EntityFrameworkCore;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
@@ -189,10 +188,10 @@ internal sealed class ListTranslations : IEndpoint
             }
 
             IdentityId identityId = caller.Value;
-            TranslatorReadModel? translator = await _readDbContext.Translators
-                .FirstOrDefaultAsync(profile => profile.IdentityId == identityId, cancellationToken);
-
-            return translator?.Id;
+            return await _readDbContext.Translators
+                .Where(profile => profile.IdentityId == identityId)
+                .Select(profile => (TranslatorId?)profile.Id)
+                .FirstOrDefaultAsync(cancellationToken);
         }
 
         /// <summary>

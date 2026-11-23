@@ -1,0 +1,40 @@
+@inject NavigationManager Navigation
+
+@* The head of a page that search engines and link previews read (#1416). The preview copies take the
+   same title and description, so they cannot drift apart. Pass fixed text only: a preview bot reads
+   the first frame of a streamed page, never the update. A page holds one HeadContent, because the
+   last one rendered replaces the others. *@
+<PageTitle>@Title</PageTitle>
+
+<HeadContent>
+    <meta name="description" content="@Description"/>
+    <link rel="canonical" href="@_canonicalUrl"/>
+    <meta property="og:url" content="@_canonicalUrl"/>
+    <meta property="og:title" content="@Title"/>
+    <meta property="og:description" content="@Description"/>
+</HeadContent>
+
+@code {
+    private string _canonicalUrl = string.Empty;
+
+    [Parameter]
+    [EditorRequired]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    [EditorRequired]
+    public string Description { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The page's one address relative to the site root, so a second route or a query string never
+    /// becomes a second address. The home page passes an empty string.
+    /// </summary>
+    [Parameter]
+    [EditorRequired]
+    public string CanonicalPath { get; set; } = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        _canonicalUrl = new Uri(new Uri(Navigation.BaseUri), CanonicalPath).AbsoluteUri;
+    }
+}

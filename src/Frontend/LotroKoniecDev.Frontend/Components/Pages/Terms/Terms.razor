@@ -6,12 +6,10 @@
 @using LotroKoniecDev.Frontend.Settings
 @inject IOptions<AuthSystemSettings> AuthSystemOptions
 
-<PageTitle>Regulamin — lotro-translator.pl</PageTitle>
-
-<HeadContent>
-    <meta name="description"
-          content="Regulamin serwisu lotro-translator.pl — zasady korzystania z platformy polskiego tłumaczenia The Lord of the Rings Online, licencja na wkład tłumaczeniowy i status projektu fanowskiego."/>
-</HeadContent>
+@* /terms is an alias, so both routes give /regulamin as the page's one address. *@
+<PublicPageHead Title="Regulamin — lotro-translator.pl"
+                Description="Regulamin serwisu lotro-translator.pl — zasady korzystania z platformy polskiego tłumaczenia The Lord of the Rings Online, licencja na wkład tłumaczeniowy i status projektu fanowskiego."
+                CanonicalPath="regulamin"/>
 
 <section class="container page-head">
     <div>

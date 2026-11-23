@@ -92,12 +92,4 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
 
     [GeneratedRegex("""<link\b[^>]*\brel="icon"[^>]*\bhref="(?<href>[^"]+)""")]
     private static partial Regex IconLinkRegex();
-
-    private sealed class NotFoundServer : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-    }
 }

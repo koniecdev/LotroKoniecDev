@@ -257,7 +257,10 @@ internal static class TranslationSlipChecker
             _ => DescribeNoSign(text)
         };
 
-    /// <summary>A character nobody can see is named by its code point, so the line never shows an empty bracket.</summary>
+    /// <summary>
+    /// A real line break is named as Enter, and a control, format or separator character by its code point, so
+    /// the line does not show an empty bracket for it.
+    /// </summary>
     private static string DescribeNoSign(string text)
     {
         if (text.Length == 0)
@@ -274,6 +277,11 @@ internal static class TranslationSlipChecker
         if (last == '\t')
         {
             return "brak znaku (na końcu jest tabulator)";
+        }
+
+        if (last is '\r' or '\n')
+        {
+            return "brak znaku (na końcu jest Enter)";
         }
 
         return CharUnicodeInfo.GetUnicodeCategory(last) switch

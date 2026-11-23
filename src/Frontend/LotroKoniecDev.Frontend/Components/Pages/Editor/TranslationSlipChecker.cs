@@ -12,7 +12,7 @@ internal static class TranslationSlipChecker
     /// <summary>The game writes a line break as these two characters, never as a real CR or LF (ADR-0039).</summary>
     private const string GameLineBreak = @"\n";
 
-    /// <summary>The game's own quote sequence.</summary>
+    /// <summary>The game writes this quote as two characters, as it does its line break, so it counts as a closing quote.</summary>
     private const string GameQuote = @"\q";
 
     private const string DoubleSpace = "  ";
@@ -282,6 +282,12 @@ internal static class TranslationSlipChecker
         if (last is '\r' or '\n')
         {
             return "brak znaku (na końcu jest Enter)";
+        }
+
+        // Only one closing quote is trimmed, so a second \q can be left. Its q belongs to the quote, not to a word.
+        if (text.EndsWith(GameQuote, StringComparison.Ordinal))
+        {
+            return @"brak znaku (na końcu jest \q)";
         }
 
         return CharUnicodeInfo.GetUnicodeCategory(last) switch

@@ -375,6 +375,7 @@ public sealed class TranslationSlipCheckerTests
     [InlineData("Hello.\n", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
     [InlineData("Hello.\r", "Cześć.", "Inny znak na końcu niż w angielskim: w angielskim brak znaku (na końcu jest Enter), w tłumaczeniu kropka (.).")]
     [InlineData("'Hello.'", "'Cześć.''", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest ').")]
+    [InlineData("'Hello.'", "'Cześć." + GameQuote + "'", @"Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku (na końcu jest \q).")]
     [InlineData("Level 5.", "Poziom 5", "Inny znak na końcu niż w angielskim: w angielskim kropka (.), w tłumaczeniu brak znaku.")]
     public void Check_AFinalSignSlip_NamesWhatEachSideEndsWith(string sourceText, string translatedText, string expected)
     {

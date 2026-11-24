@@ -77,7 +77,8 @@ Then tell the owner, in a few short lines:
   to `origin/main` first — the main checkout may stay on any branch, and they may keep working in
   it; the loop works only in `.claude/worktrees/ticket-<n>` folders, the same ones an interactive
   `/ticket <n>` uses, so it skips a ticket whose folder already exists;
-- Ctrl-C, or closing the terminal, stops the run, and each worker salvages its work first;
+- Ctrl-C twice within 5 seconds, or closing the terminal, stops the run, and each worker salvages
+  its work first; one Ctrl-C only prints a warning, and the run goes on;
 - to let the running tickets finish and start nothing new, run
   `touch <MAIN>/.claude/backlog-loop.lock/stop-after-running` (#1050). It sends no signal. It fails
   when no loop runs, because the lock folder is not there, unless a run killed hard left its lock;
@@ -117,16 +118,16 @@ Then stop. **Do not run the command** — not in the background, not in the fore
      table. When tickets were left (an early stop, or `-n` cut a list short), a
      `[conductor] not started: …` line follows the `done:` line, with those tickets and the
      launcher line that starts them: relay it as it is.
-   - No `done:` line: the run was stopped (Ctrl-C, a closed terminal) or killed. A stopped conductor
-     prints no table, so build one row per ticket from the `.meta` files: `key=value` lines, and the
-     last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`, `session`,
-     `unmerged`). A `merged` ticket with `unmerged=` set to something other than `0` gets the table
-     note the conductor would print (`<k> commit(s) not in the merged PR: check them`, or for `?`:
-     `could not check for commits after the merge`). A `.meta` with no `outcome=` line belongs to
-     a worker that was killed hard (SIGKILL, power loss): its worktree may still hold work, it has
-     no resume marker, and the next run will skip that ticket — list it as one that needs the owner.
-     A ticket the run line names (`· tickets: …`) with no `.meta` at all never started: list it as
-     **not started**, since those are the ones to run again.
+   - No `done:` line: the run was stopped (Ctrl-C twice, a closed terminal) or killed. A stopped
+     conductor prints no table, so build one row per ticket from the `.meta` files: `key=value`
+     lines, and the last line of a key wins (`issue`, `outcome`, `pr`, `resumes`, `worktree`,
+     `session`, `unmerged`). A `merged` ticket with `unmerged=` set to something other than `0` gets
+     the table note the conductor would print (`<k> commit(s) not in the merged PR: check them`, or
+     for `?`: `could not check for commits after the merge`). A `.meta` with no `outcome=` line
+     belongs to a worker that was killed hard (SIGKILL, power loss): its worktree may still hold
+     work, it has no resume marker, and the next run will skip that ticket — list it as one that
+     needs the owner. A ticket the run line names (`· tickets: …`) with no `.meta` at all never
+     started: list it as **not started**, since those are the ones to run again.
 6. Report:
    - the **PRs opened** — ticket, PR, checks, CodeQL alerts. This is the owner's review queue. The
      table shows the checks as they stood when the run ended, so read them again now:

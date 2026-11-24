@@ -18,7 +18,14 @@ internal sealed record TranslationListQuery
     /// <summary>Must be one of <see cref="PageSizeOptions"/>.</summary>
     internal const int DefaultPageSize = 50;
 
+    /// <summary>The query names of the note after an inline save (#1493). The list page reads them.</summary>
+    internal const string SavedRowName = "savedRow";
+
+    internal const string SavedAfterName = "savedAfter";
+    internal const string SavedSlipsName = "savedSlips";
+
     private const string PagePath = "/translations";
+    private const string RowElementIdPrefix = "row-";
     private const string EditorPathPrefix = "/editor/";
     private const string PageName = "page";
     private const string SearchName = "search";
@@ -140,6 +147,41 @@ internal sealed record TranslationListQuery
     /// </summary>
     public string ToListRelativeUri() =>
         QueryHelpers.AddQueryString(PagePath, PageQueryParameters(PageUnlessFirst()));
+
+    /// <summary>
+    /// Where a row's own save form posts (#1493). The fragment opens a refused save at its row. A bare
+    /// fragment would post to the site root, because the layout sets <c>&lt;base href="/"&gt;</c>.
+    /// </summary>
+    public string ToInlineSaveActionUri(TranslationId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"{ToPageRelativeUri(Page)}#{RowElementId(id)}");
+
+    /// <summary>
+    /// The redirect after a good inline save (#1493). The note rides in the query string, as the bulk
+    /// approve counts do (#322). <paramref name="savedAfter"/> is the row above the saved one, so the
+    /// note can stand in its place when the save took the row off this page.
+    /// </summary>
+    public string ToPageRelativeUriWithSavedRow(TranslationId savedRow, TranslationId? savedAfter, bool hasSlips)
+    {
+        Dictionary<string, string?> parameters = PageQueryParameters(Page);
+        parameters[SavedRowName] = savedRow.Value.ToString("D", CultureInfo.InvariantCulture);
+        if (savedAfter is { } rowAbove)
+        {
+            parameters[SavedAfterName] = rowAbove.Value.ToString("D", CultureInfo.InvariantCulture);
+        }
+
+        if (hasSlips)
+        {
+            parameters[SavedSlipsName] = "true";
+        }
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"{QueryHelpers.AddQueryString(PagePath, parameters)}#{RowElementId(savedRow)}");
+    }
+
+    /// <summary>The HTML id of a row on the list page, which the fragments above point at.</summary>
+    public static string RowElementId(TranslationId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"{RowElementIdPrefix}{id.Value:D}");
 
     /// <summary>
     /// An unknown status or <see cref="TranslationStatus.Unset"/> means "all".

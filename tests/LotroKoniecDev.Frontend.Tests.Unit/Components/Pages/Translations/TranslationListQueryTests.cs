@@ -673,4 +673,67 @@ public sealed class TranslationListQueryTests
         query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 1)
             .ShouldBe("/translations?page=3&search=ring&match=WholeWord&approved=2&skipped=1");
     }
+
+    [Fact]
+    public void ToInlineSaveActionUri_KeepsEveryListFieldAndPointsAtTheRow()
+    {
+        // #1493: a refused save answers at this address, so it must show the same list, open at the row.
+        string uri = EveryFieldSet.ToInlineSaveActionUri(RowId);
+
+        uri.ShouldStartWith("/translations?page=3&");
+        TranslationListQuery.FromPageQuery(uri).ShouldBe(EveryFieldSet);
+        uri.ShouldEndWith($"&pageSize=25#row-{RowId.Value}");
+    }
+
+    [Fact]
+    public void ToInlineSaveActionUri_OnTheDefaultList_IsTheListPathWithThePageAndTheRow()
+    {
+        // A bare fragment would post to the site root, because the layout sets <base href="/">.
+        TranslationListQuery.From(search: null, status: null, page: 1)
+            .ToInlineSaveActionUri(RowId)
+            .ShouldBe($"/translations?page=1#row-{RowId.Value}");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithSavedRow_KeepsEveryListFieldAndAddsTheNoteAndTheRow()
+    {
+        TranslationId rowAbove = TranslationId.Create(Guid.Parse("0192a000-0000-7000-8000-0000000000aa"));
+
+        string uri = EveryFieldSet.ToPageRelativeUriWithSavedRow(RowId, rowAbove, hasSlips: true);
+
+        TranslationListQuery.FromPageQuery(uri).ShouldBe(EveryFieldSet);
+        uri.ShouldEndWith(
+            $"&savedRow={RowId.Value}&savedAfter={rowAbove.Value}&savedSlips=true#row-{RowId.Value}");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithSavedRow_WithNoRowAboveAndNoSlips_LeavesThoseFieldsOut()
+    {
+        TranslationListQuery.From(search: "axe", status: null, page: 2)
+            .ToPageRelativeUriWithSavedRow(RowId, savedAfter: null, hasSlips: false)
+            .ShouldBe($"/translations?page=2&search=axe&savedRow={RowId.Value}#row-{RowId.Value}");
+    }
+
+    [Fact]
+    public void FromPageQuery_IgnoresTheNoteOfAnInlineSave()
+    {
+        // The editor link and the pager are written from the list state, so the note never travels on.
+        TranslationListQuery query = TranslationListQuery.FromPageQuery(
+            $"/translations?search=axe&savedRow={RowId.Value}&savedAfter={RowId.Value}&savedSlips=true#row-{RowId.Value}");
+
+        query.ToListRelativeUri().ShouldBe("/translations?search=axe");
+        query.ToEditorRelativeUri(RowId).ShouldBe($"/editor/{RowId.Value}?search=axe");
+    }
+
+    [Fact]
+    public void RowElementId_IsTheFragmentEveryInlineSaveAddressPointsAt()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
+
+        string id = TranslationListQuery.RowElementId(RowId);
+
+        id.ShouldBe($"row-{RowId.Value}");
+        query.ToInlineSaveActionUri(RowId).ShouldEndWith($"#{id}");
+        query.ToPageRelativeUriWithSavedRow(RowId, savedAfter: null, hasSlips: false).ShouldEndWith($"#{id}");
+    }
 }

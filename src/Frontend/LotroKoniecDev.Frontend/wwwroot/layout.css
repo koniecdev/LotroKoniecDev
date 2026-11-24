@@ -62,6 +62,12 @@ html, body {
     padding: 0;
 }
 
+/* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493). One rule on the page,
+   because a scroll margin on a table row is not honoured in every browser. */
+html {
+    scroll-padding-top: 96px;
+}
+
 body {
     background: var(--bg);
     color: var(--text);
@@ -1186,6 +1192,52 @@ main:has(> .home-banner) {
 .col-text {
     max-width: 360px;
     word-break: break-word;
+}
+
+/* The translation list's save in place (#1493): a small form under the row's Polish text. */
+.inline-edit {
+    margin-top: 8px;
+}
+
+.inline-edit > summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--accent);
+    font-size: 13px;
+}
+
+.inline-edit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.inline-edit-form p {
+    margin: 0;
+}
+
+.inline-edit-form .editor-textarea {
+    min-height: 72px;
+    padding: 10px;
+    font-size: 14px;
+}
+
+.inline-recovery {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+/* The note after an inline save sits in its own row under the saved row, or in the saved row's place. */
+.row-note .status-message + .status-message,
+.row-note-alone .status-message + .status-message {
+    margin-top: 8px;
+}
+
+.row-note-alone {
+    margin-bottom: 16px;
 }
 
 .col-check {

@@ -12,6 +12,8 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using TranslationsComponent = LotroKoniecDev.Frontend.Components.Pages.Translations.Translations;
@@ -219,7 +221,7 @@ public sealed class TranslationsTests : BunitContext
         StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
-        await component.Find("form[method=post]").SubmitAsync();
+        await component.Find("form#bulk-approve").SubmitAsync();
 
         component.Find(".status-message.status-warning").TextContent.ShouldContain("Zaznacz co najmniej jeden wiersz");
         await _client.DidNotReceive().PostApiResultAsync<BulkApproveTranslationsResponse>(
@@ -632,6 +634,216 @@ public sealed class TranslationsTests : BunitContext
         component.Find("form.filter input#mine").HasAttribute("checked").ShouldBe(expectedOn);
     }
 
+    [Fact]
+    public void Render_ForAnAdmin_KeepsTheTableOutsideTheBulkApproveFormAndJoinsTheCheckboxesByItsId()
+    {
+        // #1493: each row holds its own save form, and the HTML parser drops a form inside another form.
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("form#bulk-approve button[type=submit]").TextContent.ShouldContain("Zatwierdź zaznaczone");
+        component.Find("table.data-table").Closest("form").ShouldBeNull();
+        component.Find("td.col-check input[type=checkbox]").GetAttribute("form").ShouldBe("bulk-approve");
+    }
+
+    [Fact]
+    public void Render_WhenRowCarriesTheUpsertRel_OffersItsOwnSaveFormUnderThePolishText()
+    {
+        TranslationListItemResponse row = Row(canEdit: true);
+        StubPage(SinglePageOf(row));
+        Navigation().NavigateTo("/translations?search=Frodo&page=2&pageSize=25");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement details = component.Find($"tr#row-{row.Id.Value} details.inline-edit");
+        details.HasAttribute("open").ShouldBeFalse();
+        details.QuerySelector("summary").ShouldNotBeNull().TextContent.ShouldBe("Edytuj tutaj");
+        IElement form = details.QuerySelector("form").ShouldNotBeNull();
+        form.GetAttribute("method").ShouldBe("post");
+        form.GetAttribute("action").ShouldBe($"/translations?page=2&search=Frodo&pageSize=25#row-{row.Id.Value}");
+        form.QuerySelector("input[name=InlineFileId]").ShouldNotBeNull().GetAttribute("value").ShouldBe("620756992");
+        form.QuerySelector("input[name=InlineGossipId]").ShouldNotBeNull().GetAttribute("value").ShouldBe("1001");
+        IElement text = form.QuerySelector("textarea[name=InlineText]").ShouldNotBeNull();
+        text.TextContent.ShouldBe("Witaj w Śródziemiu!");
+        form.QuerySelector($"label[for='{text.Id}']").ShouldNotBeNull()
+            .TextContent.ShouldBe("Tłumaczenie polskie, FileId 620756992, GossipId 1001");
+        form.QuerySelector("button[type=submit]").ShouldNotBeNull().TextContent.ShouldBe("Zapisz");
+    }
+
+    [Fact]
+    public void Render_WhenRowLacksTheUpsertRel_OffersNoSaveForm()
+    {
+        // The server gives `upsert` only to a caller who may save the row (ADR-0040): a visitor, or a removed row.
+        TranslationListItemResponse row = Row(canEdit: false);
+        StubPage(SinglePageOf(row));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll($"tr#row-{row.Id.Value}").Count.ShouldBe(1);
+        component.FindAll("details.inline-edit").ShouldBeEmpty();
+        component.FindAll("form[method=post]").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_SaveForms_CarryTheRowAboveAndAFieldIdOfTheirOwn()
+    {
+        TranslationListItemResponse first = Row(canEdit: true);
+        TranslationListItemResponse second = Row(canEdit: true);
+        StubPage(PageOf(first, second));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement firstForm = component.Find($"tr#row-{first.Id.Value} form");
+        IElement secondForm = component.Find($"tr#row-{second.Id.Value} form");
+        firstForm.QuerySelector("input[name=InlineSavedAfter]").ShouldBeNull();
+        secondForm.QuerySelector("input[name=InlineSavedAfter]").ShouldNotBeNull()
+            .GetAttribute("value").ShouldBe(first.Id.Value.ToString());
+        firstForm.QuerySelector("textarea").ShouldNotBeNull().Id
+            .ShouldNotBe(secondForm.QuerySelector("textarea").ShouldNotBeNull().Id);
+    }
+
+    [Fact]
+    public void Render_SaveFormAction_LeavesTheNotesOfTheAddressOut()
+    {
+        TranslationListItemResponse row = Row(canEdit: true);
+        StubPage(SinglePageOf(row));
+        Navigation().NavigateTo($"/translations?search=Frodo&savedRow={Guid.NewGuid()}&savedSlips=true&approved=2&skipped=1");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("details.inline-edit form").GetAttribute("action")
+            .ShouldBe($"/translations?page=1&search=Frodo#row-{row.Id.Value}");
+    }
+
+    [Fact]
+    public void Render_AfterTheSaveOfARowStillOnThePage_ConfirmsItAndShowsItsSlipsUnderIt()
+    {
+        // The GET half of the redirect after an inline save (#1493); the host suite covers the post.
+        TranslationListItemResponse saved = Row(canEdit: true, translatedText: "Witaj  w Śródziemiu!");
+        TranslationListItemResponse other = Row(canEdit: true);
+        StubPage(PageOf(saved, other));
+        Navigation().NavigateTo($"/translations?savedRow={saved.Id.Value}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement note = component.Find($"tr#row-{saved.Id.Value}").NextElementSibling.ShouldNotBeNull();
+        note.ClassList.ShouldContain("row-note");
+        note.QuerySelector(".status-message.status-success").ShouldNotBeNull().TextContent.Trim()
+            .ShouldBe("Tłumaczenie zapisano.");
+        note.QuerySelector(".translation-slips").ShouldNotBeNull().TextContent
+            .ShouldContain("W tłumaczeniu są co najmniej dwie spacje z rzędu, a w angielskim nie ma.");
+        component.FindAll("tr.row-note").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_AfterTheSaveOfARowWithNoSlips_ConfirmsItWithNoWarning()
+    {
+        TranslationListItemResponse saved = Row(canEdit: true);
+        StubPage(SinglePageOf(saved));
+        Navigation().NavigateTo($"/translations?savedRow={saved.Id.Value}&savedAfter={Guid.NewGuid()}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("tr.row-note").TextContent.ShouldContain("Tłumaczenie zapisano.");
+        component.FindAll(".translation-slips").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_AfterASaveThatTookTheRowOffThePage_ShowsTheNoteInItsPlace()
+    {
+        // A save makes the row a draft, so a status filter drops it from the list (wiki Mechanizm-diff).
+        TranslationListItemResponse above = Row(canEdit: true);
+        TranslationListItemResponse below = Row(canEdit: true);
+        Guid saved = Guid.NewGuid();
+        StubPage(PageOf(above, below));
+        Navigation().NavigateTo($"/translations?status=Untranslated&savedRow={saved}&savedAfter={above.Id.Value}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement note = component.Find($"tr#row-{above.Id.Value}").NextElementSibling.ShouldNotBeNull();
+        note.Id.ShouldBe($"row-{saved}");
+        note.TextContent.ShouldContain("Tłumaczenie zapisano. Tego wiersza nie ma już na tej stronie listy.");
+        note.QuerySelectorAll("a").ShouldBeEmpty();
+        note.NextElementSibling.ShouldNotBeNull().Id.ShouldBe($"row-{below.Id.Value}");
+    }
+
+    [Fact]
+    public void Render_AfterASaveThatTookTheRowOffThePageWithNoRowAboveLeft_ShowsTheNoteFirst()
+    {
+        TranslationListItemResponse row = Row(canEdit: true);
+        Guid saved = Guid.NewGuid();
+        StubPage(SinglePageOf(row));
+        Navigation().NavigateTo($"/translations?savedRow={saved}&savedAfter={Guid.NewGuid()}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr")[0].Id.ShouldBe($"row-{saved}");
+        component.FindAll("tr.row-note").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_AfterASaveWithSlipsThatTookTheRowOffThePage_PointsToTheEditorWithTheListState()
+    {
+        Guid saved = Guid.NewGuid();
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?search=Frodo&savedRow={saved}&savedSlips=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement note = component.Find($"tr#row-{saved}");
+        note.QuerySelector(".status-message.status-warning").ShouldNotBeNull().TextContent
+            .ShouldContain("Edytor pokazuje uwagi do tego tekstu.");
+        IElement link = note.QuerySelector("a").ShouldNotBeNull();
+        link.TextContent.ShouldBe("Otwórz w edytorze");
+        link.GetAttribute("href").ShouldBe($"/editor/{saved}?search=Frodo");
+    }
+
+    [Fact]
+    public void Render_AfterASaveThatLeftThePageEmpty_ShowsTheNoteAboveTheEmptyState()
+    {
+        Guid saved = Guid.NewGuid();
+        StubPage(OverRangePageOf(page: 1, links: []));
+        Navigation().NavigateTo($"/translations?savedRow={saved}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement note = component.Find($"#row-{saved}");
+        note.TextContent.ShouldContain("Tłumaczenie zapisano.");
+        note.NextElementSibling.ShouldNotBeNull().ClassList.ShouldContain("empty");
+    }
+
+    [Theory]
+    [InlineData("savedRow=abc")]
+    [InlineData("savedRow=")]
+    [InlineData("savedRow=12")]
+    public void Render_WithASavedRowThatIsNoRowId_ShowsTheListWithNoNote(string query)
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.FindAll("tr.row-note").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_AfterASaveWhenTheListFailsToLoad_StillConfirmsTheSave()
+    {
+        // #1122: the save happened, even when the reload after its redirect fails.
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<PaginationResponse<TranslationListItemResponse>>(
+                new ProblemDetails { Status = StatusCodes.Status503ServiceUnavailable }));
+        Navigation().NavigateTo($"/translations?savedRow={Guid.NewGuid()}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find(".status-message.status-success").TextContent.Trim().ShouldBe("Tłumaczenie zapisano.");
+        component.FindAll(".error-message").Count.ShouldBe(1);
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
 
@@ -643,7 +855,11 @@ public sealed class TranslationsTests : BunitContext
             .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(page));
 
-    private static TranslationListItemResponse Row(bool canEdit, bool canApprove = false)
+    private static TranslationListItemResponse Row(
+        bool canEdit,
+        bool canApprove = false,
+        TranslationId? id = null,
+        string? translatedText = "Witaj w Śródziemiu!")
     {
         List<LinkDto> links = [];
         if (canEdit)
@@ -657,11 +873,11 @@ public sealed class TranslationsTests : BunitContext
         }
 
         TranslationListItemResponse row = new(
-            TranslationId.Create(),
+            id ?? TranslationId.Create(),
             FileId: 620756992,
             GossipId: 1001,
             SourceText: "Welcome to Middle-earth!",
-            TranslatedText: "Witaj w Śródziemiu!",
+            TranslatedText: translatedText,
             Status: TranslationStatus.Draft,
             Submitter: null,
             UpdatedAt: DateTimeOffset.UnixEpoch)
@@ -681,6 +897,15 @@ public sealed class TranslationsTests : BunitContext
             Page = 1,
             PageSize = 50,
             TotalCount = 1
+        };
+
+    private static PaginationResponse<TranslationListItemResponse> PageOf(params TranslationListItemResponse[] rows) =>
+        new()
+        {
+            Items = rows,
+            Page = 1,
+            PageSize = 50,
+            TotalCount = rows.Length
         };
 
     /// <summary>A page carrying the admin-only <c>bulk-approve</c> rel.</summary>

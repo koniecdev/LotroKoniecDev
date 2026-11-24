@@ -464,8 +464,8 @@
         QueryHelpers.AddQueryString(_listQuery.ToEditorRelativeUri(TranslationId.FromValue(Id)), successFlag, "true");
 
     /// <summary>
-    /// Its own state, so a failed panel never hides the row (#1347). Skipped on a post: a good save or
-    /// approve redirects to a GET that loads it. After a failed post the page has no panel until the next GET.
+    /// Its own state, so a failed panel never hides the row (#1347). Loaded on every request, a post
+    /// included, so a refused save or approve still shows it (#1482).
     /// </summary>
     private async Task LoadSameSourceTextAsync(TranslationDetailResponse detail)
     {
@@ -473,7 +473,7 @@
         _sameSourceTextFailed = false;
 
         string? sameSourceTextHref = detail.Links.FindLink(Rels.SameSourceText)?.Href;
-        if (sameSourceTextHref is null || HttpContext is not null && HttpMethods.IsPost(HttpContext.Request.Method))
+        if (sameSourceTextHref is null)
         {
             return;
         }

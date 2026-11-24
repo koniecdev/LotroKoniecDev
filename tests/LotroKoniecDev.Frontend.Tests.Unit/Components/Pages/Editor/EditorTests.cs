@@ -624,24 +624,41 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public void Render_OnAPost_DoesNotAskForThePanel()
+    public async Task Save_WhenTheApiRefusesThePost_KeepsThePanelBesideTheError()
     {
-        // A good save or approve redirects to a GET that loads the panel, so a post must not pay for it.
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
             [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
             TotalCount: 1,
             HasConflictingTranslations: true));
-        DefaultHttpContext post = new();
-        post.Request.Method = HttpMethods.Post;
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost();
 
-        IRenderedComponent<EditorComponent> component = Render<EditorComponent>(parameters => parameters
-            .AddCascadingValue<HttpContext>(post)
-            .Add(editor => editor.Id, Guid.NewGuid()));
+        await component.Find("form").SubmitAsync();
 
-        component.FindAll("section.same-source").ShouldBeEmpty();
-        _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zapis odrzucony.");
+        component.Find("section.same-source tbody tr").TextContent.ShouldContain("Krzepki Topornik");
+    }
+
+    [Fact]
+    public async Task Approve_WhenTheApiRefusesThePost_KeepsThePanelBesideTheError()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canApprove: true, hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        _client
+            .PostApiResultAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new() { Title = "Zatwierdzenie odrzucone." }));
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost();
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zatwierdzenie odrzucone.");
+        component.Find("section.same-source tbody tr").TextContent.ShouldContain("Krzepki Topornik");
     }
 
     [Fact]
@@ -1055,6 +1072,17 @@ public sealed class EditorTests : BunitContext
 
     private IRenderedComponent<EditorComponent> RenderEditor(Guid id) =>
         Render<EditorComponent>(parameters => parameters.Add(component => component.Id, id));
+
+    /// <summary>The page's load runs before the form handler, as it does for a real post.</summary>
+    private IRenderedComponent<EditorComponent> RenderEditorOnAPost()
+    {
+        DefaultHttpContext post = new();
+        post.Request.Method = HttpMethods.Post;
+
+        return Render<EditorComponent>(parameters => parameters
+            .AddCascadingValue<HttpContext>(post)
+            .Add(component => component.Id, Guid.NewGuid()));
+    }
 
     private void StubLoad(TranslationDetailResponse detail)
     {

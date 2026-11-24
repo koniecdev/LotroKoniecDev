@@ -462,12 +462,13 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
     old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
     as REQUEST CHANGES: answer each question from the wiki, the knowledge base, a spec, an ADR or
-    the code, cite the source, and fix. A question none of them answers that is a business rule or
-    a design choice only the maintainer can make takes step 8's route for a choice that needs the
-    maintainer: push the branch, put the question and your recommended answer under **Doubts**, and
-    stop before the PR (`/work-ticket`: step 6's rule for a reviewer's question). Any other
-    question becomes a documented assumption in the report (step 2: "After this gate: zero
-    questions"), and the review goes on.
+    the code, cite the source, and fix. Sometimes none of them answers a question. If it is a
+    business rule or a design choice that only the maintainer can make, take step 8's route for a
+    choice that needs the maintainer: push the branch, put the question and your recommended answer
+    under **Doubts**, and stop before the PR (`/work-ticket`: step 6's rule for a reviewer's
+    question). Any other such question becomes a documented assumption (step 2: "After this gate:
+    zero questions"). Write it in the report and in the next round's brief, so the next reviewer
+    sees your answer, and the review goes on.
 
     **The review runs until the reviewer approves** (owner decision 2026-11-24, #1556). There is no
     round count and no round limit: never stop the review because of the number of rounds, the size
@@ -489,8 +490,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     fresh `code-reviewer` for the next round.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.
 - **Second pass — after the `code-reviewer` APPROVE, on every diff: run
-  `/code-review xhigh origin/main...HEAD`.** It runs once per ticket: a later APPROVE, after a fix
-  that went back to the `code-reviewer` rounds, does not run it again. It forks into a fresh
+  `/code-review xhigh origin/main...HEAD`.** It runs once per review: after it has run, a later
+  APPROVE on the same diff, after a fix that went back to the `code-reviewer` rounds, does not run
+  it again. A follow-up PR's diff (step 8), a later session for the same ticket and a redesign
+  (step 8) are new reviews, and each runs it. It forks into a fresh
   context, so it has never seen your plan, your ADR or the first reviewer's framing, and it reads
   the code around the diff instead of
   the diff's own story. That independence is the point: the `code-reviewer` rounds converge on what

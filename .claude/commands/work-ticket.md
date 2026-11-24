@@ -204,8 +204,8 @@ everything that matters must be committed and pushed.
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
    - **A gate that cannot reach green, or a rebase conflict you cannot settle (`git rebase --abort`
-     first)** → `STATUS: BLOCKED` (category: red-build) with the reason. This replaces `/ticket`'s
-     "push the branch and report without a PR": push nothing. Never push broken work.
+     first)** → `STATUS: BLOCKED` (category: red-build) with the reason. Where `/ticket` step 8
+     pushes the branch and reports with no PR, push nothing here. Never push broken work.
    - **A reviewer's question that nothing answers** (`/ticket` step 7, NEEDS DISCUSSION) and that
      is a business rule or a design choice only the maintainer can make: the rounds have no limit,
      so first fix the round's other Critical or Major findings, commit them and get the gates
@@ -214,7 +214,8 @@ everything that matters must be committed and pushed.
      `QUESTIONS` in step 1's shape, ending with "Answer in a comment that starts with
      `**Owner decision:**`.". A Critical or Major still open that you cannot fix makes it
      `review-unclean` instead (push nothing), with the questions in its `QUESTIONS` too. Any other
-     question becomes a documented assumption in the report, and the review goes on.
+     question becomes a documented assumption, in the report and in the next round's brief, and
+     the review goes on.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
    `origin/main` again, run `gate-runner` on the commit you push unless the last

@@ -422,10 +422,11 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   `code-reviewer` or `gate-runner` report names that commit yet (`/ticket` step 8, #1319).
   `ticket-triage`, `gate-runner`, `dat-format-expert`, `/code-review` and `/security-review` follow
   the session's model and effort. When Fable is not available (its share of the weekly limit is
-  spent, or a contributor's account has no Fable), the review falls back once to a `general-purpose`
-  agent that follows the same agent file, on the model a plain subagent gets (the session's, or
-  `CLAUDE_CODE_SUBAGENT_MODEL` when it is set), and the report says so; the triage has the same one
-  retry on an error or a report with no `VERDICT:` line (`/ticket` step 2). That fallback answers
+  spent, or a contributor's account has no Fable), each review round falls back once to a
+  `general-purpose` agent that follows the same agent file, on the model a plain subagent gets
+  (the session's, or `CLAUDE_CODE_SUBAGENT_MODEL` when it is set), and the report says so; the
+  triage has the same one retry on an error or a report with no `VERDICT:` line (`/ticket` step
+  2). That fallback answers
   the reason #643 removed an older pin: a contributor without the tier still gets a review. Never
   pass `model` or `effort` when you spawn `code-reviewer` or `ticket-triage`: either beats the
   review's pin or replaces the session's model and effort that the triage follows. Never run Fable

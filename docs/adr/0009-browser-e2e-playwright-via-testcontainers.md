@@ -111,6 +111,11 @@ host's Testing profile seeds, registers a game version and uploads an `exported.
 memory (`TranslationListWayBackTests`). It still runs from a fresh clone, with no seeded database and
 no file in the repo. Its rows carry a token no other flow uses, because every flow shares one stack.
 
+**Amendment (2026-11-24, #1493):** an import removes every row it does not carry, so a second flow
+with its own import would remove the first flow's rows (or be stopped by the mass-removal guard). The
+flows that need rows therefore share one import, run once per stack by the first of them
+(`TranslationRowsSeed`), and each flow searches for its own token.
+
 ### 6. Reject FluentDocker and reject a dedicated `compose.playwright.yaml`
 
 **FluentDocker** is not added: its only edge over Testcontainers is reading a *compose file* from

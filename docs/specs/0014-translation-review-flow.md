@@ -340,11 +340,11 @@ back.
   Restore is the `approve` rel on an approved proposal other than the live one, for a caller the
   policy allows.
   - **Request budget.** The editor loads the history on a GET, like the panel of rows with the same
-    text. A post that stays on the page (a refused save, approve or restore) loads it after its
-    write, so the answer shows the page as a GET would (#1482); a good post redirects to a GET that
-    loads it, so it costs no extra request. A restore takes its href from the history, so the
-    restore POST loads the history once, before its write, and a refused restore shows that read
-    without a second one. The detail answer carries no history links. The history costs one request
+    text. A post that stays on the page (a refused save or approve) loads it after its write, so
+    the answer shows the page as a GET would (#1482); a good post redirects to a GET that loads it,
+    so it costs no extra request. A restore takes its href from the history, so the restore POST
+    loads the history once, before its write, and a refused restore shows that read without a
+    second one. The detail answer carries no history links. The history costs one request
     on every editor view, the reload after a save included.
     Putting the history into the detail answer would cost no request, but every detail and save
     answer would then carry a list that only grows, and a failed history read would fail the editor.

@@ -147,7 +147,7 @@ validator.
 | Touch the game-content catalog (CatalogEntry/TextSlot, Companion zip import, catalog browser, memberships) | `docs/specs/0008-game-content-catalog-layer.md` + `docs/knowledge-base/lotro-companion-data-model.md` (the verified `key:<FileId>:<GossipId>` join; never join on text). Naming rule: **never "entity"** in this layer |
 | Implement a feature whose business rules are fuzzy | **`/spec`** first (seed → questions → agreed spec in `docs/specs/`) |
 | Plan any ticket's fix, or act on a negative claim, a cause outside the repo, or a ticket's own conclusion | the **`ticket-triage`** agent writes the verdict and the plan, then **`/buddy`** with its design challenge, before the verdict is posted, on every ticket (no `/buddy` → its fallback agent): `/ticket` step 2 |
-| Review a finished change | the **`code-reviewer`** agent (on Fable) on every diff, small ones too, a fresh one per round, three rounds plus one confirmation round only when the review is ending, then `/code-review` as the second pass (`/ticket` step 7); before the push, a **`gate-runner`** run on the pushed commit unless a `code-reviewer` or `gate-runner` report already names it (`/ticket` step 8) |
+| Review a finished change | the **`code-reviewer`** agent (on Fable) on every diff, small ones too, a fresh one per round until it approves (no round limit, #1556), then `/code-review` as the second pass (`/ticket` step 7); before the push, a **`gate-runner`** run on the pushed commit unless a `code-reviewer` or `gate-runner` report already names it (`/ticket` step 8) |
 | Sort review findings, file one, or triage an `audit` ticket | **ADR-0067 §8** (what is not a finding) + ADR-0008 §3 (the bar for a startup check) + ADR-0069 (the game launcher is not checked) + `docs/labels.md` → "One bug class per ticket" |
 | Understand the backlog / milestones | `gh issue list` + Roadmap below |
 | Compare with the Russian sister project | `docs/RUSSIAN_PROJECT_RESEARCH.md` + `docs/knowledge-base/russian-project.md` |
@@ -444,7 +444,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   the prompt cache dies after 1h idle, so deliver on documented assumptions and fix from the Ticket
   report instead. Auto-compaction stays at its ~967k default on purpose: never set
   `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or `CLAUDE_CODE_DISABLE_1M_CONTEXT`. Past
-  ~500k in `/context`, finish, report, `/clear`. Pick model and effort before the first prompt:
+  ~500k in `/context`, finish the ticket (a review in progress still runs to its APPROVE, `/ticket`
+  step 7), report, `/clear`. Pick model and effort before the first prompt:
   `/model` mid-session is a full cache miss on every model, and `/effort` too on every model except
   Fable 5.1 (assume a miss on Opus 5.5). Back-to-back sessions reuse only the tool layer of the
   cache, so batch them for focus, not for cache.
@@ -919,8 +920,9 @@ this repo's settings and their reasons are in `docs/claude-loop.md`.
 - Each ticket runs in a **fresh headless process** (`work-ticket.sh` → `claude -p "/work-ticket
   <n>"`) inside its **own worktree** `.claude/worktrees/ticket-<n>` cut from `origin/main`, up to
   three at once. The loop adds no limit the maintainer did not ask for: no time limit, ceiling or
-  stuck-session watchdog on a run, and no cut on the BLOCKED comment (owner decisions 2026-11-22,
-  #1503, #1507). A finding or a plan that adds one is already decided. The session
+  stuck-session watchdog on a run, no review round limit, and no cut on the BLOCKED comment (owner
+  decisions 2026-11-22 and 2026-11-24, #1503, #1507, #1556). A finding or a plan that adds one is
+  already decided. The session
   does the whole slice (claim check, spec weight, branch, implement, commit, tests, review gate,
   push → PR), ends with a `STATUS: DONE|BLOCKED` block and dies. No LLM context outlives a ticket;
   an orchestrator *session* that collects every ticket's returns is a retired anti-pattern.

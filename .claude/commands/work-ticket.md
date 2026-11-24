@@ -212,7 +212,7 @@ everything that matters must be committed and pushed.
      green. Then push the branch and end with `STATUS: BLOCKED` (category: design-choice, or
      business-questions for a business rule), each question with your recommended answer under
      `QUESTIONS` in step 1's shape, ending with "Answer in a comment that starts with
-     `**Owner decision:**`.". A Critical or Major still open that you cannot fix makes it
+     `**Owner decision:**`.". Another Critical or Major still open that you cannot fix makes it
      `review-unclean` instead (push nothing), with the questions in its `QUESTIONS` too. Any other
      question becomes a documented assumption, in the report and in the next round's brief, and
      the review goes on.

@@ -463,10 +463,10 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
     as REQUEST CHANGES: answer each question from the wiki, the knowledge base, a spec, an ADR or
     the code, cite the source, and fix. Sometimes none of them answers a question. If it is a
-    business rule or a design choice that only the maintainer can make, take step 8's route for a
-    choice that needs the maintainer: push the branch, put the question and your recommended answer
-    under **Doubts**, and stop before the PR (`/work-ticket`: step 6's rule for a reviewer's
-    question). Any other such question becomes a documented assumption (step 2: "After this gate:
+    business rule or a design choice that only the maintainer can make, first fix the round's other
+    Critical or Major findings and get the gates green. Then take step 8's route for a choice that
+    needs the maintainer: push the branch, put the question and your recommended answer under
+    **Doubts**, and stop before the PR (`/work-ticket`: step 6's rule for a reviewer's question). Any other such question becomes a documented assumption (step 2: "After this gate:
     zero questions"). Write it in the report and in the next round's brief, so the next reviewer
     sees your answer, and the review goes on.
 

@@ -5,9 +5,10 @@ name: Image scan
 # the images the servers run, with the same Trivy gate as cd.yml. It has two halves:
 #
 #   * Our own four images (`scan`), as each environment deployed them.
-#   * The third-party images (`third-party-*`, ADR-0076): Caddy, RabbitMQ and the backup's postgres,
-#     read from compose.hetzner.yaml and scripts/hetzner/backup.sh at each environment's deployed
-#     commit, and the observability stack, read from compose.observability.yaml on the run's ref.
+#   * The third-party images (`third-party-*`, ADR-0076): Caddy and RabbitMQ, read from
+#     compose.hetzner.yaml at each environment's deployed commit; the backup's postgres, read from
+#     scripts/hetzner/backup.sh at prod's (only prod runs the backup); and the observability stack,
+#     read from compose.observability.yaml on the run's ref.
 #     A finding no vendor release fixes yet goes into that image's exception file under
 #     .github/trivy/, with a reason and an expiry. Our own images never read those files.
 #

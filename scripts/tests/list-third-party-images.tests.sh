@@ -241,6 +241,10 @@ expect_matrix 'an upper-case commit is an error leg' \
 expect_matrix 'a commit this checkout does not have is an error leg' \
     '[.include[] | select(.leg == "production: unknown commit")] | length == 1' \
     "staging=$NEW" "production=$(printf 'f%.0s' {1..40})"
+expect_matrix 'backup.sh is read at the production commit only, because only prod runs the backup' \
+    '([.include[] | select(.leg | startswith("staging: cannot list"))] | length == 0)
+     and ([.include[] | select(.ref | startswith("postgres:"))] | length == 1 and (.[0].leg | endswith(" (production)")))' \
+    "staging=$NO_BACKUP" "production=$OLD"
 expect_matrix 'a commit without backup.sh is an error leg, and its compose images stay' \
     '([.include[] | select(.leg == "production: cannot list scripts/hetzner/backup.sh")] | length == 1)
      and ([.include[] | select(.ref | startswith("rabbitmq:4.3.8"))][0].leg | test("staging, production"))' \
@@ -318,7 +322,9 @@ expect_exceptions 1 'a purl with a subpath fails' "$(entry '.purls = ["pkg:golan
 expect_exceptions 1 'an empty paths list fails' "$(entry '.paths = []')"
 expect_exceptions 1 'a path with a wildcard fails' "$(entry '.paths = ["usr/bin/*"]')"
 expect_exceptions 1 'a path with a leading slash fails' "$(entry '.paths = ["/usr/bin/caddy"]')"
-expect_exceptions 1 'an id that is not a CVE or GHSA id fails' "$(entry '.id = "GO-2026-4341"')"
+expect_exceptions 0 'a Go vulnerability id with no CVE passes' "$(entry '.id = "GO-2026-4341"')"
+expect_exceptions 0 'a GHSA id passes' "$(entry '.id = "GHSA-r277-6w6q-xmqw"')"
+expect_exceptions 1 'an id that is not a CVE, GHSA or Go id fails' "$(entry '.id = "OSV-2026-1"')"
 expect_exceptions 1 'the same id and package twice fails' "$(entry)" "$(entry)"
 expect_exceptions 1 'an entry that is not an object fails' '"CVE-2026-78661"'
 expect_exceptions 1 'an empty list fails'

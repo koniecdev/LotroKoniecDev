@@ -10,8 +10,9 @@
 #   --backup <file>     Prints the default of POSTGRES_IMAGE in scripts/hetzner/backup.sh. Exit 2
 #                       unless exactly one such line holds a plain ref.
 #   --matrix staging=<sha> production=<sha>
-#                       Run from the repo. Reads compose.hetzner.yaml and backup.sh at each deployed
-#                       commit and compose.observability.yaml from the working tree, and prints the
+#                       Run from the repo. Reads compose.hetzner.yaml at each deployed commit,
+#                       backup.sh at prod's (only prod runs the backup) and
+#                       compose.observability.yaml from the working tree, and prints the
 #                       scan matrix as one JSON line: {"include":[{"leg","ref","ignore","error"}…]}.
 #                       A commit that is not a full SHA, or a file that cannot be read, becomes an
 #                       item with an `error`, so only that leg fails and every other image is still
@@ -197,6 +198,10 @@ matrix() {
             continue
         fi
         for path in compose.hetzner.yaml scripts/hetzner/backup.sh; do
+            # Every box gets backup.sh, but only prod's crontab runs it (runbook, "Database backups").
+            if [ "$path" = 'scripts/hetzner/backup.sh' ] && [ "$environment" != production ]; then
+                continue
+            fi
             if ! git show "${sha}:${path}" > "$WORK/file" 2> "$WORK/show.err"; then
                 add_error "${environment}: cannot list ${path}" "${path} cannot be read at the ${environment} deployed commit ${sha}: $(< "$WORK/show.err")"
                 continue
@@ -243,8 +248,8 @@ def entry_problems($n; $e):
     | ($e.statement | limit_days) as $limit
     | (if ($missing | length) > 0 then problem($n; $id; "misses \($missing | join(", "))") else empty end),
       (if ($unknown | length) > 0 then problem($n; $id; "has the unknown key(s) \($unknown | join(", ")), which Trivy drops without a word") else empty end),
-      (if ($e.id | type) != "string" or ($e.id | test("^(CVE-[0-9]{4}-[0-9]{4,}|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4})$") | not)
-         then problem($n; $id; "the id is not a CVE or GHSA id") else empty end),
+      (if ($e.id | type) != "string" or ($e.id | test("^(CVE-[0-9]{4}-[0-9]{4,}|GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}|GO-[0-9]{4}-[0-9]{4,})$") | not)
+         then problem($n; $id; "the id is not a CVE, GHSA or Go (GO-…) id") else empty end),
       (if ($e.purls | type) != "array" or ($e.purls | length) != 1 or ($e.purls[0] | type) != "string"
           or ($e.purls[0] | test("^pkg:[a-z][a-z0-9.+-]*/[^@?#[:space:]]+(@[^?#[:space:]]+)?$") | not)
          then problem($n; $id; "purls must hold exactly one package purl with no qualifiers (?…) and no subpath (#…)") else empty end),

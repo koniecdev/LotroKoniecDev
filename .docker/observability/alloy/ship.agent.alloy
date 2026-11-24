@@ -49,9 +49,8 @@ prometheus.remote_write "backend" {
 // stream to Tempo over h2c. The basic-auth extension refuses to attach a credential to a plaintext
 // connection, which is one more reason `tls { insecure = true }` is absent here on purpose.
 //
-// Top-level username/password, not the `client_auth` block the current docs prefer: on v1.19.2
-// the block built to "no credential source provided" (proven locally, #755). v1.22.0 still accepts
-// the top-level form.
+// Top-level username/password, not the `client_auth` block the current docs prefer: on v1.22.0
+// that block builds to "no credential source provided" (proven locally, #755).
 otelcol.auth.basic "backend" {
   username = sys.env("OBS_PUSH_USER")
   password = sys.env("OBS_PUSH_PASSWORD")

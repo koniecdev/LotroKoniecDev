@@ -152,7 +152,9 @@ updates:
       - dependency-name: "caddy"
         versions: ["2.11.6"]
       # A major of an observability component changes its config format, so it comes in a PR of our
-      # own, with the config moved and booted locally.
+      # own, with the config moved and booted locally. A minor can break config too (Alloy lists
+      # breaking changes in minors), so the group's PR is booted locally before the hand deploy
+      # (runbook → "The observability stack").
       - dependency-name: "grafana/*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "prom/prometheus"

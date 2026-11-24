@@ -46,10 +46,10 @@ are public Docker Hub images and the token would go to Docker Hub (ADR-0067 §7)
 
 ### 2. It reads what each environment deployed
 
-`scripts/ci/list-third-party-images.sh --matrix` reads `compose.hetzner.yaml` and
-`scripts/hetzner/backup.sh` at each environment's deployed commit, the same commit the own-image half
-uses, and `compose.observability.yaml` on the run's ref, because that stack leaves no deployment
-record. A deployed commit that is not a full SHA, or a file that cannot be read, becomes a leg that
+`scripts/ci/list-third-party-images.sh --matrix` reads `compose.hetzner.yaml` at each environment's
+deployed commit, the same commit the own-image half uses, and `scripts/hetzner/backup.sh` at prod's
+only, because every box gets the file but only prod's crontab runs it. It reads
+`compose.observability.yaml` on the run's ref, because that stack leaves no deployment record. A deployed commit that is not a full SHA, or a file that cannot be read, becomes a leg that
 fails with the reason, so the other images are still scanned. An empty commit is never read: `git
 show :<path>` would read today's files and pass in silence.
 
@@ -60,7 +60,7 @@ with `/` in the repository written as `-` (`grafana-grafana.trivyignore.yaml`). 
 reads it, and our own images never read any of them. The file is JSON, which Trivy reads as YAML, so
 `jq` can check it. Every entry has:
 
-- `id`: one CVE or GHSA id;
+- `id`: one CVE, GHSA or Go (`GO-…`) id, the one Trivy reports;
 - `purls`: exactly one package, with no qualifiers (`pkg:golang/golang.org/x/net`), and `paths`
   only to narrow it to one binary. A false positive names the package version too
   (`pkg:golang/stdlib@v1.24.6`): its proof holds for that version only, so a new pin with another
@@ -193,8 +193,10 @@ changes only compose files, which the change classifier calls inert.
 
 ### N. A scan on every pull request that moves a pin
 
-Not needed now: `gh workflow run image-scan.yml --ref <branch>` scans a Dependabot proposal on
-demand, and the daily run follows within a day.
+Not needed now. For the observability group, `gh workflow run image-scan.yml --ref <branch>` scans
+the proposal on demand, because that half reads the branch's own file. Caddy, RabbitMQ and
+`postgres` are read at the deployed commits, so a new pin of theirs is scanned locally before the
+merge (runbook, "The daily image scan"), and the daily run follows within a day of the deploy.
 
 ## References
 

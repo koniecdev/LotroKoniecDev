@@ -119,7 +119,9 @@ jobs:
       - name: Build-once self-test
         run: ./scripts/tests/commit-image.tests.sh
 
-      # Same third-party image list self-test as pr-verify (ADR-0076) — backstops direct pushes to main.
+      # Same third-party image list self-test as pr-verify (ADR-0076) — backstops direct pushes to main,
+      # except one that changes only .github/trivy/, which paths-ignore above skips; pr-verify checks
+      # those files on every PR.
       - name: Third-party image list self-test
         run: ./scripts/tests/list-third-party-images.tests.sh
 

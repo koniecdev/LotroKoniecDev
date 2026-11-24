@@ -2796,9 +2796,10 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
     After a deploy or rollback by hand on the box it scans the recorded image, not the running one.
     A red leg usually means the base image pins need to move (#1324); when only prod is red, the fix
     may already be on staging and need a promotion.
-  - **The nine third-party images** (ADR-0076): Caddy, RabbitMQ and the backup's `postgres` from
-    `compose.hetzner.yaml` and `scripts/hetzner/backup.sh` at each environment's deployed commit,
-    and the observability stack from `compose.observability.yaml` on `main`. The job summary of
+  - **The nine third-party images** (ADR-0076): Caddy and RabbitMQ from `compose.hetzner.yaml` at
+    each environment's deployed commit, the backup's `postgres` from `scripts/hetzner/backup.sh` at
+    prod's (only prod's crontab runs it), and the observability stack from
+    `compose.observability.yaml` on `main`. The job summary of
     *List the third-party images* names every leg. A leg named `<environment>: …` could not read
     that environment's files, and its first step says why.
 
@@ -2904,9 +2905,15 @@ config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of t
 
 **New image versions arrive the same way.** Every image in `compose.observability.yaml` is pinned by
 tag and digest, and Dependabot proposes new versions in one `observability` pull request with the
-`on-hold` label (majors are left out: they change config formats). After the merge, nothing changes
-on a box until the deploy above runs on **both** boxes (`lotro-staging` with the backend, `lotro-prod`
-with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is
+`on-hold` label. Majors are left out, because they change config formats, but a minor can break
+config too: Alloy lists breaking changes in its minor releases. So before removing `on-hold`, read
+each changelog against the files under `.docker/observability/`, and boot the new images with them
+on your machine: copy that folder and `compose.observability.yaml` into a scratch folder, write a
+`.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a network you
+create, and run `docker compose -f compose.observability.yaml up -d` once with
+`COMPOSE_PROFILES=backend` and once with it empty. No CI job boots this stack. After the merge,
+nothing changes on a box until the deploy above runs on **both** boxes (`lotro-staging` with the
+backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is
 green for a box that missed this deploy (ADR-0076). Check what a box runs:
 `ssh lotro-prod 'docker ps --filter label=com.docker.compose.project=obs --format "{{.Names}} {{.Image}}"'`.
 

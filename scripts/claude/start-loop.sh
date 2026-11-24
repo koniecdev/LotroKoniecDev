@@ -12,9 +12,14 @@
 # script you start, it then hands over to the copy in that checkout, so the run itself uses the
 # reviewed code on origin/main.
 #
-# Ctrl-C, or closing the terminal, stops the loop, and each worker salvages its work first. To let
-# the running tickets finish and start nothing new, run
-# `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout. The
+# One Ctrl-C only prints a warning: the run is in a process group of its own, and this script
+# counts the presses. A second Ctrl-C within 5 seconds, closing the terminal, or `kill` of this
+# script stops the loop, and each worker salvages its work first. A `kill -9` of this script leaves
+# the run going: stop it with `kill <pid in .claude/backlog-loop.lock/pid>`. To let the running
+# tickets finish and start nothing new, run
+# `touch .claude/backlog-loop.lock/stop-after-running` in the main checkout. The run cannot answer
+# a prompt on the terminal, so git and ssh must get their credentials without one: a question there
+# pauses the whole run, and this script then says so. The
 # console is copied to logs/claude-loop/console-<timestamp>.log in the main checkout; /backlog with
 # no arguments builds the roll-up from that file.
 #
@@ -171,18 +176,179 @@ elif command -v systemd-inhibit >/dev/null 2>&1 \
     keep_awake=systemd-inhibit
 fi
 
-# The copy ignores Ctrl-C, a closed terminal and TERM (a logout sends it to every process), and
-# ends only when every writer has closed the pipe. If it ended first, a worker that writes its
-# cleanup lines into the closed pipe would be killed by SIGPIPE before it salvaged anything.
-case "$keep_awake" in
-    caffeinate)
-        caffeinate -is "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
-    systemd-inhibit)
-        # systemd-inhibit ignores Ctrl-C and a closed terminal too: when it dies, it ends its
-        # command with TERM, which would cut the conductor's salvage short. It starts the
-        # conductor with every signal back at its default, so Ctrl-C still reaches the loop.
-        (trap '' INT HUP; exec systemd-inhibit --what=idle:sleep --who=claude-loop \
-            --why="backlog loop running" "$conductor" "$@") 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
-    *)
-        "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM; exec tee -a "$log") ;;
-esac
+# The run gets a process group of its own. A terminal sends Ctrl-C to its foreground group only, so
+# a press reaches this script and nothing of the run: not the conductor, the picker, the workers,
+# or the git they run, which catches Ctrl-C while it holds a lock file. This script counts the
+# presses. In a terminal Ctrl-C is also a copy reflex, so the first press only warns, and a second
+# one within PRESS_WINDOW_SEC stops the run. SECONDS counts whole seconds, so the window is 5 to
+# 6 seconds. A closed terminal and TERM to this script stop it at once.
+# A stop sends TERM, then CONT, to the run's whole group, once: the reach a closed terminal had
+# while the run shared the terminal's group. CONT wakes a member that the terminal stopped
+# because it read from it. Later presses and signals do nothing, so they cannot cut a salvage
+# short.
+# Every PAUSE_CHECK_SEC this script looks at the run (watch_run), for two cases:
+# - The run cannot answer a question on the terminal: when one of its processes reads the terminal,
+#   the kernel stops the run's whole group. Before a stop the script says so, once per pause,
+#   because only the owner can end it. During a stop it sends TERM and CONT again.
+# - A stop that went out before the conductor started never reached it: systemd-inhibit, which
+#   ignores TERM, starts the conductor some milliseconds after the run, and a stop noted before the
+#   run's group was known went nowhere. During a stop the script sends TERM to the conductor once,
+#   when it shows up in the run's group. The conductor ignores every TERM after its first.
+# Either TERM goes out only when SECONDS has moved PAUSE_CHECK_SEC on since the last one, which is
+# more than 1 real second: a second TERM within some milliseconds of the first cuts the conductor's
+# or a worker's own stop short.
+PRESS_WINDOW_SEC=5
+PAUSE_CHECK_SEC=2
+run_pid=""
+stopping=0
+last_press=""
+paused=0
+# SECONDS when the launcher last sent TERM to the run, and the conductor it sent TERM to on its own.
+last_term=0
+conductor_termed=""
+
+# say <line> — to the terminal and to the console copy. It runs inside a trap, so it uses builtins
+# only and never fails: the terminal may already be gone.
+say() {
+    printf '%s\n' "$1" 2>/dev/null || true
+    printf '%s\n' "$1" >> "$log" 2>/dev/null || true
+}
+
+send_stop() {
+    stopping=1
+    [ -n "$run_pid" ] || return 0
+    last_term=$SECONDS
+    kill -TERM -- "-$run_pid" 2>/dev/null || true
+    kill -CONT -- "-$run_pid" 2>/dev/null || true
+}
+
+on_ctrl_c() {
+    [ "$stopping" -eq 0 ] || return 0
+    if [ -n "$last_press" ] && [ $(( SECONDS - last_press )) -le "$PRESS_WINDOW_SEC" ]; then
+        send_stop
+        say "start-loop: Ctrl-C again — stopping the run; each running ticket salvages its work first"
+        return 0
+    fi
+    last_press=$SECONDS
+    say "start-loop: Ctrl-C — the run goes on. Press it again within ${PRESS_WINDOW_SEC}s to stop every running ticket; to let them finish and start nothing new: touch $MAIN_ROOT/.claude/backlog-loop.lock/stop-after-running"
+}
+
+on_stop_signal() {
+    [ "$stopping" -eq 0 ] || return 0
+    send_stop
+    say "start-loop: $1 — stopping the run; each running ticket salvages its work first"
+}
+
+# One look at the run (see PAUSE_CHECK_SEC above). A press also reaches the `ps`, so a read that
+# fails is read again, as in job_running; one that keeps failing (a `ps` that knows no `-o`, as in
+# Git Bash) changes nothing. The list is taken apart by word splitting, which needs no temporary
+# file. The conductor's number comes from its lock, and counts only while that process is
+# in the run's group: a lock left by an old run names another process.
+watch_run() {
+    local listing field pid="" pgid="" n=0 tries=1 stopped=0 conductor_pid="" conductor_in_run=0
+    # shellcheck disable=SC2006  # backquotes on purpose, see job_running
+    until listing=`ps -A -o pid= -o pgid= -o stat= 2>/dev/null`; do
+        [ "$tries" -lt 5 ] || return 0
+        tries=$((tries + 1))
+    done
+    if [ "$stopping" -eq 1 ] && [ -z "$conductor_termed" ]; then
+        read -r conductor_pid 2>/dev/null < "$MAIN_ROOT/.claude/backlog-loop.lock/pid" || conductor_pid=""
+    fi
+    # One pass over the fields, three per process: the number, its group, its state. None of them
+    # holds a character a glob would expand.
+    # shellcheck disable=SC2086  # split the list into its fields
+    for field in $listing; do
+        n=$((n + 1))
+        case "$n" in
+            1) pid="$field" ;;
+            2) pgid="$field" ;;
+            *)
+                n=0
+                [ "$pgid" = "$run_pid" ] || continue
+                case "$field" in T*) stopped=1 ;; esac
+                if [ -n "$conductor_pid" ] && [ "$pid" = "$conductor_pid" ]; then conductor_in_run=1; fi ;;
+        esac
+    done
+    if [ "$stopping" -eq 1 ]; then
+        [ $(( SECONDS - last_term )) -ge "$PAUSE_CHECK_SEC" ] || return 0
+        if [ "$stopped" -eq 1 ]; then
+            last_term=$SECONDS
+            kill -TERM -- "-$run_pid" 2>/dev/null || true
+            kill -CONT -- "-$run_pid" 2>/dev/null || true
+            say "start-loop: the run was paused by a question on the terminal during the stop; sent it TERM again"
+        elif [ "$conductor_in_run" -eq 1 ]; then
+            last_term=$SECONDS
+            conductor_termed="$conductor_pid"
+            kill -TERM "$conductor_pid" 2>/dev/null || true
+        fi
+        return 0
+    fi
+    if [ "$stopped" -eq 0 ]; then
+        paused=0
+        return 0
+    fi
+    [ "$paused" -eq 0 ] || return 0
+    paused=1
+    say "start-loop: the run is paused — one of its processes asked a question on the terminal, which the run cannot answer. Press Ctrl-C twice to stop the run; each running ticket salvages its work first"
+}
+
+# The same read of the job list as the conductor's job_running, for the same reason: a press also
+# reaches the child that reads it, and a read it killed lists nothing.
+job_running() {
+    local running tries=1
+    # shellcheck disable=SC2006  # backquotes on purpose, see backlog-loop.sh
+    until running=`jobs -rp`; do
+        [ "$tries" -lt 5 ] || break
+        tries=$((tries + 1))
+    done
+    case $'\n'"$running"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+    return 1
+}
+
+# The traps come before the run starts. A subshell puts every trapped signal back at its default, so
+# the run starts with nothing ignored; an ignored one would be passed on to all of it.
+trap on_ctrl_c INT
+trap 'on_stop_signal HUP' HUP
+trap 'on_stop_signal TERM' TERM
+
+# `set -m` gives the run its own group. Its leader is the subshell, because `$!` of a pipeline is
+# its last process. The subshell turns job control off again so the pipeline stays in its group, as
+# work-ticket.sh does for a session. Its no-op trap keeps it alive through the stop: it waits for
+# the pipeline and then ends with the pipeline's status, so this script waits until every worker
+# has salvaged. Under `set -m` bash does not point a background job's standard input at /dev/null,
+# and a job outside the terminal's foreground group that reads the terminal is stopped.
+# The copy ignores Ctrl-C, a closed terminal and TERM, and ends only when every writer has closed
+# the pipe. If it ended first, a worker that writes its cleanup lines into the closed pipe would be
+# killed by SIGPIPE before it salvaged anything. It also ignores SIGTTOU, which a terminal set to
+# `stty tostop` sends to a writer outside its foreground group.
+set -m
+(
+    set +m
+    trap : TERM HUP
+    case "$keep_awake" in
+        caffeinate)
+            caffeinate -is "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM TTOU; exec tee -a "$log") ;;
+        systemd-inhibit)
+            # systemd-inhibit ignores Ctrl-C, a closed terminal and TERM: when it dies, it ends its
+            # command with TERM, which would cut the conductor's salvage short. It starts the
+            # conductor with every signal back at its default.
+            (trap '' INT HUP TERM; exec systemd-inhibit --what=idle:sleep --who=claude-loop \
+                --why="backlog loop running" "$conductor" "$@") 2>&1 | (trap '' INT HUP TERM TTOU; exec tee -a "$log") ;;
+        *)
+            "$conductor" "$@" 2>&1 | (trap '' INT HUP TERM TTOU; exec tee -a "$log") ;;
+    esac
+) < /dev/null &
+run_pid=$!
+set +m
+
+# Each wait is a background sleep + `wait`, so a press runs its trap at once. A background job
+# starts with INT ignored, so a press never ends the sleep. This script ends with the run's status,
+# which is the conductor's, at most PAUSE_CHECK_SEC after the run ends.
+while job_running "$run_pid"; do
+    sleep "$PAUSE_CHECK_SEC" > /dev/null 2>&1 &
+    wait "$!" 2>/dev/null || true
+    watch_run
+done
+rc=0
+wait "$run_pid" 2>/dev/null || rc=$?
+exit "$rc"

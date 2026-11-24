@@ -111,18 +111,38 @@ the command instead of running it.
 - It keeps the computer awake for the run: `caffeinate -is` on a Mac (an idle Mac, not a laptop
   with a closed lid), or `systemd-inhibit --what=idle:sleep` on Linux when logind grants a lock; it
   asks for a short lock first, and a machine that refuses one runs the loop as it is.
-  `systemd-inhibit` ignores Ctrl-C and a closed terminal, because it ends its command with TERM when
-  it dies. It copies the console to `logs/claude-loop/console-<timestamp>.log` in the main checkout.
-  The copy ignores Ctrl-C, a closed terminal and TERM, and ends only when every writer is done, so
-  a worker that writes its cleanup lines is never killed by SIGPIPE before it salvages.
+  `systemd-inhibit` ignores Ctrl-C, a closed terminal and TERM, because it ends its command with
+  TERM when it dies. It copies the console to `logs/claude-loop/console-<timestamp>.log` in the
+  main checkout. The copy ignores Ctrl-C, a closed terminal, TERM and SIGTTOU, and ends only when
+  every writer is done, so a worker that writes its cleanup lines is never killed by SIGPIPE
+  before it salvages.
+- It starts the run (the keep-awake program, the conductor and the copy) in a process group of its
+  own, with standard input from /dev/null. A terminal sends Ctrl-C to its foreground group only,
+  so a press reaches the launcher and nothing of the run.
 
-Ctrl-C, or closing the terminal, stops the run as **stopped** below describes, and that also stops
-the tickets in progress. To let them finish and start nothing new, ask for the stop with a file
-instead (**stop requested** below): `touch .claude/backlog-loop.lock/stop-after-running` from the
-main checkout. `/backlog` with no arguments then reads the newest console copy and the run's
-`ticket-<n>.meta` files, and writes the roll-up. A worker killed with SIGKILL (a power cut,
-`kill -9`) still leaves its worktree without a resume marker, and the loop skips that ticket until
-you clean the worktree up (see Troubleshooting).
+One Ctrl-C only prints `start-loop: Ctrl-C — the run goes on. …` and the run goes on: in a terminal,
+Ctrl-C is also a copy reflex. A second Ctrl-C within 5 seconds (whole seconds, so 5 to 6), closing
+the terminal, or `kill` of the launcher or the conductor stops the run as **stopped** below
+describes, and that also stops the tickets in progress. Presses after the stop change nothing. A run
+started with `backlog-loop.sh` directly stops on one press, and a launcher killed with `kill -9`
+leaves the run going: stop it with `kill <pid in .claude/backlog-loop.lock/pid>`.
+
+The run cannot answer a prompt on the terminal, so git and ssh must get their credentials without
+one (a credential helper, an ssh agent). A question there pauses the whole run, because the kernel
+stops the process group of a background process that reads its terminal. The launcher looks every 2
+seconds: it then prints `start-loop: the run is paused …` once, and Ctrl-C twice stops the run (TERM
+and CONT end the question, and every worker salvages). A question during a stop gets TERM and CONT
+again, so the stop ends. A stop that went out before the conductor started (systemd-inhibit starts
+it a little after the run) reaches it too: the launcher sends the conductor TERM once it shows up.
+Each of these goes out more than 1 second after the last TERM, because a second TERM within
+milliseconds of the first cuts a process's own stop short.
+
+To let the tickets finish and start nothing new, ask for the stop with a file instead (**stop
+requested** below): `touch .claude/backlog-loop.lock/stop-after-running` from the main checkout.
+`/backlog` with no arguments then reads the newest console copy and the run's `ticket-<n>.meta`
+files, and writes the roll-up. A worker killed with SIGKILL (a power cut, `kill -9`) still leaves
+its worktree without a resume marker, and the loop skips that ticket until you clean the worktree up
+(see Troubleshooting).
 
 **Cron (optional):** prefer a run you start yourself, because cron on a sleeping laptop silently
 skips. If the machine is awake at night anyway, add the entry below. Cron starts with a short `PATH`
@@ -282,18 +302,16 @@ Per-ticket outcomes:
   starts: the prompts there expect other facts. Start the loop again; it then runs the new engine.
 - **no-worktree**: `git fetch` or `git worktree add` failed. That is the machine, not the ticket,
   so the loop starts nothing more.
-- **stopped**: you stopped the loop (Ctrl-C, `kill`, closing the terminal). Each running session
-  gets 20 seconds to end the builds and tests it started (claude does that itself on TERM); then
-  the loop ends whatever is left. Leftovers are salvaged and the worktree is removed, so the next
-  run can start the ticket again. A worker that has already seen its session end (it looks every
-  30 seconds) finishes on its own and keeps
-  its real outcome (a PR, BLOCKED, a worktree kept after a usage limit); the stop only cancels a
-  resume that has not started. A stopped conductor prints no table, so `/backlog` builds the
-  roll-up from the `.meta` files.
-- **stop requested**: you asked the loop to stop after the tickets that run now. The
-  conductor's stop signals (Ctrl-C, `kill`) stop the running tickets too, so this request is a file:
-  it needs no process number, and the conductor cannot miss it while it waits. From the main
-  checkout:
+- **stopped**: you stopped the loop (Ctrl-C twice, `kill`, closing the terminal). Each running
+  session gets 20 seconds to end the builds and tests it started (claude does that itself on TERM);
+  then the loop ends whatever is left. Leftovers are salvaged and the worktree is removed, so the
+  next run can start the ticket again. A worker that has already seen its session end (it looks
+  every 30 seconds) finishes on its own and keeps its real outcome (a PR, BLOCKED, a worktree kept
+  after a usage limit); the stop only cancels a resume that has not started. A stopped conductor
+  prints no table, so `/backlog` builds the roll-up from the `.meta` files.
+- **stop requested**: you asked the loop to stop after the tickets that run now. The stop signals
+  (Ctrl-C twice, `kill`) stop the running tickets too, so this request is a file: it needs no
+  process number, and the conductor cannot miss it while it waits. From the main checkout:
 
   ```bash
   touch .claude/backlog-loop.lock/stop-after-running
@@ -512,17 +530,20 @@ before the limit.
   after the last push (a clean rebase and the train's own conflict fix do not count as a push),
   with green required checks and no open code-scanning alerts. Whether it deletes the branch
   after the merge is the train's choice for each repository, not the loop's.
-- Stopping the conductor (Ctrl-C, `kill`, closing the terminal) stops every running worker at once,
+- Stopping the run (Ctrl-C twice, `kill`, closing the terminal) stops every running worker at once,
   even during a usage-limit nap. Each worker stops its session and every process group the session
   started, since Claude Code runs each Bash command in a group of its own. A group the session
-  starts during the stop is ended too: the worker pauses the session while it reads the
-  groups, then reads them again every half second while the session shuts down; only a group
-  started in the very last half second can escape. A watchdog does the same if the worker itself is
-  SIGKILLed, and it learns that from a pipe only the worker holds open, not from a process number. The conductor signals only what bash's job list still shows as running, so a reused
-  process number never gets a signal. A second Ctrl-C does not cut the cleanup short.
-  The engine's own suites pin it: `tests/conductor.tests.sh` the conductor side (with the slot
-  count, the retry after a usage limit and the stop conditions), `tests/worker.tests.sh` the worker,
-  the picker and the gate, and `tests/launcher.tests.sh` the launcher.
+  starts during the stop is ended too: the worker pauses the session while it reads the groups, then
+  reads them again every half second while the session shuts down; only a group started in the very
+  last half second can escape. A watchdog does the same if the worker itself is SIGKILLed, and it
+  learns that from a pipe only the worker holds open, not from a process number. The conductor
+  signals only what bash's job list still shows as running, so a reused process number never gets a
+  signal. The launcher sends its stop (TERM, then CONT) to the run's whole process group once, so a
+  later press or signal does not cut the cleanup short, and a press never reaches the conductor, the
+  picker, the workers or the git and gh they run. The engine's own suites pin it:
+  `tests/conductor.tests.sh` the conductor side (with the slot count, the retry after a usage limit
+  and the stop conditions), `tests/worker.tests.sh` the worker, the picker and the gate, and
+  `tests/launcher.tests.sh` the launcher.
 - Business decisions are never invented: they come back as BLOCKED questions on the issue.
 - The default permission mode is `auto` plus a loop-scoped git/gh/dotnet/scripts `--allowedTools`
   allowlist (interactive sessions are not affected). `LOOP_UNSAFE=1` trades that for full
@@ -581,7 +602,7 @@ before the limit.
 - **"start-loop: … is not a checkout of this repository"**: a folder that is not this repository's
   worktree sits where the loop checkout belongs. Move it away; the next start makes the checkout.
 - **"start-loop: a loop is already running (pid N)"**: the same lock test as the conductor's. Wait
-  for it, or stop it with Ctrl-C in its terminal.
+  for it, or stop it with Ctrl-C twice in its terminal.
 - **"… never from a Claude Code session"** (`start-loop.sh`, `backlog-loop.sh` and
   `work-ticket.sh` all check): the script saw `CLAUDECODE`. Run the command in a new terminal
   window, not in one a Claude Code session started.

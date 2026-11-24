@@ -33,6 +33,7 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
     private const int FileId = 620756992;
     private const long GossipId = 1002;
     private const string StoredPolish = "Topór wojenny";
+    private const string TypedPolish = "Krzepki topór";
     private const string OtherRowPolish = "Krzepki Topornik";
     private const string PanelTitle = "Inne wiersze z tym samym tekstem";
 
@@ -62,7 +63,9 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
         page.ShouldContain("Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.");
-        TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(string.Empty);
+        Match textarea = TranslatedTextarea().Match(page);
+        textarea.Success.ShouldBeTrue();
+        textarea.Groups["text"].Value.ShouldBe(string.Empty);
         page.ShouldContain(PanelTitle);
         page.ShouldContain(OtherRowPolish);
     }
@@ -84,6 +87,50 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
         page.ShouldContain("Dane zostały w międzyczasie zmienione przez kogoś innego.");
         page.ShouldContain(PanelTitle);
         page.ShouldContain(OtherRowPolish);
+    }
+
+    [Fact]
+    public async Task Post_SaveForm_WhenThePanelFailsAndTheSaveIsGood_SavesAndRedirects()
+    {
+        // Arrange: the panel read comes before the write, so its failure must not stop the save.
+        StubTranslationSystem translationSystem = new()
+        {
+            PanelAnswer = HttpStatusCode.ServiceUnavailable,
+            SaveSucceeds = true
+        };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, draft: TypedPolish));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"/editor/{RowId}?saved=true");
+    }
+
+    [Fact]
+    public async Task Post_SaveForm_WhenThePanelFailsAndTheApiRefusesTheSave_ShowsThePanelNoticeBesideTheErrorAndTheTypedText()
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new() { PanelAnswer = HttpStatusCode.ServiceUnavailable };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, draft: string.Empty));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.");
+        page.ShouldContain("Nie udało się wczytać innych wierszy z tym samym tekstem angielskim.");
+        Match textarea = TranslatedTextarea().Match(page);
+        textarea.Success.ShouldBeTrue();
+        textarea.Groups["text"].Value.ShouldBe(string.Empty);
+        page.ShouldNotContain(PanelTitle);
     }
 
     public EditorRefusedPostPanelTests(ProductionFrontendFactory factory)
@@ -140,11 +187,16 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
     }
 
     /// <summary>
-    /// The service document, the row and its panel answer. Every save is refused as the API refuses an
-    /// empty text, and every approve as the API refuses one on a row that changed in the meantime.
+    /// The service document, the row and its panel answer. Unless told otherwise, every save is refused as
+    /// the API refuses an empty text, and every approve as the API refuses one on a row that changed in the
+    /// meantime.
     /// </summary>
     private sealed class StubTranslationSystem : HttpMessageHandler
     {
+        public HttpStatusCode PanelAnswer { get; init; } = HttpStatusCode.OK;
+
+        public bool SaveSucceeds { get; init; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
@@ -163,9 +215,12 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
                         ]
                     }),
                 _ when uri == RowHref && request.Method == HttpMethod.Get => StubAnswers.HateoasJson(Row()),
-                _ when uri == SameSourceTextHref && request.Method == HttpMethod.Get => StubAnswers.HateoasJson(Panel()),
-                _ when uri == UpsertHref && request.Method == HttpMethod.Put =>
-                    Problem(HttpStatusCode.BadRequest, "Translations.Validation"),
+                _ when uri == SameSourceTextHref && request.Method == HttpMethod.Get => PanelAnswer == HttpStatusCode.OK
+                    ? StubAnswers.HateoasJson(Panel())
+                    : new HttpResponseMessage(PanelAnswer),
+                _ when uri == UpsertHref && request.Method == HttpMethod.Put => SaveSucceeds
+                    ? StubAnswers.HateoasJson(Row())
+                    : Problem(HttpStatusCode.BadRequest, "Translations.Validation"),
                 _ when uri == ApproveHref && request.Method == HttpMethod.Post =>
                     Problem(HttpStatusCode.Conflict, "Db.ConcurrencyConflict"),
                 _ => new HttpResponseMessage(HttpStatusCode.NotFound)

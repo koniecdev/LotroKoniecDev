@@ -829,7 +829,8 @@ blocks the save. For a NeedsReview row it also shows `PreviousSourceText`. Below
 wiersze z tym samym tekstem" panel follows the row's `same-source-text` rel
 (`GET /api/v1/translations/{id}/same-source-text`, #1347): the other live rows with exactly the same
 English, their Polish, status and last saver, with a warning when their Polish texts differ. It only
-shows; nothing is copied. It shows at most 50 rows; when there are more, "Pokaż wszystkie (N) na
+shows; nothing is copied. Like every part of the editor, it loads on every request, a post included,
+so the page still shows it after a refused save or approve (#1482). It shows at most 50 rows; when there are more, "Pokaż wszystkie (N) na
 liście" opens the list with a "Cały tekst" search for this English (#1492), unless the English is
 blank, has a line break or is longer than 200 characters. Saving sends
 `PUT /api/v1/translations` with `(FileId, GossipId, TranslatedText)`. The handler:

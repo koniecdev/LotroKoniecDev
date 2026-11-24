@@ -195,6 +195,50 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     }
 
     [Fact]
+    public async Task Post_BulkApproveFromAnEndedSession_ComesBackFromTheSignInWithNoOldNote()
+    {
+        // Arrange: the admin's list after an earlier approve and a save, as their redirects leave it.
+        StubTranslationSystem translationSystem = new() { ListOffersBulkApprove = true };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        using HttpResponseMessage list = await browser.GetAsync(
+            $"/translations?{ListState}&approved=1&skipped=0&savedRow={RowId}&savedSlips=true");
+        string page = await list.Content.ReadAsStringAsync();
+        string formAction = WebUtility.HtmlDecode(BulkApproveFormAction().Match(page).Groups["action"].Value);
+        string antiforgeryToken = WebUtility.HtmlDecode(AntiforgeryTokenField().Match(page).Groups["token"].Value);
+        browser.SetCookie(SignedInSession.CookieName, "ended");
+
+        // Act: the form is sent to the address it names, as a browser sends it.
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost(formAction, "bulk-approve", antiforgeryToken, new Dictionary<string, string> { [$"SelectedRows[{AboveId}]"] = "true" }));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri redirectedTo = new(new Uri("https://localhost"), posted.Headers.Location.ShouldNotBeNull());
+        QueryHelpers.ParseQuery(redirectedTo.Query)["returnUrl"].ToString().ShouldBe($"/translations?{ListState}");
+    }
+
+    [Theory]
+    [InlineData("/does-not-exist")]
+    [InlineData("/auth/login")]
+    public async Task Post_FromAnEndedSessionToAnAddressWithNoSuchPage_IsNotSentToSignIn(string path)
+    {
+        // Arrange: the error page that answers this runs as a second, inner request. Its address is not where
+        // the form was sent, so a sign-in would only lead back to the error page.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+        browser.SetCookie(SignedInSession.CookieName, "ended");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FormPost(path, "inline-save-x", antiforgeryToken, []));
+
+        // Assert
+        posted.Headers.Location.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task Post_FromASignedInSessionWithATokenThatDoesNotFit_StillGetsTheBadRequest()
     {
         // Arrange: only a caller with no session is sent to sign in; a live session with a wrong token is a
@@ -325,6 +369,12 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     /// <summary>The posted row, then right under it a note row with the recovery form.</summary>
     [GeneratedRegex($"""<tr id="row-{RowId}">.*?</tr>\s*<tr class="row-note">\s*<td[^>]*>\s*<div class="inline-recovery">.*?</tr>""", RegexOptions.Singleline)]
     private static partial Regex RecoveryUnderTheRow();
+
+    [GeneratedRegex("""<form id="bulk-approve"[^>]*\baction="(?<action>[^"]*)""")]
+    private static partial Regex BulkApproveFormAction();
+
+    [GeneratedRegex("""<form id="bulk-approve".*?name="__RequestVerificationToken" value="(?<token>[^"]*)""", RegexOptions.Singleline)]
+    private static partial Regex AntiforgeryTokenField();
 
     /// <summary>Blazor streams each later render of the page as the content of such a template.</summary>
     [GeneratedRegex("""<template blazor-component-id="[^"]*">(?<frame>.*?)</template>""", RegexOptions.Singleline)]

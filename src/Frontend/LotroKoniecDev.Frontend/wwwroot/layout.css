@@ -63,9 +63,10 @@ html, body {
 }
 
 /* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493). One rule on the page,
-   because a scroll margin on a table row is not honoured in every browser. */
+   because a scroll margin on a table row is not honoured in every browser. The value is above the
+   navbar's height when its links wrap on a narrow window (about 110px). */
 html {
-    scroll-padding-top: 96px;
+    scroll-padding-top: 128px;
 }
 
 body {

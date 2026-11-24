@@ -42,7 +42,10 @@ public sealed class TranslationListInlineSaveTests : E2ETestBase
         rowText.ShouldContain("Row 20 of");
         rowText.ShouldContain("Zapisane w miejscu.");
         (await row.Locator("xpath=following-sibling::tr[1]").InnerTextAsync()).ShouldContain("Tłumaczenie zapisano.");
-        await ShouldBeScrolledIntoViewBelowTheNavbarAsync(row);
+        ScrollPlace place = await ScrollPlaceOfAsync(row);
+        place.ScrollY.ShouldBeGreaterThan(0);
+        place.TargetTop.ShouldBeGreaterThanOrEqualTo(place.NavbarBottom - 1);
+        place.TargetTop.ShouldBeLessThan(place.ViewportHeight);
     }
 
     [Fact]
@@ -61,13 +64,18 @@ public sealed class TranslationListInlineSaveTests : E2ETestBase
         (await row.Locator("details.inline-edit").GetAttributeAsync("open")).ShouldNotBeNull();
         (await TextBoxOf(row, gossipId).InputValueAsync()).ShouldBe("Bez znacznika.");
         new Uri(Page.Url).Fragment.ShouldBe($"#{await row.GetAttributeAsync("id")}");
-        await ShouldBeScrolledIntoViewBelowTheNavbarAsync(row);
+        ScrollPlace place = await ScrollPlaceOfAsync(row);
+        place.ScrollY.ShouldBeGreaterThan(0);
+        place.TargetTop.ShouldBeGreaterThanOrEqualTo(place.NavbarBottom - 1);
+        place.TargetTop.ShouldBeLessThan(place.ViewportHeight);
     }
 
     [Fact]
     public async Task A_row_the_save_takes_out_of_the_filter_leaves_a_note_in_its_place()
     {
-        // Arrange: a save makes the row a draft, so the "Nieprzetłumaczone" filter drops it.
+        // Arrange: a save makes the row a draft, so the "Nieprzetłumaczone" filter drops it. A narrow window,
+        // where the navbar's links wrap and it is at its tallest.
+        await Page.SetViewportSizeAsync(860, 900);
         await OpenListAsync(status: Untranslated);
 
         // Act
@@ -80,7 +88,10 @@ public sealed class TranslationListInlineSaveTests : E2ETestBase
         ILocator note = Page.Locator($"tr.row-note#row-{savedRow}");
         (await note.InnerTextAsync()).ShouldContain("Tego wiersza nie ma już na tej stronie listy.");
         (await note.Locator("xpath=preceding-sibling::tr[1]").InnerTextAsync()).ShouldContain("Row 17 of");
-        await ShouldBeScrolledIntoViewBelowTheNavbarAsync(note);
+        ScrollPlace place = await ScrollPlaceOfAsync(note);
+        place.ScrollY.ShouldBeGreaterThan(0);
+        place.TargetTop.ShouldBeGreaterThanOrEqualTo(place.NavbarBottom - 1);
+        place.TargetTop.ShouldBeLessThan(place.ViewportHeight);
     }
 
     [Fact]
@@ -156,14 +167,17 @@ public sealed class TranslationListInlineSaveTests : E2ETestBase
         return QueryOf(Page.Url)["savedRow"].ShouldNotBeNull();
     }
 
-    private async Task ShouldBeScrolledIntoViewBelowTheNavbarAsync(ILocator target)
+    /// <summary>Where the page stands once it has loaded, so each test can check that it scrolled to the target.</summary>
+    private async Task<ScrollPlace> ScrollPlaceOfAsync(ILocator target)
     {
         await Page.WaitForLoadStateAsync(LoadState.Load);
-        (await Page.EvaluateAsync<double>("() => window.scrollY")).ShouldBeGreaterThan(0);
+        double scrollY = await Page.EvaluateAsync<double>("() => window.scrollY");
         LocatorBoundingBoxResult box = await target.RequireBoundingBoxAsync();
         LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
         int viewportHeight = Page.ViewportSize.ShouldNotBeNull().Height;
-        box.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
-        box.Y.ShouldBeLessThan(viewportHeight);
+        return new ScrollPlace(scrollY, box.Y, navbar.Y + navbar.Height, viewportHeight);
     }
+
+    /// <summary>All in CSS pixels; the two tops are relative to the window.</summary>
+    private sealed record ScrollPlace(double ScrollY, double TargetTop, double NavbarBottom, double ViewportHeight);
 }

@@ -1001,6 +1001,10 @@ main:has(> .home-banner) {
     color: var(--warning-hi);
 }
 
+.translation-slips p + p {
+    margin-top: 6px;
+}
+
 .status-message.status-success {
     border-color: var(--success-dim);
     background: var(--success-soft);

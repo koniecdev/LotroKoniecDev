@@ -203,20 +203,22 @@ merge (runbook, "The daily image scan"), and the daily run follows within a day 
 **Supersedes:** in §5, "majors ignored" as the whole rule for Grafana.
 
 The first `observability` pull request (#1553) moved Grafana from 13.0.13 to 13.3.1 and was merged.
-The scan of its branch found 20 fixable HIGH findings in 13.3.1. From 13.2 on, Grafana's data
-sources are separate programs built with older Go libraries, so a higher minor is not safer. Trivy
-0.70.0 with the exception file of 2026-11-24 left 0 findings in 13.0.14 and 13.1.11, 14 in 13.2.7
-and 15 in 13.3.2. A higher patch is safer: 13.0.14 came out the same day with three security
-fixes. Dependabot offers only the newest version, so with minors allowed it would never offer a
-13.0.x patch, and each week's group pull request would carry a Grafana that fails the scan.
+The scan of its branch found 20 fixable HIGH findings in 13.3.1. From 13.2 on, most of Grafana's
+data sources are separate programs built with older Go libraries, so a higher minor is not safer.
+Trivy 0.70.0 with the exception file of 2026-11-24 left 0 findings in 13.0.14 and 13.1.11, 14 in
+13.2.7 and 15 in 13.3.2. A higher patch is safer: 13.0.14 came out the same day with three
+security fixes. Dependabot offers only the newest version, so with minors allowed it would never
+offer a 13.0.x patch, and each week's group pull request would carry a Grafana that fails the scan.
 
 Dependabot now ignores Grafana minors as well as majors, so it proposes only patches of the pinned
 minor. A move to a new minor is a pull request of our own, after the scan of that version is clean.
-Two things start that move. First, Grafana stops patching the pinned minor: 13.0 gets patches until
-2027-01-09 (Grafana's "When to upgrade" table), and then Dependabot has nothing left to propose.
-Second, a finding stays that no patch of the pinned minor fixes, while a higher minor passes the
-scan. The renewal of the two Tempo exceptions on 2026-12-24 is the next check of both. The other
-observability images keep the rule of §5.
+Two things start that move. First, the pinned minor is about to lose its patches: 13.0 gets them
+until 2027-01-09 (Grafana's "When to upgrade" table), and after that day Dependabot has nothing
+left to propose. Second, a higher minor fixes a finding that the pinned minor keeps, and that minor
+passes the scan. On 2026-11-24 no minor fixed the two Tempo findings: 13.1.11 has them in the same
+program, and 13.2.7 and 13.3.2 have them in the Tempo data source. The renewal of the two Tempo
+exceptions on 2026-12-24 is the next check of both. The other observability images keep the rule
+of §5.
 
 ## References
 

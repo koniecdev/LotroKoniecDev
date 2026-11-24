@@ -157,10 +157,10 @@ updates:
       # (runbook → "The observability stack").
       - dependency-name: "grafana/*"
         update-types: ["version-update:semver-major"]
-      # Grafana gets patches of the pinned minor only. From 13.2 on, its data sources are separate
-      # programs built with older Go libraries, and the image scan fails on them. A new minor comes
-      # in a PR of our own, after its scan is clean. Grafana patches 13.0 until 2027-01-09: move
-      # before that day (ADR-0076, amendment of 2026-11-24).
+      # Grafana gets patches of the pinned minor only. From 13.2 on, most of its data sources are
+      # separate programs built with older Go libraries, and the image scan fails on them. A new
+      # minor comes in a PR of our own, after its scan is clean. Grafana patches 13.0 until
+      # 2027-01-09: move before that day (ADR-0076, amendment of 2026-11-24).
       - dependency-name: "grafana/grafana"
         update-types: ["version-update:semver-minor"]
       - dependency-name: "prom/prometheus"

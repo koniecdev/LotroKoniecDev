@@ -2916,8 +2916,8 @@ write a `.env` from `.env.observability.example` with placeholders and `OBS_NETW
 network you create, and run `docker compose -f compose.observability.yaml up -d` once with
 `COMPOSE_PROFILES=backend` and once with it empty. No CI job boots this stack. After the merge,
 nothing changes on a box until the deploy above runs on **both** boxes (`lotro-staging` with the
-backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is
-green for a box that missed this deploy (ADR-0076). Check what a box runs:
+backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not
+what a box runs, so it is green for a box that missed this deploy (ADR-0076). Check what a box runs:
 `ssh lotro-prod 'docker ps --filter label=com.docker.compose.project=obs --format "{{.Names}} {{.Image}}"'`.
 
 This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land

@@ -2806,7 +2806,9 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
   **A red third-party leg.** Read the finding in the leg's log, then take the first answer that fits:
   1. A newer release of that image fixes it: move the pin, tag and digest
      (`docker buildx imagetools inspect <image>:<tag>`). For an observability image, the Dependabot
-     pull request of the `observability` group may already carry it. For RabbitMQ, move all four
+     pull request of the `observability` group may already carry it, but never a new Grafana minor:
+     that move is our own pull request, after a clean scan of the new version (ADR-0076, amendment
+     of 2026-11-24). For RabbitMQ, move all four
      pins (the compose comment). Then deploy it: CD for `compose.hetzner.yaml` and `backup.sh`, the
      hand deploy for the observability stack (below).
   2. Only prod is red: the fix may already be on staging and need a promotion.
@@ -2837,7 +2839,9 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
      (`date -u -d '+30 days' +%FT00:00:00Z`). Check the file before the pull request:
      `scripts/ci/list-third-party-images.sh --check-exceptions .github/trivy/*.trivyignore.yaml`.
   4. An entry expired: Trivy reports its finding again. Renew it with a new date and a fresh reason,
-     or remove it when the finding is gone.
+     or remove it when the finding is gone. For a Grafana entry, also look on Docker Hub for a
+     `<pinned version>-security-NN` tag: Grafana ships some security fixes first under that tag
+     form, and Dependabot never proposes it.
 
   **A Go finding in `gosu`** (the backup's `postgres` image). `gosu` does not rebuild for Go fixes in
   code it never calls, so expect one about once a month. It is a `False positive: ` only when

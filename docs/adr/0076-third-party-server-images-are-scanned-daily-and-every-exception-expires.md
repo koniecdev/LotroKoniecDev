@@ -211,14 +211,20 @@ security fixes. Dependabot offers only the newest version, so with minors allowe
 offer a 13.0.x patch, and each week's group pull request would carry a Grafana that fails the scan.
 
 Dependabot now ignores Grafana minors as well as majors, so it proposes only patches of the pinned
-minor. A move to a new minor is a pull request of our own, after the scan of that version is clean.
+minor. It never proposes Grafana's `X.Y.Z-security-NN` tags either, because their form differs
+from the pin; the renewal of a Grafana exception includes a look for one (runbook). A move to a new
+minor is a pull request of our own, after the scan of that version is clean.
+
 Two things start that move. First, the pinned minor is about to lose its patches: 13.0 gets them
 until 2027-01-09 (Grafana's "When to upgrade" table), and after that day Dependabot has nothing
-left to propose. Second, a higher minor fixes a finding that the pinned minor keeps, and that minor
-passes the scan. On 2026-11-24 no minor fixed the two Tempo findings: 13.1.11 has them in the same
-program, and 13.2.7 and 13.3.2 have them in the Tempo data source. The renewal of the two Tempo
-exceptions on 2026-12-24 is the next check of both. The other observability images keep the rule
-of §5.
+left to propose. #1557 tracks this move, so it does not depend on an exception that may go away.
+Second, a higher minor fixes a finding that waits for a vendor fix in the pinned minor, and passes
+the scan. On 2026-11-24 no minor fixed the two Tempo findings: 13.1.11 has them in Grafana's own
+program, as 13.0.14 does, and 13.2.7 and 13.3.2 have them in the Tempo data source.
+
+The pin stayed on 13.0 that day, although 13.1.11 also passed the scan: the staging box already ran
+13.0, and a minor move needs a changelog read and a local boot first. The other observability
+images keep the rule of §5.
 
 ## References
 

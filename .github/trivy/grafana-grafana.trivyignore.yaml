@@ -5,14 +5,14 @@
       "purls": ["pkg:golang/github.com/grafana/tempo"],
       "paths": ["usr/share/grafana/bin/grafana"],
       "expired_at": "2026-12-24T00:00:00Z",
-      "statement": "Waiting for a vendor fix: Grafana 13.0.14 is the newest 13.0 release (checked 2026-11-24) and still builds in a Tempo commit from 2025-10-27, which is older than the fix. Grafana listens only on 127.0.0.1 on the box. Grafana patches 13.0 until 2027-01-09: at renewal, check for a newer minor that passes the scan (ADR-0076, amendment of 2026-11-24)."
+      "statement": "Waiting for a vendor fix: Grafana 13.0.14 is the newest 13.0 release (checked 2026-11-24) and still builds in a Tempo commit from 2025-10-27, which is older than the fix. Grafana listens only on 127.0.0.1 on the box. Grafana patches 13.0 until 2027-01-09 (#1557). At renewal, check whether a newer minor fixes this finding and passes the scan (ADR-0076, amendment of 2026-11-24)."
     },
     {
       "id": "CVE-2026-28377",
       "purls": ["pkg:golang/github.com/grafana/tempo"],
       "paths": ["usr/share/grafana/bin/grafana"],
       "expired_at": "2026-12-24T00:00:00Z",
-      "statement": "Waiting for a vendor fix: Grafana 13.0.14 is the newest 13.0 release (checked 2026-11-24) and still builds in a Tempo commit from 2025-10-27, which is older than the fix. Grafana listens only on 127.0.0.1 on the box. Grafana patches 13.0 until 2027-01-09: at renewal, check for a newer minor that passes the scan (ADR-0076, amendment of 2026-11-24)."
+      "statement": "Waiting for a vendor fix: Grafana 13.0.14 is the newest 13.0 release (checked 2026-11-24) and still builds in a Tempo commit from 2025-10-27, which is older than the fix. Grafana listens only on 127.0.0.1 on the box. Grafana patches 13.0 until 2027-01-09 (#1557). At renewal, check whether a newer minor fixes this finding and passes the scan (ADR-0076, amendment of 2026-11-24)."
     },
     {
       "id": "CVE-2026-42151",

@@ -5,8 +5,10 @@ using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregat
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
 /// <summary>
-/// So every translation slice returns the same view (ADR-0004). <c>GetTranslation</c> writes
-/// <see cref="ToDetail"/> out itself to carry the removal flag: change the two together.
+/// The shared views of a translation (ADR-0004), so every slice that returns one builds it the same way.
+/// <c>GetTranslation</c> writes <see cref="ToDetail"/> out itself to carry the removal flag, and
+/// <see cref="ToVisitorListItem"/> is <see cref="ToListItem"/> without the author (#1543): change each
+/// pair together.
 /// </summary>
 internal static class TranslationProjections
 {
@@ -41,6 +43,17 @@ internal static class TranslationProjections
             translation.SubmittedBy == null
                 ? null
                 : new TranslatorSummaryResponse(translation.SubmittedBy.Id, translation.SubmittedBy.DisplayName),
+            translation.UpdatedAt);
+
+    public static readonly Expression<Func<TranslationReadModel, TranslationListItemResponse>> ToVisitorListItem =
+        translation => new TranslationListItemResponse(
+            translation.Id,
+            translation.FileId,
+            translation.GossipId,
+            translation.SourceText,
+            translation.TranslatedText,
+            translation.Status,
+            null,
             translation.UpdatedAt);
 
     public static readonly Expression<Func<TranslationReadModel, SameSourceTextItemResponse>> ToSameSourceTextItem =

@@ -6,7 +6,8 @@ namespace LotroKoniecDev.TranslationSystem.Contracts.Translations;
 
 /// <summary>
 /// The args, the old source and the approver come from the detail endpoint. <see cref="Submitter"/> is
-/// <c>null</c> while the row is untranslated.
+/// <c>null</c> while the row is untranslated, and on every row for a caller with no user: no token, a
+/// refused (for example expired) token, or a service token (#1543).
 /// </summary>
 public sealed record TranslationListItemResponse(
     TranslationId Id,

@@ -109,7 +109,9 @@ endpoint without its own metadata returns **401** to an anonymous caller. Public
 
 Anonymous by explicit opt-out: the discovery document `GET /` (ADR-0040), `GET /api/v1/translation-files/{lang}`,
 `GET /api/v1/progress` and the **read-only translations list** `GET /api/v1/translations` (#309,
-the data is public game text). Every state change needs a login. On every authenticated request a
+the data is public game text). An answer to a caller with no user (no token, a refused (for example
+expired) token, or a service token) carries no person's name or id, so the list has no author for
+such a caller (#1543). Every state change needs a login. On every authenticated request a
 middleware creates the caller's TMS `Translator` profile if it is missing (ADR-0004, amended
 2026-06-24); write handlers also do it before they stamp the author.
 
@@ -411,7 +413,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 
 | Method | Route | Policy | Result |
 |---|---|---|---|
-| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`, `match=foo` or an empty `match=`; a status or match name is case-sensitive. Also a `match` that binds to a number which is not a mode, such as `match=7`, `match=-1` or `match=WholeWord,WholeText` (binding adds the names of a comma list up to 3): `Translations.UnknownSearchMatch`.) |
+| `GET` | `/api/v1/translations` | **anonymous** (read-only browse, #309; no author without a user, #1543) | **200** `PaginationResponse<TranslationListItemResponse>` · **400** (an option value that does not bind, such as `status=Banana`, `match=foo` or an empty `match=`; a status or match name is case-sensitive. Also a `match` that binds to a number which is not a mode, such as `match=7`, `match=-1` or `match=WholeWord,WholeText` (binding adds the names of a comma list up to 3): `Translations.UnknownSearchMatch`.) |
 | `GET` | `/api/v1/translations/stats` | `RequireTranslatorRole` | **200** `TranslationStatsResponse` |
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
@@ -436,7 +438,9 @@ unknown name, such as the old `lang`, is ignored.
 | `mine` | bool | `false` | only rows whose current Polish text the caller saved last: `SubmittedById` is the caller's translator profile, taken from the **token**, never from the address (#1491). Without `sort` the newest change (`UpdatedAt`) comes first, then `FileId`, then `GossipId`; an approve, an import or a restore moves `UpdatedAt` too. It combines with every other filter. A caller with no token, a refused (for example expired) token or no translator profile gets **200** with an empty page, never a 401. The pager links keep it |
 
 Soft-removed rows are always left out. Default order `(FileId, GossipId)`, or newest change first with
-`mine=true`. Anonymous callers get the items without any links.
+`mine=true`. Anonymous callers get the items without any links. A caller with no user (no token, a
+refused (for example expired) token, or a service token) gets every item with `submitter: null`
+(#1543).
 
 **`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`.
 Creates or replaces the Polish text of the row keyed by `(fileId, gossipId)`; the row must already
@@ -487,7 +491,8 @@ approved.
 ```
 
 `TranslationListItemResponse` is the lighter `{ id, fileId, gossipId, sourceText, translatedText,
-status, submitter, updatedAt }`. `previousSourceText` is the **old English** kept for review after a
+status, submitter, updatedAt }`; its `submitter` is `null` for an untranslated row and on every row
+for a caller with no user (#1543). `previousSourceText` is the **old English** kept for review after a
 game update invalidated the row; it is set from the invalidation until the row is approved again.
 
 **`GET /translations/{id}/same-source-text`** (#1347) — the editor's "other rows with the same text"

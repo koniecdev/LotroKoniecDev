@@ -232,4 +232,20 @@ public sealed class AuthorizationDefaultsTests
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
     }
+
+    [Fact]
+    public async Task TranslatorGatedEndpoint_WithAServiceToken_ShouldReturn403Not401()
+    {
+        // Arrange: a refused token gets 401 here, so 403 proves the service token is accepted. The list
+        // tests then show that an accepted token with no user still gets no author (#1543).
+        using HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", TranslationSystemApiFactory.CreateServiceAccessToken());
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations/stats");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+    }
 }

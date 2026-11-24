@@ -6,8 +6,8 @@ using Microsoft.AspNetCore.Http;
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Unit.Tests.Auth;
 
 /// <summary>
-/// Pins who spends the daily save budget (ADR-0072 §1, amended by #1488): a plain translator does, a
-/// Reviewer and the Admin do not.
+/// Pins what the accessor reads from the token: who spends the daily save budget (ADR-0072 §1, amended
+/// by #1488), and which subject is a user (#1543).
 /// </summary>
 public sealed class CurrentUserAccessorTests
 {
@@ -31,5 +31,40 @@ public sealed class CurrentUserAccessorTests
 
         // Assert
         hasBudget.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void MaybeIdentityId_ForASubjectThatIsNotAGuid_HasNoValue()
+    {
+        // Arrange: a service token names its client, not a user, so the public list treats it as a
+        // visitor (#1543).
+        CurrentUserAccessor currentUser = AccessorFor(AuthConstants.ClientIds.Api);
+
+        // Act
+        bool hasUser = currentUser.MaybeIdentityId.HasValue;
+
+        // Assert
+        hasUser.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MaybeIdentityId_ForAGuidSubject_IsThatUser()
+    {
+        // Arrange
+        Guid subject = Guid.NewGuid();
+        CurrentUserAccessor currentUser = AccessorFor(subject.ToString());
+
+        // Act
+        Guid userId = currentUser.MaybeIdentityId.Value.Value;
+
+        // Assert
+        userId.ShouldBe(subject);
+    }
+
+    private static CurrentUserAccessor AccessorFor(string subject)
+    {
+        ClaimsIdentity identity = new([new Claim("sub", subject)], authenticationType: "Bearer");
+        HttpContextAccessor accessor = new() { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(identity) } };
+        return new CurrentUserAccessor(accessor);
     }
 }

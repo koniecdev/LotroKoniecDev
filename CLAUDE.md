@@ -315,8 +315,11 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   aggregate ships with its read model + EF configuration in the same change.
 - **TMS ships with auth from day 1.** Endpoints are authorized by default (public ones are
   explicit), and edited rows carry user attribution: `Translation.SubmittedById` (stamped on
-  upsert) and `ApprovedById` (on approve), persisted via the `IdentityId` converter in
-  `TranslationSystem.Persistence`.
+  upsert) and `ApprovedById` (on approve) are `TranslatorId` foreign keys to the translator
+  profile (ADR-0004 §2). An answer of the translation API to a caller with no user carries no
+  person's name or id, so the public list shows no author on any row (INV-0.7). The owner ruled
+  this for no token and for a refused token such as an expired one (#1543); a service token names
+  a client, not a user, so it gets the same answer. A new anonymous endpoint follows the rule.
 - **Who checks what: the standard OAuth roles (ADR-0067, #1098).** The website is the client, the
   sign-in server issues the tokens, and the translation API and the account API are resource
   servers. The website checks only what OpenID Connect asks of a client, and the OIDC handler does

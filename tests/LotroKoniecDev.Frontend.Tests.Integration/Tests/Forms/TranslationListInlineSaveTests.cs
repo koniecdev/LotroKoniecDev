@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.DiscoveryResponse;
 
@@ -168,6 +169,144 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         translationSystem.Upserts.Count.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData($"inline-save-{RowId}")]
+    [InlineData("bulk-approve")]
+    public async Task Post_FromASessionThatHasEnded_SendsTheCallerToSignInAndBackToTheSameList(string formName)
+    {
+        // Arrange: the form was drawn for a signed-in user, and the session ended before it was sent, so its
+        // antiforgery token no longer fits. The list is open to anyone, so no sign-in check stops the post first.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+        browser.SetCookie(SignedInSession.CookieName, "ended");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"/translations?{ListState}", formName, antiforgeryToken, InlineFields("Witaj, wędrowcze.")));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri redirectedTo = new(new Uri("https://localhost"), posted.Headers.Location.ShouldNotBeNull());
+        redirectedTo.AbsolutePath.ShouldBe("/auth/login");
+        QueryHelpers.ParseQuery(redirectedTo.Query)["returnUrl"].ToString().ShouldBe($"/translations?{ListState}");
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_FromASignedInSessionWithATokenThatDoesNotFit_StillGetsTheBadRequest()
+    {
+        // Arrange: only a caller with no session is sent to sign in; a live session with a wrong token is a
+        // broken post and keeps Blazor's own answer.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"/translations?{ListState}", $"inline-save-{RowId}", "not-a-token", InlineFields("Witaj, wędrowcze.")));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_InlineSave_WhenTheApiIsDownForTheSaveAndTheList_KeepsTheTextNextToTheLoadError()
+    {
+        // Arrange: #1122 for the list's own form.
+        StubTranslationSystem translationSystem = new()
+        {
+            UpsertAnswer = HttpStatusCode.ServiceUnavailable,
+            ListAnswer = HttpStatusCode.ServiceUnavailable
+        };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(InlineSavePost(antiforgeryToken, "Witaj, wędrowcze!"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string frame = WebUtility.HtmlDecode(LastStreamedFrame(await posted.Content.ReadAsStringAsync()));
+        frame.ShouldContain($"<div class=\"inline-recovery\" id=\"row-{RowId}\">");
+        RecoveryTextarea().Match(frame).Groups["text"].Value.ShouldBe("Witaj, wędrowcze!");
+        frame.ShouldContain("<div class=\"error-message\" role=\"alert\">");
+        frame.ShouldContain(ServiceUnavailableMessage);
+    }
+
+    [Fact]
+    public async Task Post_InlineSave_WhenTheSaveIsRefusedAndTheRowNoLongerOffersItsSave_ShowsTheTextUnderTheRow()
+    {
+        // Arrange: the API refused the caller, and the reloaded row has no upsert link, so it draws no form.
+        // The answer's address points at the row, so the text and the error must be right under it.
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Forbidden, RowOffersItsSave = false };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(InlineSavePost(antiforgeryToken, "Witaj, wędrowcze!"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string frame = WebUtility.HtmlDecode(LastStreamedFrame(await posted.Content.ReadAsStringAsync()));
+        Match noteUnderTheRow = RecoveryUnderTheRow().Match(frame);
+        noteUnderTheRow.Success.ShouldBeTrue();
+        RecoveryTextarea().Match(noteUnderTheRow.Value).Groups["text"].Value.ShouldBe("Witaj, wędrowcze!");
+        Regex.Count(frame, Regex.Escape($"id=\"row-{RowId}\"")).ShouldBe(1);
+        Regex.Count(frame, Regex.Escape($"value=\"inline-save-{RowId}\"")).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Post_FromAnAddressThatStillHasTheNoteOfASave_ShowsNoOldConfirmation()
+    {
+        // Arrange: a form posts to the address it was drawn on, so the note's fields come with it (#1122).
+        StubTranslationSystem translationSystem = new() { ListOffersBulkApprove = true };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act: the admin sends the bulk approve with nothing ticked.
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"/translations?savedRow={RowId}&savedAfter={AboveId}", "bulk-approve", antiforgeryToken, []));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("Zaznacz co najmniej jeden wiersz do zatwierdzenia.");
+        page.ShouldNotContain("Tłumaczenie zapisano.");
+        page.ShouldNotContain("row-note");
+    }
+
+    [Theory]
+    [InlineData("InlineFileId", "abc")]
+    [InlineData("InlineGossipId", "1e3")]
+    public async Task Post_InlineSave_WithAKeyFieldThatIsNoNumber_ShowsTheApisRefusalInTheRow(string field, string value)
+    {
+        // Arrange: the field binds as 0, and the API decides that no such row exists.
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.BadRequest };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+        Dictionary<string, string> fields = InlineFields("Witaj, wędrowcze!");
+        fields[field] = value;
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost($"/translations?{ListState}", $"inline-save-{RowId}", antiforgeryToken, fields));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string frame = WebUtility.HtmlDecode(LastStreamedFrame(await posted.Content.ReadAsStringAsync()));
+        RowCell().Match(frame).Groups["cell"].Value
+            .ShouldContain("Tłumaczenie musi mieć tyle samo znaczników <--DO_NOT_TOUCH!--> co tekst angielski.");
+        translationSystem.Upserts.ShouldHaveSingleItem().TranslatedText.ShouldBe("Witaj, wędrowcze!");
+    }
+
     public TranslationListInlineSaveTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
@@ -182,6 +321,10 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
 
     [GeneratedRegex("""<textarea id="inline-text-recovery"[^>]*>(?<text>[^<]*)</textarea>""")]
     private static partial Regex RecoveryTextarea();
+
+    /// <summary>The posted row, then right under it a note row with the recovery form.</summary>
+    [GeneratedRegex($"""<tr id="row-{RowId}">.*?</tr>\s*<tr class="row-note">\s*<td[^>]*>\s*<div class="inline-recovery">.*?</tr>""", RegexOptions.Singleline)]
+    private static partial Regex RecoveryUnderTheRow();
 
     /// <summary>Blazor streams each later render of the page as the content of such a template.</summary>
     [GeneratedRegex("""<template blazor-component-id="[^"]*">(?<frame>.*?)</template>""", RegexOptions.Singleline)]
@@ -219,18 +362,31 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         }));
 
     private static HttpRequestMessage InlineSavePost(string antiforgeryToken, string text) =>
-        new(HttpMethod.Post, $"/translations?{ListState}")
+        FormPost($"/translations?{ListState}", $"inline-save-{RowId}", antiforgeryToken, InlineFields(text));
+
+    private static Dictionary<string, string> InlineFields(string text) =>
+        new()
         {
-            Content = new FormUrlEncodedContent(new Dictionary<string, string>
-            {
-                ["_handler"] = $"inline-save-{RowId}",
-                ["__RequestVerificationToken"] = antiforgeryToken,
-                ["InlineFileId"] = FileId.ToString(CultureInfo.InvariantCulture),
-                ["InlineGossipId"] = GossipId.ToString(CultureInfo.InvariantCulture),
-                ["InlineSavedAfter"] = AboveId,
-                ["InlineText"] = text
-            })
+            ["InlineFileId"] = FileId.ToString(CultureInfo.InvariantCulture),
+            ["InlineGossipId"] = GossipId.ToString(CultureInfo.InvariantCulture),
+            ["InlineSavedAfter"] = AboveId,
+            ["InlineText"] = text
         };
+
+    private static HttpRequestMessage FormPost(
+        string pathAndQuery,
+        string formName,
+        string antiforgeryToken,
+        Dictionary<string, string> fields)
+    {
+        Dictionary<string, string> form = new(fields)
+        {
+            ["_handler"] = formName,
+            ["__RequestVerificationToken"] = antiforgeryToken
+        };
+
+        return new HttpRequestMessage(HttpMethod.Post, pathAndQuery) { Content = new FormUrlEncodedContent(form) };
+    }
 
     /// <summary>
     /// The service document, the list and the save. The save answers after a yield, as a real network call
@@ -248,6 +404,11 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         public HttpStatusCode ListAnswer { get; init; } = HttpStatusCode.OK;
 
         public bool ListHasTheRow { get; init; } = true;
+
+        public bool RowOffersItsSave { get; init; } = true;
+
+        /// <summary>The admin's view: the page's bulk-approve link and an approve link on each row.</summary>
+        public bool ListOffersBulkApprove { get; init; }
 
         public IReadOnlyList<UpsertTranslationRequest> Upserts => [.. _upserts];
 
@@ -280,6 +441,12 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
                     : new HttpResponseMessage(ListAnswer);
             }
 
+            if (uri == UpsertHref && request.Method == HttpMethod.Put && UpsertAnswer >= HttpStatusCode.InternalServerError)
+            {
+                // The client retries a 5xx with the same request, whose body this stub can read only once.
+                return new HttpResponseMessage(UpsertAnswer);
+            }
+
             if (uri == UpsertHref && request.Method == HttpMethod.Put)
             {
                 UpsertTranslationRequest upsert = await request.Content.ShouldNotBeNull()
@@ -299,10 +466,10 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
 
         private PaginationResponse<TranslationListItemResponse> ListPage()
         {
-            List<TranslationListItemResponse> rows = [ListRow(AboveId, GossipId - 1)];
+            List<TranslationListItemResponse> rows = [ListRow(AboveId, GossipId - 1, offersItsSave: true)];
             if (ListHasTheRow)
             {
-                rows.Add(ListRow(RowId, GossipId));
+                rows.Add(ListRow(RowId, GossipId, RowOffersItsSave));
             }
 
             return new PaginationResponse<TranslationListItemResponse>
@@ -310,12 +477,25 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
                 Items = rows,
                 Page = 2,
                 PageSize = 25,
-                TotalCount = 25 + rows.Count
+                TotalCount = 25 + rows.Count,
+                Links = ListOffersBulkApprove ? [new LinkDto($"{ListHref.AbsoluteUri}/approve", Rels.BulkApprove, "POST")] : []
             };
         }
 
-        private static TranslationListItemResponse ListRow(string id, long gossipId) =>
-            new(
+        private TranslationListItemResponse ListRow(string id, long gossipId, bool offersItsSave)
+        {
+            List<LinkDto> links = [];
+            if (offersItsSave)
+            {
+                links.Add(new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT"));
+            }
+
+            if (ListOffersBulkApprove)
+            {
+                links.Add(new LinkDto($"{ListHref.AbsoluteUri}/{id}/approve", Rels.Approve, "POST"));
+            }
+
+            return new TranslationListItemResponse(
                 TranslationId.Create(Guid.Parse(id)),
                 FileId,
                 gossipId,
@@ -325,8 +505,9 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
                 Submitter: null,
                 UpdatedAt: DateTimeOffset.UnixEpoch)
             {
-                Links = [new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT")]
+                Links = links
             };
+        }
 
         private static TranslationDetailResponse SavedRow(UpsertTranslationRequest upsert) =>
             new(

@@ -799,6 +799,25 @@ public sealed class TranslationsTests : BunitContext
         link.GetAttribute("href").ShouldBe($"/editor/{saved}?search=Frodo");
     }
 
+    [Theory]
+    [InlineData("yes")]
+    [InlineData("1")]
+    [InlineData("on")]
+    [InlineData("")]
+    public void Render_WithASavedSlipsValueThatIsNotTrue_ShowsTheNoteWithNoEditorPointer(string value)
+    {
+        // Only "true" turns it on, as for the list's own flags; anything else still shows the list.
+        Guid saved = Guid.NewGuid();
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?savedRow={saved}&savedSlips={value}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement note = component.Find($"tr#row-{saved}");
+        note.TextContent.ShouldContain("Tłumaczenie zapisano.");
+        note.QuerySelectorAll("a").ShouldBeEmpty();
+    }
+
     [Fact]
     public void Render_AfterASaveThatLeftThePageEmpty_ShowsTheNoteAboveTheEmptyState()
     {

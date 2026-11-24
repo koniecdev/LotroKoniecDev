@@ -1283,7 +1283,7 @@ away in real production too.
 | `e2e` | manual + PRs touching package/Docker dependency manifests | full-stack and browser E2E suites |
 | `smoke` | after deploys | health + a real OIDC token round trip + file distribution |
 | `health-ping` | daily cron | probes the three public origins once a day (deep `/health`, with the health check key) |
-| `image-scan` | daily cron | scans the four images that staging and prod run with the same Trivy gate as `cd`, so a vulnerability published after the build shows up (#1326) |
+| `image-scan` | daily cron | scans every image the servers run with the same Trivy gate as `cd`, so a vulnerability published after the build shows up: our four images (#1326) and the nine third-party images, with an exception file per image whose entries expire (ADR-0076) |
 | `cd-janitor` | nightly cron | cancels CD runs left waiting at the `production` approval gate for more than 24 h, so an old candidate can never be approved by accident (#527) |
 | `codeql` | PRs + weekly schedule | static security analysis; no PR merges with an open alert |
 | `gitleaks` | PRs/pushes | secret scanning |

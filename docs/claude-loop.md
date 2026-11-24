@@ -68,7 +68,10 @@ it goes; nobody works around it with a budget.
 - **No review round limit.** The review runs until the reviewer approves: no round count, no last
   round and no confirmation round (#1556). #1493 ended without a PR after three review rounds, with
   the build, the whole suite and every guard green on its last commit, and the gate audit (#1501)
-  found that every review round still finds a real Critical or Major in about half its runs.
+  found that every review round still finds a real Critical or Major in about half its runs. A run
+  that stops on a finding only the maintainer can settle (`design-choice` or `business-questions`)
+  first fixes the round's other findings and leaves its branch pushed; the next run goes on from
+  that branch.
 
 Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every
 ticket the old clock stopped (240 minutes, then 360 for one day) was still working. #1494 and

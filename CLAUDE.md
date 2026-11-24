@@ -445,8 +445,8 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   the prompt cache dies after 1h idle, so deliver on documented assumptions and fix from the Ticket
   report instead. Auto-compaction stays at its ~967k default on purpose: never set
   `autoCompactWindow`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` or `CLAUDE_CODE_DISABLE_1M_CONTEXT`. Past
-  ~500k in `/context`, finish the ticket (a review in progress still runs to its APPROVE, `/ticket`
-  step 7), report, `/clear`. Pick model and effort before the first prompt:
+  ~500k in `/context`, finish the ticket (a review in progress still runs until it ends as
+  `/ticket` step 7 says: an APPROVE or one of its named stops), report, `/clear`. Pick model and effort before the first prompt:
   `/model` mid-session is a full cache miss on every model, and `/effort` too on every model except
   Fable 5.1 (assume a miss on Opus 5.5). Back-to-back sessions reuse only the tool layer of the
   cache, so batch them for focus, not for cache.

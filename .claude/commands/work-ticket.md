@@ -192,9 +192,11 @@ everything that matters must be committed and pushed.
      7's fallback (a `general-purpose` agent told to follow `.claude/agents/code-reviewer.md`),
      with the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
-     is that round's reviewer and writes the next `-r` file. A reviewer that ended on an error
-     before its file (`/ticket` step 7) never reviewed: the same fallback is that round's
-     reviewer. A fallback that ends on an error or stalls too → `STATUS: BLOCKED`
+     is that round's reviewer and writes `<n>-review-r<round>-fallback.md`. A stale file (it names
+     a commit older than the one its brief named) gets the same replacement. A reviewer that ended
+     on an error before its file (`/ticket` step 7) never reviewed: the same fallback is that
+     round's reviewer. A fallback that ends on an error, stalls or writes a stale file too →
+     `STATUS: BLOCKED`
      (category: review-unclean). A stalled
      `gate-runner` run (`/ticket` step 8) is no round: it follows step 8's own stall rule.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
@@ -204,15 +206,17 @@ everything that matters must be committed and pushed.
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
    - **A gate that cannot reach green, or a rebase conflict you cannot settle (`git rebase --abort`
-     first)** → `STATUS: BLOCKED` (category: red-build) with the reason. Where `/ticket` step 8
-     pushes the branch and reports with no PR, push nothing here. Never push broken work.
-   - **A reviewer's question that nothing answers** (`/ticket` step 7, NEEDS DISCUSSION) and that
-     is a business rule or a design choice only the maintainer can make: the rounds have no limit,
-     so first fix the round's other Critical or Major findings, commit them and get the gates
-     green. Then push the branch and end with `STATUS: BLOCKED` (category: design-choice, or
+     first)** → `STATUS: BLOCKED` (category: red-build) with the reason. For these two cases push
+     nothing, although `/ticket` step 8 would push the branch and report with no PR. Never push
+     broken work.
+   - **A finding only the maintainer can settle** (`/ticket` step 7): a question that nothing
+     answers (NEEDS DISCUSSION, or a Critical or Major whose fix depends on it) and that is a
+     business rule or a design choice only the maintainer can make. The rounds have no limit, so
+     first fix the round's other Critical or Major findings, commit them and get the gates green.
+     Then push the branch and end with `STATUS: BLOCKED` (category: design-choice, or
      business-questions for a business rule), each question with your recommended answer under
-     `QUESTIONS` in step 1's shape, ending with "Answer in a comment that starts with
-     `**Owner decision:**`.". Another Critical or Major still open that you cannot fix makes it
+     `QUESTIONS` in step 1's shape (ending with "Answer in a comment that starts with
+     `**Owner decision:**`."). Another Critical or Major still open that you cannot fix makes it
      `review-unclean` instead (push nothing), with the questions in its `QUESTIONS` too. Any other
      question becomes a documented assumption, in the report and in the next round's brief, and
      the review goes on.

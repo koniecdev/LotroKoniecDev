@@ -255,6 +255,12 @@ then GossipId for sequential DAT I/O. The rules below stay in force; each ADR ho
   the TMS API (`UpsertTranslation.Validator` + a `CHECK` constraint, never a `varchar(n)`
   narrowing), warn-skipped by the patcher before any write (`Fragment.IsWritablePiece`);
   `Fragment.Write` still throws as the last resort.
+- **The `<--DO_NOT_TOUCH!-->` count must match the English** (#1437, ADR-0043 amendment): the TMS
+  save refuses Polish with a different count than the row's current English (400
+  `TranslationEntity.TranslatedText.PlaceholderCountMismatch`, checked in the handler before the
+  save permit), and the patcher skips and reports a row whose piece count is
+  not the fragment's argument count + 1 (`Fragment.FitsPieceCount`). `ParserContractParityTests`
+  keeps the TMS copy of the marker and its count in step with the patcher's cut.
 - **Stale Polish never lands over changed English: an INVARIANT enforced per row at write time**
   (ADR-0047, #659). The 7th column `source_digest` (16 hex of the framed SHA-256 `SourceHash`) must
   match the fragment's English or what the patcher last wrote there (`<file>.ledger`), whatever path

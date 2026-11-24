@@ -1,6 +1,6 @@
 # ADR-0043: Over-long content is refused at both boundaries, never caught mid-write
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-22: #1437 adds the placeholder count to both boundaries; see the amendment at the end)
 **Date:** 2026-08-06
 **Decision-makers:** Solo maintainer
 **Related:** #598 (the defect), #569 (the hostile-string coverage that found it), ADR-0023 (forward-only, N-1-compatible migrations), ADR-0042 (the sibling parser defect), CLAUDE.md "Translation file format — THE inter-context contract", `PatchingService`, `Fragment`, `UpsertTranslation`
@@ -158,3 +158,49 @@ The cap is on what the TMS and the patcher will *accept*, not on what the DAT ca
 whose original English already exceeds the ceiling would be unpatchable in Polish too. No such
 fragment exists in the corpus, and one appearing would be a game-side change worth a knowledge-base
 entry rather than a code path.
+
+## Amendment 2026-11-22 (#1437): the placeholder count is refused at both boundaries too
+
+**Why.** A translator could save Polish with more or fewer `<--DO_NOT_TOUCH!-->` placeholders than
+the English. The editor only warned, the row could be approved, and the patcher wrote it into the
+game file as it was. The patcher cuts the text on the placeholder and the game puts an argument
+into each cut, so no other count can work in the game. The owner ruled on 2026-11-21 that the save
+refuses it and the patcher skips it, the same way as an over-long piece.
+
+**TMS.** §1 says that teaching the TMS the patcher's cut rule would duplicate patcher logic. The
+TMS still does not learn how the patcher cuts. It compares the marker count in two texts it already
+holds, the Polish and the row's current English (never `PreviousSourceText`):
+`TranslationSource.CheckPlaceholderCountOf`. `UpsertTranslation` calls it next to its other
+refusals, before it takes a save permit, which commits on its own (ADR-0072 §4), so a refused save
+changes nothing and spends nothing. A mismatch is a 400 with its own code,
+`TranslationEntity.TranslatedText.PlaceholderCountMismatch`, and its own Polish copy (ADR-0044). The
+validator cannot do it, because it sees only the request. `Translation.ProvideTranslation` asserts
+the same rule as a programmer-error guard, like the length guard of §1. The marker gets a TMS copy,
+`DatFormatConstants.Placeholder`; `ParserContractParityTests` keeps it equal to the patcher's
+`PieceSeparator`, and the TMS count + 1 equal to the patcher's `GetPieces().Length`.
+
+**No database CHECK.** Unlike the length of §2, an import may rightly put new English under
+existing Polish (`Translation.ApplySourceChange` parks the row as NeedsReview), so a constraint over
+the two columns would fail that import.
+
+**Patcher.** The shape of §3: a warning and a skip, never a mid-write failure.
+`Fragment.FitsPieceCount` requires the row's piece count to be the fragment's argument count + 1.
+It compares with the arguments, not with the pieces the fragment holds now: our writes replace the
+pieces but never change the argument count, so the arguments are the English shape on every path of
+the ADR-0047 source guard. The check runs after that guard admits the row, because it needs the
+fragment, so it cannot sit with the §3 screen before the subfile load. It still runs before the
+fragment is changed, so a bad row costs one row, and a row whose English moved is still reported as
+"source moved".
+
+**Measured** (read-only on prod, 2026-11-22): on all 792,500 live rows the English placeholder count
+equals the `ArgsOrder` length, and none of the 4,736 rows with Polish has a different count than its
+English.
+
+**Limits.**
+- Approve does not check the count. After an import changes the placeholder count of an English text
+  that has Polish, the row waits for review with its old Polish. If someone approves it as it is, the
+  mismatch reaches the file, and the patcher skips that row with a warning, so players see English
+  there. Whether approve should refuse it too is the owner's call (#1524).
+- A future game version could add a fragment whose pieces are not its arguments + 1. Then the TMS
+  accepts a save the patcher refuses. That fails safe: nothing is written, and the warning names the
+  row.

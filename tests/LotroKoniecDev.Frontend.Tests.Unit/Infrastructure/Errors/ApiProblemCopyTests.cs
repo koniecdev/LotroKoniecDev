@@ -127,6 +127,7 @@ public sealed class ApiProblemCopyTests
     [InlineData("GameVersionEntity.ProcessedCannotBeDeleted", 422, "Tej wersji gry nie można usunąć, bo zaimportowano już do niej teksty.")]
     [InlineData("TranslationEntity.CannotApproveWithoutTranslation", 422, "Nie można zatwierdzić pustego tłumaczenia — najpierw wpisz polski tekst.")]
     [InlineData("Translations.Validation", 400, "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.")]
+    [InlineData("TranslationEntity.TranslatedText.PlaceholderCountMismatch", 400, "Tłumaczenie musi mieć tyle samo znaczników <--DO_NOT_TOUCH!--> co tekst angielski. Popraw liczbę znaczników i zapisz ponownie.")]
     [InlineData("Translations.SaveBudgetExhausted", 429, "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.")]
     [InlineData("Translations.OverwriteBudgetExhausted", 429, "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. Teksty bez tłumaczenia możesz tłumaczyć dalej.")]
     [InlineData("Translations.UnknownSearchMatch", 400, "Nieznany sposób dopasowania wyszukiwania. Wybierz „Zawiera”, „Całe słowo” albo „Cały tekst”.")]

@@ -261,7 +261,12 @@ labels with marks and `fr/factions.xml` has 13.
   editor checks only the `<--DO_NOT_TOUCH!-->` count, as advice: `PlaceholderAnalyzer.Compare`,
   called at `Editor.razor:119`, shows a warning (`Editor.razor:157-162`) and does not block the save.
   Neither the save nor the patcher refuses a Polish text with a different placeholder count than
-  the English; #1437 tracks that.
+  the English; #1437 tracks that. **Update 2026-11-22 (#1437):** the save now refuses such a text
+  (400 `TranslationEntity.TranslatedText.PlaceholderCountMismatch`), and the patcher skips and
+  reports a row whose piece count is not the fragment's argument count + 1
+  (`Fragment.FitsPieceCount`). A read-only count on prod that day found 0 such rows among 4,736
+  rows with Polish, and the English placeholder count equalled the `ArgsOrder` length on all
+  792,500 live rows.
 - The same-text panel of #1360 matches the English exactly (`ListSameSourceTextTranslations.cs:52`),
   so `Dwarf[D]` and `Dwarf` are two different groups.
 

@@ -1,3 +1,4 @@
+using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
 
@@ -168,6 +169,91 @@ public sealed class TranslationSourceTests
 
         // Assert
         remove.ShouldThrow<ArgumentNullException>();
+    }
+
+    [Theory]
+    [InlineData("Hail!", "Witaj!")]
+    [InlineData("", "Cokolwiek")]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "<--DO_NOT_TOUCH!--> wita!")]
+    [InlineData("<--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->", "a<--DO_NOT_TOUCH!-->b<--DO_NOT_TOUCH!-->c")]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!--!")]
+    [InlineData("Hail!", "Witaj <--do_not_touch!-->!")]
+    public void CheckPlaceholderCountOf_WhenTheCountsMatch_ShouldSucceed(string english, string polish)
+    {
+        // Arrange: a marker cut short or in other letter case is plain text, as it is for the patcher.
+        TranslationSource source = Source(english);
+
+        // Act
+        Result result = source.CheckPlaceholderCountOf(polish);
+
+        // Assert
+        result.IsSuccess.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj!", 1, 0)]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj <--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->!", 1, 2)]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!-->!", 0, 1)]
+    [InlineData("", "<--DO_NOT_TOUCH!-->", 0, 1)]
+    [InlineData("A <--DO_NOT_TOUCH!--> B <--DO_NOT_TOUCH!-->", "A <--DO_NOT_TOUCH!--> B <--DO_NOT_TOUCH!--", 2, 1)]
+    public void CheckPlaceholderCountOf_WhenTheCountsDiffer_ShouldFailWithAValidationError(
+        string english, string polish, int englishCount, int polishCount)
+    {
+        // Arrange
+        TranslationSource source = Source(english);
+
+        // Act
+        Result result = source.CheckPlaceholderCountOf(polish);
+
+        // Assert
+        result.IsFailure.ShouldBeTrue();
+        result.Error.Code.ShouldBe("TranslationEntity.TranslatedText.PlaceholderCountMismatch");
+        result.Error.Type.ShouldBe(TypeOfError.Validation);
+        result.Error.Message.ShouldBe(
+            $"The Polish text has {polishCount} placeholder(s) and the English has {englishCount}; they must match.");
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("No marker", 0)]
+    [InlineData("<--DO_NOT_TOUCH!-->", 1)]
+    [InlineData("<--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->", 2)]
+    [InlineData("a<--DO_NOT_TOUCH!-->b<--DO_NOT_TOUCH!-->c<--DO_NOT_TOUCH!-->", 3)]
+    [InlineData("<--DO_NOT_TOUCH!--", 0)]
+    [InlineData("<--DO_NOT_TOUCH!--<--DO_NOT_TOUCH!-->", 1)]
+    [InlineData("<<--DO_NOT_TOUCH!-->>", 1)]
+    [InlineData("<--DO_NOT_TOUCH!-->-->", 1)]
+    [InlineData("<--do_not_touch!-->", 0)]
+    public void CountPlaceholders_ShouldCountWholeMarkersWithoutOverlap(string text, int expected)
+    {
+        // Act
+        int count = TranslationSource.CountPlaceholders(text);
+
+        // Assert
+        count.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void CheckPlaceholderCountOf_WithNullText_ShouldThrow()
+    {
+        // Arrange
+        TranslationSource source = Source(EnglishWithoutABreak);
+
+        // Act
+        Action check = () => source.CheckPlaceholderCountOf(null!);
+
+        // Assert
+        check.ShouldThrow<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void CountPlaceholders_WithNullText_ShouldThrow()
+    {
+        // Act
+        Action count = () => TranslationSource.CountPlaceholders(null!);
+
+        // Assert
+        count.ShouldThrow<ArgumentNullException>();
     }
 
     private static TranslationSource Source(string text) => TranslationSource.Create(text, null, null).Value;

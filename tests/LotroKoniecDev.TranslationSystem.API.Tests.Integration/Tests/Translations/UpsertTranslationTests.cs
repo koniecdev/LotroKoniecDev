@@ -248,6 +248,49 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
         detail!.TranslatedText.ShouldBe(atLimit);
     }
 
+    [Theory]
+    [InlineData("Hail <--DO_NOT_TOUCH!-->!", "Witaj!")]
+    [InlineData("Hail!", "Witaj <--DO_NOT_TOUCH!-->!")]
+    public async Task Upsert_WithADifferentPlaceholderCountThanTheEnglish_ShouldReturn400AndLeaveNoTrace(
+        string english, string polish)
+    {
+        // Arrange: a plain translator, so a permit would be spent if the refusal came late (#1437).
+        await SeedAsync(gossipId: 1, source: english, SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(Route, new UpsertTranslationRequest(FileId, 1, polish));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorCodeAsync(response)).ShouldBe("TranslationEntity.TranslatedText.PlaceholderCountMismatch");
+
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        Translation row = await dbContext.Translations.AsNoTracking().SingleAsync();
+        row.TranslatedText.ShouldBeNull();
+        row.Status.ShouldBe(TranslationStatus.Untranslated);
+        row.UpdatedAt.ShouldBe(Now);
+        (await dbContext.TranslationSaves.CountAsync()).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Upsert_WithTheSamePlaceholderCountAsTheEnglish_ShouldReturn200AndStoreTheText()
+    {
+        // Arrange
+        await SeedAsync(gossipId: 1, source: "Hail <--DO_NOT_TOUCH!-->!", SeedStatus.Untranslated);
+        using HttpClient client = TranslatorClient(Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await client.PutAsJsonAsync(
+            Route, new UpsertTranslationRequest(FileId, 1, "<--DO_NOT_TOUCH!--> wita!"));
+        TranslationDetailResponse? saved = await response.Content.ReadFromJsonAsync<TranslationDetailResponse>(JsonOptions);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        saved.ShouldNotBeNull().TranslatedText.ShouldBe("<--DO_NOT_TOUCH!--> wita!");
+    }
+
     [Fact]
     public async Task TranslatedTextCheckConstraint_ShouldRejectAnOverLongWriteThatBypassesTheApi()
     {
@@ -322,6 +365,13 @@ public sealed class UpsertTranslationTests : IAsyncLifetime
     {
         IPrecomputedTranslationFileProjector builder = _factory.Services.GetRequiredService<IPrecomputedTranslationFileProjector>();
         await builder.RebuildAsync("pl", CancellationToken.None);
+    }
+
+    private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
+    {
+        await using Stream stream = await response.Content.ReadAsStreamAsync();
+        using JsonDocument document = await JsonDocument.ParseAsync(stream);
+        return document.RootElement.TryGetProperty("errorCode", out JsonElement code) ? code.GetString() : null;
     }
 
     private HttpClient TranslatorClient(Guid subject)

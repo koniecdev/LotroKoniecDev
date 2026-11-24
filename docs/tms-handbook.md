@@ -829,15 +829,19 @@ shows; nothing is copied. Saving sends
 1. loads the row by fragment key — unknown key → 404 (rows are *born from imports*, never from
    the editor);
 2. rejects a soft-removed row (422 `CannotEditRemoved`);
-3. provisions the caller's Translator profile (Part 5.2) and stamps `SubmittedById`;
-4. calls `ProvideTranslation(...)` → the row becomes **Draft** (whatever it was before — editing
+3. rejects a Polish text whose number of `<--DO_NOT_TOUCH!-->` placeholders differs from the
+   row's current English (400 `TranslationEntity.TranslatedText.PlaceholderCountMismatch`, #1437),
+   before the save budget, whose permit commits on its own, so a refused save spends nothing;
+4. provisions the caller's Translator profile (Part 5.2) and stamps `SubmittedById`;
+5. calls `ProvideTranslation(...)` → the row becomes **Draft** (whatever it was before — editing
    an Approved row un-publishes it);
-5. if the row *was* Approved, schedules an artifact rebuild.
+6. if the row *was* Approved, schedules an artifact rebuild.
 
-The text must not be empty and must fit the DAT (32,767 UTF-16 code units, ADR-0043). The
-placeholder check on the frontend is **advisory**: if the Polish has a different number of
-placeholders than the English, the editor warns but still lets you save. The API stores the text
-as typed, with one exception: when the English does not end with a line break, the line breaks a
+The text must not be empty and must fit the DAT (32,767 UTF-16 code units, ADR-0043). It must also
+keep the English placeholder count: the patcher cuts the text on the placeholder and the game puts
+an argument into each cut, so no other count can work in the game. The API refuses such a save.
+The editor then shows a Polish message and a warning with both counts, and keeps the typed text.
+The API stores the text as typed, with one exception: when the English does not end with a line break, the line breaks a
 translator's Enter key left at the end of the Polish are removed (#1476,
 `TranslationSource.RemoveTrailingLineBreaksFrom`).
 

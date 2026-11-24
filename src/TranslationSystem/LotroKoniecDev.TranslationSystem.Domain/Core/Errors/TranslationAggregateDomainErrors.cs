@@ -43,5 +43,14 @@ public static partial class DomainErrors
                     "The gossip id must not be negative.",
                     TypeOfError.Validation);
         }
+
+        public static class TranslatedTextProperty
+        {
+            public static Error PlaceholderCountMismatch(int englishCount, int polishCount)
+                => new($"{nameof(TranslationEntity)}.TranslatedText.PlaceholderCountMismatch",
+                    $"The Polish text has {polishCount} placeholder(s) and the English has {englishCount}; "
+                    + "they must match.",
+                    TypeOfError.Validation);
+        }
     }
 }

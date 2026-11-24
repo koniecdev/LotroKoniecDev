@@ -98,9 +98,10 @@ public sealed class Translation : AggregateRoot<TranslationId>
     /// <summary>
     /// Any status becomes <see cref="TranslationStatus.Draft"/>, so editing an approved row takes it out
     /// of the distributed set until it is approved again (spec 0001); <see cref="PreviousSourceText"/>
-    /// stays until approve clears it. The guards are programmer-error checks on the text as sent;
-    /// <c>UpsertTranslation.Validator</c> gives the translator the message (#598). The stored text loses
-    /// the trailing line breaks that <see cref="TranslationSource.RemoveTrailingLineBreaksFrom"/> removes (#1476).
+    /// stays until approve clears it. The guards are programmer-error checks on the text as sent: the
+    /// translator gets the message from <c>UpsertTranslation</c>, its validator (#598) and its call to
+    /// <see cref="TranslationSource.CheckPlaceholderCountOf"/> (#1437). The stored text loses the trailing
+    /// line breaks that <see cref="TranslationSource.RemoveTrailingLineBreaksFrom"/> removes (#1476).
     /// </summary>
     public void ProvideTranslation(string translatedText, TranslatorId submittedBy, DateTimeOffset now)
     {
@@ -108,6 +109,12 @@ public sealed class Translation : AggregateRoot<TranslationId>
         ArgumentOutOfRangeException.ThrowIfGreaterThan(
             translatedText.Length, DatFormatConstants.MaxTranslatedTextLength, nameof(translatedText));
         Ensure.NotEmpty(submittedBy);
+
+        Result placeholderCheck = Source.CheckPlaceholderCountOf(translatedText);
+        if (placeholderCheck.IsFailure)
+        {
+            throw new ArgumentException(placeholderCheck.Error.Message, nameof(translatedText));
+        }
 
         TranslatedText = Source.RemoveTrailingLineBreaksFrom(translatedText);
         SubmittedById = submittedBy;

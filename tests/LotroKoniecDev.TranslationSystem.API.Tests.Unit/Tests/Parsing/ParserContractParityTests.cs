@@ -4,6 +4,8 @@ using LotroKoniecDev.Tests.Shared;
 using LotroKoniecDev.TranslationSystem.API.Parsing;
 using LotroKoniecDev.TranslationSystem.API.Tests.Unit.Shared;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Services;
+using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using PatcherCarvedLine = LotroKoniecDev.Application.Parsers.CarvedTranslationLine;
 using PatcherCarver = LotroKoniecDev.Application.Parsers.TranslationLineCarver;
 using PatcherEscaper = LotroKoniecDev.Application.Parsers.TranslationLineEscaper;
@@ -230,6 +232,53 @@ public sealed class ParserContractParityTests
         // Assert
         parsed.Errors.ShouldBeEmpty();
         parsed.Rows.ShouldHaveSingleItem().Content.ShouldBe(raw);
+    }
+
+    [Fact]
+    public void BothPlaceholderMarkers_ShouldBeTheSameString()
+    {
+        // The save refuses on the TMS copy and the patcher cuts on its own (#1437).
+        DatFormatConstants.Placeholder.ShouldBe(LotroKoniecDev.Primitives.Constants.DatFileConstants.PieceSeparator);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("plain text")]
+    [InlineData("<--DO_NOT_TOUCH!-->")]
+    [InlineData("<--DO_NOT_TOUCH!--><--DO_NOT_TOUCH!-->")]
+    [InlineData("a<--DO_NOT_TOUCH!-->")]
+    [InlineData("<--DO_NOT_TOUCH!-->a")]
+    [InlineData("<--DO_NOT_TOUCH!--")]
+    [InlineData("<--DO_NOT_TOUCH!--<--DO_NOT_TOUCH!-->")]
+    [InlineData("<<--DO_NOT_TOUCH!-->>")]
+    [InlineData("<--DO_NOT_TOUCH!-->-->")]
+    [InlineData("<--do_not_touch!-->")]
+    public void TmsPlaceholderCount_OnAHandComposedHazard_ShouldBeOneLessThanThePatchersPieceCount(string text)
+    {
+        // Arrange: the save's count and the patcher's cut must agree, or a text the save accepts is one
+        // the patcher skips (#1437). The corpus holds no marker, so the hazards are written by hand.
+        LotroKoniecDev.Domain.Models.Translation patcher = new() { Content = text };
+
+        // Act
+        int tmsCount = TranslationSource.CountPlaceholders(text);
+
+        // Assert
+        (tmsCount + 1).ShouldBe(patcher.GetPieces().Length);
+    }
+
+    [Theory]
+    [MemberData(nameof(NaughtyStringCases.All), MemberType = typeof(NaughtyStringCases))]
+    public void TmsPlaceholderCount_AroundNaughtyText_ShouldBeOneLessThanThePatchersPieceCount(string naughty)
+    {
+        // Arrange
+        string text = $"{naughty}<--DO_NOT_TOUCH!-->{naughty}<--DO_NOT_TOUCH!-->{naughty}";
+        LotroKoniecDev.Domain.Models.Translation patcher = new() { Content = text };
+
+        // Act
+        int tmsCount = TranslationSource.CountPlaceholders(text);
+
+        // Assert
+        (tmsCount + 1).ShouldBe(patcher.GetPieces().Length);
     }
 
     private static async Task<CollectedLines> ParseTextAsync(string content)

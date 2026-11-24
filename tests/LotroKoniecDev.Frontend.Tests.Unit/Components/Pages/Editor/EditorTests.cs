@@ -598,9 +598,7 @@ public sealed class EditorTests : BunitContext
     public void Render_WhenThePanelFailsToLoad_KeepsTheEditorAndShowsAShortNotice()
     {
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canEdit: true, hasSameSourceText: true));
-        _client
-            .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<SameSourceTextTranslationsResponse>(new() { Title = "Błąd serwera." }));
+        StubSameSourceTextFailure();
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
@@ -624,24 +622,103 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public void Render_OnAPost_DoesNotAskForThePanel()
+    public async Task Save_WhenTheApiRefusesThePost_KeepsThePanelBesideTheError()
     {
-        // A good save or approve redirects to a GET that loads the panel, so a post must not pay for it.
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
             [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
             TotalCount: 1,
             HasConflictingTranslations: true));
-        DefaultHttpContext post = new();
-        post.Request.Method = HttpMethods.Post;
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(Guid.NewGuid());
 
-        IRenderedComponent<EditorComponent> component = Render<EditorComponent>(parameters => parameters
-            .AddCascadingValue<HttpContext>(post)
-            .Add(editor => editor.Id, Guid.NewGuid()));
+        await component.Find("form").SubmitAsync();
 
-        component.FindAll("section.same-source").ShouldBeEmpty();
-        _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zapis odrzucony.");
+        component.Find("section.same-source tbody tr").TextContent.ShouldContain("Krzepki Topornik");
+    }
+
+    [Fact]
+    public async Task Approve_WhenTheApiRefusesThePost_KeepsThePanelBesideTheError()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canApprove: true, hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        _client
+            .PostApiResultAsync(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure(new() { Title = "Zatwierdzenie odrzucone." }));
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(Guid.NewGuid());
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zatwierdzenie odrzucone.");
+        component.Find("section.same-source tbody tr").TextContent.ShouldContain("Krzepki Topornik");
+    }
+
+    [Fact]
+    public async Task Save_WhenTheSaveSucceedsOnAPost_RedirectsWithoutAskingForThePanel()
+    {
+        // The GET after the redirect loads the panel, so a good post must not pay for it too.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(BuildDetail("Stout-axe[D]", "Topór wojenny", hasSameSourceText: true)));
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(id);
+
+        await component.Find("form").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?saved=true");
+        await _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
             Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Approve_WhenTheApproveSucceedsOnAPost_RedirectsWithoutAskingForThePanel()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canApprove: true, hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        _client
+            .PostApiResultAsync(ApproveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success());
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(id);
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?approved=true");
+        await _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_WhenThePanelFailsOnAPostAndTheApiRefusesTheSave_ShowsThePanelNoticeBesideTheErrorAndTheForm()
+    {
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        StubSameSourceTextFailure();
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(Guid.NewGuid());
+
+        await component.Find("form").SubmitAsync();
+
+        component.Find(".status-message.status-error").TextContent.ShouldContain("Zapis odrzucony.");
+        component.Find(".same-source-unavailable").TextContent.ShouldContain("Nie udało się wczytać innych wierszy");
+        component.FindAll("textarea#translated").Count.ShouldBe(1);
     }
 
     [Fact]
@@ -1056,6 +1133,17 @@ public sealed class EditorTests : BunitContext
     private IRenderedComponent<EditorComponent> RenderEditor(Guid id) =>
         Render<EditorComponent>(parameters => parameters.Add(component => component.Id, id));
 
+    /// <summary>The page's load runs before the form handler, as it does for a real post.</summary>
+    private IRenderedComponent<EditorComponent> RenderEditorOnAPost(Guid id)
+    {
+        DefaultHttpContext post = new();
+        post.Request.Method = HttpMethods.Post;
+
+        return Render<EditorComponent>(parameters => parameters
+            .AddCascadingValue<HttpContext>(post)
+            .Add(component => component.Id, id));
+    }
+
     private void StubLoad(TranslationDetailResponse detail)
     {
         _client
@@ -1069,6 +1157,13 @@ public sealed class EditorTests : BunitContext
         _client
             .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(response));
+    }
+
+    private void StubSameSourceTextFailure()
+    {
+        _client
+            .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<SameSourceTextTranslationsResponse>(new() { Title = "Błąd serwera." }));
     }
 
     private static SameSourceTextItemResponse Other(

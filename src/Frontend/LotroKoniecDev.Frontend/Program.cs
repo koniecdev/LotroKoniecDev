@@ -6,6 +6,7 @@ using LotroKoniecDev.Frontend.Components.Pages.Account;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.Errors;
+using LotroKoniecDev.Frontend.Infrastructure.Forms;
 using LotroKoniecDev.Frontend.Infrastructure.Security;
 using LotroKoniecDev.Frontend.Settings;
 using LotroKoniecDev.Logging.Redaction;
@@ -218,6 +219,7 @@ try
     app.UseAuthorization();
 
     app.UseAntiforgery();
+    app.UseSignInForAFormPostFromAnEndedSession();
 
     app.MapStaticAssets();
 

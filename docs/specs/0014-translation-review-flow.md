@@ -418,6 +418,11 @@ back.
     daily save budget keep testing `TranslatedText` for NULL.
   - `SubmittedById` is the author of the proposal whose text is in `TranslatedText`, and NULL when
     `TranslatedText` is NULL. A save on a row with a live text does not change it.
+    - The list's "Tylko moje" filter (#1491) reads this column and orders by `UpdatedAt`. Under this
+      rule a save on an approved row keeps the old author, so #1384 moves the filter to the
+      newest proposal's author and orders it by that proposal's time (the waiting proposal when there
+      is one, else the live text). `List_WithMine_DropsAnApprovedRowThatAnotherTranslatorSavedAgain`
+      fails until it does.
   - `ApprovedById` is the approver of the live text. On a row with no live text it may keep an
     older value, as a `Draft` row does today, so the data export takes a translator's approvals
     from the proposals, not from this column (#1384).

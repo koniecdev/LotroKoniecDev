@@ -27,7 +27,8 @@ public sealed class TranslationListQueryTests
         page: 3,
         pageSize: 25,
         conflictsOnly: true,
-        match: TranslationSearchMatch.WholeWord);
+        match: TranslationSearchMatch.WholeWord,
+        mine: true);
 
     [Fact]
     public void From_WithNoFilters_BuildsBaseUriWithDefaultPagingAndNoLanguage()
@@ -316,6 +317,54 @@ public sealed class TranslationListQueryTests
     public void ParseConflictsOnly_ReadsOnlyTrueAsOn(string? value, bool expected)
         => TranslationListQuery.ParseConflictsOnly(value).ShouldBe(expected);
 
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("false", false)]
+    [InlineData("on", false)]
+    [InlineData("1", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void ParseMine_ReadsOnlyTrueAsOn(string? value, bool expected)
+        => TranslationListQuery.ParseMine(value).ShouldBe(expected);
+
+    [Fact]
+    public void From_WithMine_AsksTheApiForTheCallersRows()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1, mine: true);
+
+        query.ToApiRequest().Mine.ShouldBeTrue();
+        query.ToApiUri(CollectionHref).ShouldContain("mine=true");
+    }
+
+    [Fact]
+    public void From_WithoutMine_LeavesTheParameterOutOfEveryUri()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 1);
+
+        query.ToApiUri(CollectionHref).ShouldNotContain("mine");
+        query.ToPageRelativeUri(2).ShouldNotContain("mine");
+        query.ToPageRelativeUriWithApprovalResult(approved: 1, skipped: 0).ShouldNotContain("mine");
+        query.ToEditorRelativeUri(RowId).ShouldNotContain("mine");
+    }
+
+    [Fact]
+    public void ToPageRelativeUri_WithMine_KeepsItAcrossPaging()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: "axe", status: null, page: 1, mine: true);
+
+        query.ToPageRelativeUri(2).ShouldBe("/translations?page=2&search=axe&mine=true");
+    }
+
+    [Fact]
+    public void ToPageRelativeUriWithApprovalResult_WithMine_KeepsItSoTheListStaysTheSame()
+    {
+        TranslationListQuery query = TranslationListQuery.From(search: null, status: null, page: 2, mine: true);
+
+        query.ToPageRelativeUriWithApprovalResult(approved: 2, skipped: 0)
+            .ShouldBe("/translations?page=2&mine=true&approved=2&skipped=0");
+    }
+
     [Fact]
     public void From_WithConflictsOnly_AsksTheApiForConflicts()
     {
@@ -401,10 +450,16 @@ public sealed class TranslationListQueryTests
     public void ToEditorRelativeUri_WritesThePagersNamesInThePagersOrder()
     {
         TranslationListQuery query = TranslationListQuery.From(
-            search: "axe", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true, match: TranslationSearchMatch.WholeText);
+            search: "axe",
+            status: "Draft",
+            page: 2,
+            pageSize: 25,
+            conflictsOnly: true,
+            match: TranslationSearchMatch.WholeText,
+            mine: true);
 
         query.ToEditorRelativeUri(RowId)
-            .ShouldBe($"/editor/{RowId.Value}?page=2&search=axe&match=WholeText&status=Draft&conflictsOnly=true&pageSize=25");
+            .ShouldBe($"/editor/{RowId.Value}?page=2&search=axe&match=WholeText&status=Draft&conflictsOnly=true&mine=true&pageSize=25");
     }
 
     [Fact]
@@ -458,6 +513,7 @@ public sealed class TranslationListQueryTests
     [InlineData("pageSize=https://evil.example")]
     [InlineData("conflictsOnly=https://evil.example")]
     [InlineData("match=https://evil.example")]
+    [InlineData("mine=https://evil.example")]
     [InlineData("returnUrl=https://evil.example")]
     [InlineData("search=//evil.example&returnUrl=https://evil.example&page=2")]
     public void ToListRelativeUri_WhateverTheAddressCarries_StaysOnTheListPageOfThisSite(string editorQuery)
@@ -499,6 +555,9 @@ public sealed class TranslationListQueryTests
     [InlineData("match=Banana")]
     [InlineData("match=7")]
     [InlineData("match=")]
+    [InlineData("mine=on")]
+    [InlineData("mine=1")]
+    [InlineData("mine")]
     [InlineData("search=")]
     [InlineData("search=%20%20")]
     public void FromPageQuery_WithAValueItCannotRead_FallsBackToTheDefaultAsTheListDoes(string editorQuery)

@@ -37,7 +37,8 @@ public sealed class QueryOptionContractTests
             PageSize: 25,
             Sort: "gossipId:desc",
             ConflictsOnly: true,
-            Match: TranslationSearchMatch.WholeWord),
+            Match: TranslationSearchMatch.WholeWord,
+            Mine: true),
         new ImportExportedTextsRequest(AllowMassRemoval: true)
     ];
 

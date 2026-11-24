@@ -17,6 +17,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.TranslationSystem.API.Tests.Integration.Tests.Translations;
@@ -1074,6 +1075,261 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L]);
     }
 
+    [Fact]
+    public async Task List_WithMine_ListsOnlyTheLiveRowsWhoseCurrentTextTheCallerSaved()
+    {
+        // Arrange: the caller comes from the token, never from the address (#1491).
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "Decayed", "Zgniły", callerId, Now.AddMinutes(1)),
+            Saved(2, "Rotten", "Zepsuty", _seederId, Now.AddMinutes(2)),
+            Row(3, "Untouched"),
+            Saved(4, "Decayed bones", "Zgniłe kości", callerId, Now.AddMinutes(3), removed: true));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+        page.TotalCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task List_WithMine_DropsAnApprovedRowThatAnotherTranslatorSavedAgain()
+    {
+        // Arrange: "mine" is the last save of the row's text, so a later save by someone else takes the row,
+        // an approved one included. Spec 0014 keeps the old author on an approved row once every save is a
+        // proposal (#1384): this test then fails until the filter reads the newest proposal.
+        Guid callerSubject = Guid.NewGuid();
+        Guid otherSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "Decayed", "Zgniły", callerId, Now, approvedBy: _seederId),
+            Saved(2, "Rotten", "Zepsuty", callerId, Now));
+
+        // Act
+        HttpResponseMessage save = await ClientFor(otherSubject, AuthConstants.Roles.Translator)
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 1, "Rozłożony"));
+        PaginationResponse<TranslationListItemResponse> callerPage = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+        PaginationResponse<TranslationListItemResponse> otherPage = await ListAsAsync(
+            otherSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+
+        // Assert
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        callerPage.Items.Select(item => item.GossipId).ShouldBe([2L]);
+        otherPage.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithMine_ForAnAdmin_ListsTheAdminsOwnSaves()
+    {
+        // Arrange: the translator profile decides, not a role; this token holds only Admin.
+        Guid adminSubject = Guid.NewGuid();
+        TranslatorId adminId = await SeedTranslatorAsync(adminSubject, "Admin");
+        await SeedAsync(
+            Saved(1, "Decayed", "Zgniły", adminId, Now),
+            Saved(2, "Rotten", "Zepsuty", _seederId, Now));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            adminSubject, AuthConstants.Roles.Admin, new ListTranslationsRequest(Mine: true));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+    }
+
+    [Fact]
+    public async Task List_WithMineAndNoSort_ShowsTheNewestChangeFirstThenFileIdThenGossipId()
+    {
+        // Arrange: three rows share one time, as the rows of one bulk approve do.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(1)),
+            Saved(3, "b", "b", callerId, Now.AddMinutes(5), fileId: OtherFileId),
+            Saved(2, "c", "c", callerId, Now.AddMinutes(5), fileId: OtherFileId),
+            Saved(9, "d", "d", callerId, Now.AddMinutes(5)),
+            Saved(4, "e", "e", callerId, Now.AddMinutes(9)));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+
+        // Assert
+        page.Items.Select(item => (item.FileId, item.GossipId)).ShouldBe(
+            [(FileId, 4L), (FileId, 9L), (OtherFileId, 2L), (OtherFileId, 3L), (FileId, 1L)]);
+    }
+
+    [Fact]
+    public async Task List_WithMineAndASort_UsesTheSort()
+    {
+        // Arrange: the newest change is the last row, so the default order would put it first.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(1)),
+            Saved(2, "b", "b", callerId, Now.AddMinutes(5)),
+            Saved(3, "c", "c", callerId, Now.AddMinutes(9)));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, Sort: "gossipId:asc"));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L, 2L, 3L]);
+    }
+
+    [Theory]
+    [MemberData(nameof(MineWithOtherFilterCases))]
+    public async Task List_WithMineAndOtherFilters_AppliesThemAll(ListTranslationsRequest request, long[] expectedGossipIds)
+    {
+        // Arrange: the caller saved rows 1, 3, 4 and 6. Row 2 gives row 1's English a different Polish; rows
+        // 4 and 5 agree, so they are no conflict.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "Stout-axe[D]", "Topór wojenny", callerId, Now.AddMinutes(1)),
+            Saved(2, "Stout-axe[D]", "Krzepki Topornik", _seederId, Now.AddMinutes(2)),
+            Saved(3, "Dwarf[D]", "Krasnolud", callerId, Now.AddMinutes(3), approvedBy: _seederId),
+            Saved(4, "Stout heart", "Dzielne serce", callerId, Now.AddMinutes(4)),
+            Saved(5, "Stout heart", "Dzielne serce", _seederId, Now.AddMinutes(5)),
+            Saved(6, "Stoutly[D]", "Dzielnie", callerId, Now.AddMinutes(6)));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page =
+            await ListAsAsync(callerSubject, AuthConstants.Roles.Translator, request);
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe(expectedGossipIds);
+        page.TotalCount.ShouldBe(expectedGossipIds.Length);
+    }
+
+    [Fact]
+    public async Task List_WithMine_Pages()
+    {
+        // Arrange
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(1)),
+            Saved(2, "b", "b", callerId, Now.AddMinutes(2)),
+            Saved(3, "c", "c", callerId, Now.AddMinutes(3)),
+            Saved(4, "d", "d", _seederId, Now.AddMinutes(4)));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, Page: 2, PageSize: 2));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe([1L]);
+        page.TotalCount.ShouldBe(3);
+        page.HasPreviousPage.ShouldBeTrue();
+        page.HasNextPage.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task List_WithMineAndNoToken_ReturnsAnEmptyPage()
+    {
+        // Arrange: an anonymous caller saved nothing, and the public list never answers 401 (#1491). The
+        // untranslated row has no author, so a filter on a missing caller would list it.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"), Row(2, "Untouched"));
+
+        // Act
+        HttpResponseMessage response = await _factory.CreateClient().GetAsync("/api/v1/translations?mine=true");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task List_WithMineAndAnExpiredToken_ReturnsAnEmptyPageNotTheTokensRows()
+    {
+        // Arrange: the refused token names a caller who saved a row; a refused token is no caller at all.
+        // The untranslated row has no author, so a filter on a missing caller would list it.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(Saved(1, "Decayed", "Zgniły", callerId, Now), Row(2, "Untouched"));
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", TranslationSystemApiFactory.CreateExpiredAccessToken(callerSubject));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations?mine=true");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task List_WithMineForACallerWithNoTranslatorProfile_ReturnsAnEmptyPage()
+    {
+        // Arrange: a token with no usable name gets no profile (INV-4.4), and with no profile there is no
+        // save to list. The untranslated row has no author, so a filter on a missing profile would list it.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"), Row(2, "Untouched"));
+        Guid subject = Guid.NewGuid();
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer",
+            TranslationSystemApiFactory.CreateAccessToken(
+                AuthConstants.Roles.Translator, AuthConstants.Scopes.Api, subject, displayName: "", email: ""));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations?mine=true");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+        (await TranslatorExistsAsync(subject)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task List_WithMineForACallerWhoSavedNothing_ReturnsAnEmptyPage()
+    {
+        // Arrange: the first request makes this caller's profile (INV-4.4), and it holds no save.
+        await SeedAsync(Translated(1, "Decayed", "Zgniły"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            Guid.NewGuid(), AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+
+        // Assert
+        page.Items.ShouldBeEmpty();
+        page.TotalCount.ShouldBe(0);
+    }
+
+    public static TheoryData<ListTranslationsRequest, long[]> MineWithOtherFilterCases() => new()
+    {
+        { new ListTranslationsRequest(Mine: true), [6, 4, 3, 1] },
+        { new ListTranslationsRequest(Mine: true, Search: "Stout"), [6, 4, 1] },
+        { new ListTranslationsRequest(Mine: true, Search: "Stout", Match: TranslationSearchMatch.WholeWord), [4, 1] },
+        { new ListTranslationsRequest(Mine: true, Search: "Stout heart", Match: TranslationSearchMatch.WholeText), [4] },
+        { new ListTranslationsRequest(Mine: true, Status: TranslationStatus.Approved), [3] },
+        { new ListTranslationsRequest(Mine: true, ConflictsOnly: true), [1] },
+        {
+            new ListTranslationsRequest(
+                Mine: true,
+                Search: "Stout",
+                Status: TranslationStatus.Draft,
+                ConflictsOnly: true,
+                Match: TranslationSearchMatch.WholeWord),
+            [1]
+        }
+    };
+
     public static TheoryData<ListTranslationsRequest, long[], int> RoundTripCases() => new()
     {
         { new ListTranslationsRequest(), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 10 },
@@ -1084,6 +1340,8 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         { new ListTranslationsRequest(PageSize: 3), [1, 2, 3], 10 },
         { new ListTranslationsRequest(Sort: "gossipId:desc"), [10, 9, 8, 7, 6, 5, 4, 3, 2, 1], 10 },
         { new ListTranslationsRequest(ConflictsOnly: true), [1, 2, 3, 4, 5, 6, 9, 10], 8 },
+        // This caller saved nothing, so "mine" holds nothing.
+        { new ListTranslationsRequest(Mine: true), [], 0 },
         {
             new ListTranslationsRequest(
                 Search: "Stout",
@@ -1156,6 +1414,25 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     private Task<PaginationResponse<TranslationListItemResponse>> SearchAsync(string term, TranslationSearchMatch match)
         => ListAsync(new ListTranslationsRequest(Search: term, Match: match));
 
+    private async Task<PaginationResponse<TranslationListItemResponse>> ListAsAsync(
+        Guid subject,
+        string role,
+        ListTranslationsRequest request)
+    {
+        HttpResponseMessage response = await ClientFor(subject, role).GetAsync(
+            QueryHelpers.AddQueryString("/api/v1/translations", request.ToQueryParameters()));
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+    }
+
+    private HttpClient ClientFor(Guid subject, string role)
+    {
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
+            "Bearer", TranslationSystemApiFactory.CreateAccessToken(role, AuthConstants.Scopes.Api, subject));
+        return client;
+    }
+
     private HttpClient TranslatorClient()
     {
         HttpClient client = _factory.CreateClient();
@@ -1170,6 +1447,59 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
         dbContext.Translations.AddRange(rows);
         await dbContext.SaveChangesAsync();
+    }
+
+    private async Task<bool> TranslatorExistsAsync(Guid subject)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        IdentityId identityId = IdentityId.Create(subject);
+        return await dbContext.Translators.AnyAsync(translator => translator.IdentityId == identityId);
+    }
+
+    private async Task<TranslatorId> SeedTranslatorAsync(Guid subject, string displayName)
+    {
+        using IServiceScope scope = _factory.Services.CreateScope();
+        ApplicationWriteDbContext dbContext = scope.ServiceProvider.GetRequiredService<ApplicationWriteDbContext>();
+        Translator translator = Translator.Create(
+            IdentityId.Create(subject), DisplayName.Create(displayName).Value, email: null, Now).Value;
+        dbContext.Translators.Add(translator);
+        await dbContext.SaveChangesAsync();
+        return translator.Id;
+    }
+
+    /// <summary>
+    /// A row whose text <paramref name="author"/> saved at <paramref name="at"/>. An approve happens at the
+    /// same time, so the row's last change stays <paramref name="at"/>.
+    /// </summary>
+    private Translation Saved(
+        long gossipId,
+        string source,
+        string polish,
+        TranslatorId author,
+        DateTimeOffset at,
+        TranslatorId? approvedBy = null,
+        bool removed = false,
+        int fileId = FileId)
+    {
+        Translation row = Translation.CreateUntranslated(
+            FragmentKey.Create(fileId, gossipId).Value,
+            TranslationSource.Create(source, null, null).Value,
+            _versionId,
+            Now).Value;
+        row.ProvideTranslation(polish, author, at);
+
+        if (approvedBy is { } approver)
+        {
+            row.Approve(approver, at);
+        }
+
+        if (removed)
+        {
+            row.MarkRemoved(_versionId, at);
+        }
+
+        return row;
     }
 
     private Translation Row(

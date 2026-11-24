@@ -186,11 +186,11 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
     /// Expired one minute ago: inside JwtBearer's default five-minute skew, so only the zero skew refuses
     /// it (#933).
     /// </summary>
-    public static string CreateExpiredAccessToken()
-        => CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(-1));
+    public static string CreateExpiredAccessToken(Guid? subject = null)
+        => CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(-1), subject);
 
-    public static string CreateAccessTokenExpiringAt(DateTime expires)
-        => CreateToken(TestSigningKey, expires);
+    public static string CreateAccessTokenExpiringAt(DateTime expires, Guid? subject = null)
+        => CreateToken(TestSigningKey, expires, subject: subject);
 
     public static string CreateAccessTokenOfType(string tokenType)
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), tokenType: tokenType);

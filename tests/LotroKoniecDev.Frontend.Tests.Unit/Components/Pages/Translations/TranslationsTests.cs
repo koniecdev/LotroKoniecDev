@@ -405,12 +405,13 @@ public sealed class TranslationsTests : BunitContext
         // #1452: the editor builds its way back from these fields.
         TranslationListItemResponse row = Row(canEdit: true);
         StubPage(SinglePageOf(row));
-        Navigation().NavigateTo("/translations?search=Frodo&status=Draft&page=2&pageSize=25&conflictsOnly=true&match=WholeWord");
+        Navigation().NavigateTo(
+            "/translations?search=Frodo&status=Draft&page=2&pageSize=25&conflictsOnly=true&match=WholeWord&mine=true");
 
         IRenderedComponent<TranslationsComponent> component = RenderPage();
 
         component.Find("td.col-actions a").GetAttribute("href")
-            .ShouldBe($"/editor/{row.Id.Value}?page=2&search=Frodo&match=WholeWord&status=Draft&conflictsOnly=true&pageSize=25");
+            .ShouldBe($"/editor/{row.Id.Value}?page=2&search=Frodo&match=WholeWord&status=Draft&conflictsOnly=true&mine=true&pageSize=25");
     }
 
     [Fact]
@@ -444,7 +445,7 @@ public sealed class TranslationsTests : BunitContext
         // whole state gets the page, so a rendered row proves the list read every field.
         TranslationListQuery state = TranslationListQuery.From(
             search: "Frodo & Sam", status: "Draft", page: 2, pageSize: 25, conflictsOnly: true,
-            match: TranslationSearchMatch.WholeText);
+            match: TranslationSearchMatch.WholeText, mine: true);
         _client
             .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
                 state.ToApiUri(StubDiscoveryCache.HrefFor(Rels.Translations)),
@@ -460,6 +461,7 @@ public sealed class TranslationsTests : BunitContext
         component.Find("#pageSize option[value=\"25\"]").HasAttribute("selected").ShouldBeTrue();
         component.Find("form.filter input#conflictsOnly").HasAttribute("checked").ShouldBeTrue();
         component.Find("form.filter select#match option[value=\"WholeText\"]").HasAttribute("selected").ShouldBeTrue();
+        component.Find("form.filter input#mine").HasAttribute("checked").ShouldBeTrue();
     }
 
     [Fact]
@@ -523,6 +525,111 @@ public sealed class TranslationsTests : BunitContext
 
         component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
         component.Find("form.filter select#match option[value=\"\"]").HasAttribute("selected").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Render_ForASignedInUser_OffersTheMineCheckboxRightAfterTheConflictsOne()
+    {
+        // #1491: "Tylko moje" sends "true", the only value that turns it on, as the conflicts box does.
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        IElement checkbox = component.Find("form.filter input#mine");
+        checkbox.GetAttribute("type").ShouldBe("checkbox");
+        checkbox.GetAttribute("name").ShouldBe("mine");
+        checkbox.GetAttribute("value").ShouldBe("true");
+        checkbox.HasAttribute("checked").ShouldBeFalse();
+        component.Find("form.filter .field-mine label.checkbox").TextContent.Trim().ShouldBe("Tylko moje");
+        component.Find("form.filter > .field-conflicts").NextElementSibling.ShouldNotBeNull()
+            .ClassList.ShouldContain("field-mine");
+    }
+
+    [Fact]
+    public void Render_ForAVisitor_HidesTheMineCheckbox()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubPage(SinglePageOf(Row(canEdit: true)));
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("form.filter input#mine").ShouldBeEmpty();
+        component.FindAll("form.filter input#conflictsOnly").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_WhenMineIsInTheQuery_ChecksTheBoxAndAsksTheApiForTheCallersRows()
+    {
+        // Only a call that carries the option gets the page, so a rendered row proves it reached the API.
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                Arg.Is<string>(uri => uri.Contains("mine=true")),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(SinglePageOf(Row(canEdit: true))));
+        Navigation().NavigateTo("/translations?mine=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("form.filter input#mine").HasAttribute("checked").ShouldBeTrue();
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_ForAVisitorWithMineInTheQuery_ShowsTheWholeListAndLeavesMineOutOfEveryLink()
+    {
+        // #1491: a visitor saved nothing, so the page drops the option and shows the full list.
+        AddAuthorization().SetNotAuthorized();
+        TranslationListItemResponse row = Row(canEdit: true);
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+                Arg.Is<string>(uri => !uri.Contains("mine")),
+                Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success(new PaginationResponse<TranslationListItemResponse>
+            {
+                Items = [row],
+                Page = 1,
+                PageSize = 1,
+                TotalCount = 2,
+                Links = [PageLink(Rels.NextPage), PageLink(Rels.LastPage)]
+            }));
+        Navigation().NavigateTo("/translations?search=axe&mine=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("a[rel=next]").GetAttribute("href").ShouldBe("/translations?page=2&search=axe");
+        component.Find("td.col-actions a").GetAttribute("href").ShouldBe($"/editor/{row.Id.Value}?search=axe");
+    }
+
+    [Fact]
+    public void Render_WhenMineIsInTheQuery_ThePagerLinksKeepIt()
+    {
+        StubPage(MultiPageOf(page: 1, links: [PageLink(Rels.NextPage), PageLink(Rels.LastPage)]));
+        Navigation().NavigateTo("/translations?mine=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("a[rel=next]").GetAttribute("href").ShouldBe("/translations?page=2&mine=true");
+        component.Find("a[rel=last]").GetAttribute("href").ShouldBe("/translations?page=2&mine=true");
+    }
+
+    [Theory]
+    [InlineData("mine=true", true)]
+    [InlineData("mine=True", true)]
+    [InlineData("mine=false", false)]
+    [InlineData("mine=on", false)]
+    [InlineData("mine=1", false)]
+    [InlineData("mine=", false)]
+    [InlineData("mine", false)]
+    public void Render_WithAnyMineValueInTheUrl_ShowsTheListAndReadsOnlyTrueAsOn(string query, bool expectedOn)
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.Find("form.filter input#mine").HasAttribute("checked").ShouldBe(expectedOn);
     }
 
     private IRenderedComponent<TranslationsComponent> RenderPage() =>

@@ -660,11 +660,15 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public async Task Save_WhenThePanelFailsOnAPostAndTheSaveSucceeds_StillRedirectsWithTheSavedFlag()
+    public async Task Save_WhenTheSaveSucceedsOnAPost_RedirectsWithoutAskingForThePanel()
     {
+        // The GET after the redirect loads the panel, so a good post must not pay for it too.
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
-        StubSameSourceTextFailure();
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
         _client
             .PutApiResultAsync<TranslationDetailResponse>(SaveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
             .Returns(ApiResult.Success(BuildDetail("Stout-axe[D]", "Topór wojenny", hasSameSourceText: true)));
@@ -674,6 +678,30 @@ public sealed class EditorTests : BunitContext
         await component.Find("form").SubmitAsync();
 
         navigation.Uri.ShouldEndWith($"/editor/{id}?saved=true");
+        await _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Approve_WhenTheApproveSucceedsOnAPost_RedirectsWithoutAskingForThePanel()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canApprove: true, hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        _client
+            .PostApiResultAsync(ApproveHref, Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Success());
+        BunitNavigationManager navigation = Navigation();
+        IRenderedComponent<EditorComponent> component = RenderEditorOnAPost(id);
+
+        await component.Find(".editor-approve").SubmitAsync();
+
+        navigation.Uri.ShouldEndWith($"/editor/{id}?approved=true");
+        await _client.DidNotReceive().GetApiResultAsync<SameSourceTextTranslationsResponse>(
+            Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

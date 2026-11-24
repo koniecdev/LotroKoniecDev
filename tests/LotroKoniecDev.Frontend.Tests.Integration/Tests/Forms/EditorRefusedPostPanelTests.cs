@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
@@ -36,6 +37,9 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
     private const string TypedPolish = "Krzepki topór";
     private const string OtherRowPolish = "Krzepki Topornik";
     private const string PanelTitle = "Inne wiersze z tym samym tekstem";
+    private const string RowRead = "GET row";
+    private const string UpsertWrite = "PUT upsert";
+    private const string PanelRead = "GET panel";
 
     /// <summary>The names ASP.NET Core gives the typed clients, which are internal to the Frontend.</summary>
     private const string TranslationSystemClientName = "ITranslationSystemClient";
@@ -90,14 +94,27 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
     }
 
     [Fact]
-    public async Task Post_SaveForm_WhenThePanelFailsAndTheSaveIsGood_SavesAndRedirects()
+    public async Task Post_SaveForm_WhenTheApiRefusesTheSave_AsksForThePanelOnlyAfterTheWrite()
     {
-        // Arrange: the panel read comes before the write, so its failure must not stop the save.
-        StubTranslationSystem translationSystem = new()
-        {
-            PanelAnswer = HttpStatusCode.ServiceUnavailable,
-            SaveSucceeds = true
-        };
+        // Arrange: a panel read before the write could delay it, or open the client's shared circuit breaker.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(antiforgeryToken, draft: string.Empty));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        translationSystem.Requests.ShouldBe([RowRead, UpsertWrite, PanelRead]);
+    }
+
+    [Fact]
+    public async Task Post_SaveForm_WhenTheSaveIsGood_RedirectsWithoutAskingForThePanel()
+    {
+        // Arrange: the GET after the redirect loads the panel, so a good post must not pay for it too.
+        StubTranslationSystem translationSystem = new() { SaveSucceeds = true };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
@@ -108,6 +125,7 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
         posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"/editor/{RowId}?saved=true");
+        translationSystem.Requests.ShouldBe([RowRead, UpsertWrite]);
     }
 
     [Fact]
@@ -193,15 +211,21 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
     /// </summary>
     private sealed class StubTranslationSystem : HttpMessageHandler
     {
+        private readonly ConcurrentQueue<string> _requests = new();
+
         public HttpStatusCode PanelAnswer { get; init; } = HttpStatusCode.OK;
 
         public bool SaveSucceeds { get; init; }
+
+        /// <summary>The calls to the row, the panel and the write, in the order they came.</summary>
+        public IReadOnlyList<string> Requests => [.. _requests];
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             Uri uri = request.RequestUri ?? throw new InvalidOperationException("A call with no address.");
+            Record(uri, request.Method);
 
             HttpResponseMessage response = uri switch
             {
@@ -227,6 +251,22 @@ public sealed partial class EditorRefusedPostPanelTests : IClassFixture<Producti
             };
 
             return Task.FromResult(response);
+        }
+
+        private void Record(Uri uri, HttpMethod method)
+        {
+            string? call = uri switch
+            {
+                _ when uri == RowHref && method == HttpMethod.Get => RowRead,
+                _ when uri == SameSourceTextHref && method == HttpMethod.Get => PanelRead,
+                _ when uri == UpsertHref && method == HttpMethod.Put => UpsertWrite,
+                _ => null
+            };
+
+            if (call is not null)
+            {
+                _requests.Enqueue(call);
+            }
         }
 
         private static TranslationDetailResponse Row() =>

@@ -383,7 +383,12 @@
         {
             _detail = result.Value;
             _loadProblem = null;
-            await LoadSameSourceTextAsync(result.Value);
+
+            // A post loads the panel in PostAsync, after its write, and only when it stays on the page.
+            if (HttpContext is null || !HttpMethods.IsPost(HttpContext.Request.Method))
+            {
+                await LoadSameSourceTextAsync(result.Value);
+            }
         }
         else
         {
@@ -400,7 +405,29 @@
         }
     }
 
-    private async Task SaveAsync()
+    private Task SaveAsync() =>
+        PostAsync(SaveOrRedirectAsync);
+
+    private Task ApproveAsync() =>
+        PostAsync(ApproveOrRedirectAsync);
+
+    /// <summary>
+    /// Every form of this page posts through here. A good post redirects to a GET that loads the panel. A
+    /// post that stays on the page loads it after its write, so the panel read never delays the write and a
+    /// good post costs no extra request (#1482).
+    /// </summary>
+    private async Task PostAsync(Func<Task<bool>> postOrRedirect)
+    {
+        if (await postOrRedirect() || _detail is null)
+        {
+            return;
+        }
+
+        await LoadSameSourceTextAsync(_detail);
+    }
+
+    /// <returns><c>true</c> when the save went through and the page redirects.</returns>
+    private async Task<bool> SaveOrRedirectAsync()
     {
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
@@ -415,7 +442,7 @@
             if (resolved.IsFailure)
             {
                 _saveProblem = resolved.ProblemDetails;
-                return;
+                return false;
             }
 
             upsertHref = resolved.Value;
@@ -428,13 +455,15 @@
         {
             // A failure does not redirect, so the typed draft and the error stay on screen.
             Navigation.NavigateTo(EditorUriWithFlag("saved"));
-            return;
+            return true;
         }
 
         _saveProblem = result.ProblemDetails;
+        return false;
     }
 
-    private async Task ApproveAsync()
+    /// <returns><c>true</c> when the approve went through and the page redirects.</returns>
+    private async Task<bool> ApproveOrRedirectAsync()
     {
         _approveProblem = null;
 
@@ -443,17 +472,18 @@
         LinkDto? approveLink = _detail?.Links.FindLink(Rels.Approve);
         if (approveLink is null)
         {
-            return;
+            return false;
         }
 
         ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
             Navigation.NavigateTo(EditorUriWithFlag("approved"));
-            return;
+            return true;
         }
 
         _approveProblem = result.ProblemDetails;
+        return false;
     }
 
     /// <summary>
@@ -464,8 +494,7 @@
         QueryHelpers.AddQueryString(_listQuery.ToEditorRelativeUri(TranslationId.FromValue(Id)), successFlag, "true");
 
     /// <summary>
-    /// Its own state, so a failed panel never hides the row (#1347). Loaded on every request, a post
-    /// included, so a refused save or approve still shows it (#1482).
+    /// Its own state, so a failed panel never hides the row (#1347).
     /// </summary>
     private async Task LoadSameSourceTextAsync(TranslationDetailResponse detail)
     {

@@ -910,7 +910,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     {
         // Arrange: the terms share the translation without naming who wrote which part (#1543). The
         // expired token names the author, and the valid service token names a client, not a user. The
-        // list has no approver today; the approver guards a later field.
+        // list has no approver field today; the approver checks catch one if it is added later.
         Guid authorSubject = Guid.NewGuid();
         Guid approverSubject = Guid.NewGuid();
         TranslatorId authorId = await SeedTranslatorAsync(authorSubject, AuthorName);

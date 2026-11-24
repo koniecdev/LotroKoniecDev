@@ -167,14 +167,14 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         Guid? subject = null,
         string displayName = TestUserDisplayName,
         string email = TestUserEmail)
-        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject, displayName, email);
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), role, scope, subject?.ToString(), displayName, email);
 
     /// <summary>
     /// A token with several roles carries <c>role</c> as a JSON array, as the sign-in server writes it. A
     /// Reviewer always keeps Translator (#1488).
     /// </summary>
     public static string CreateAccessTokenWithRoles(Guid? subject, params string[] roles)
-        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), subject: subject, roles: roles);
+        => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), subject: subject?.ToString(), roles: roles);
 
     /// <summary>
     /// The website's token names the auth API next to this one (#1023).
@@ -190,7 +190,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         => CreateAccessTokenExpiringAt(DateTime.UtcNow.AddMinutes(-1), subject);
 
     public static string CreateAccessTokenExpiringAt(DateTime expires, Guid? subject = null)
-        => CreateToken(TestSigningKey, expires, subject: subject);
+        => CreateToken(TestSigningKey, expires, subject: subject?.ToString());
 
     public static string CreateAccessTokenOfType(string tokenType)
         => CreateToken(TestSigningKey, DateTime.UtcNow.AddMinutes(30), tokenType: tokenType);
@@ -202,32 +202,52 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
 
     /// <summary>
     /// Shaped like the client-credentials token: its <c>sub</c> and <c>name</c> are the client id, not a
-    /// user's GUID, and it holds no role.
+    /// user's GUID, and it has no role and no e-mail.
     /// </summary>
     public static string CreateServiceAccessToken()
         => CreateToken(
             TestSigningKey,
             DateTime.UtcNow.AddMinutes(30),
-            scope: AuthConstants.Scopes.Service,
+            role: null,
+            scope: $"{AuthConstants.Scopes.Api} {AuthConstants.Scopes.Service}",
+            subject: AuthConstants.ClientIds.Api,
             displayName: AuthConstants.ClientIds.Api,
-            email: "",
-            roles: [],
-            subjectClaim: AuthConstants.ClientIds.Api);
+            email: null);
 
     private static string CreateToken(
         SymmetricSecurityKey signingKey,
         DateTime expires,
-        string role = AuthConstants.Roles.Translator,
+        string? role = AuthConstants.Roles.Translator,
         string scope = AuthConstants.Scopes.Api,
-        Guid? subject = null,
+        string? subject = null,
         string displayName = TestUserDisplayName,
-        string email = TestUserEmail,
+        string? email = TestUserEmail,
         string[]? audiences = null,
         string tokenType = AuthConstants.TokenTypes.AccessToken,
-        string[]? roles = null,
-        string? subjectClaim = null)
+        string[]? roles = null)
     {
         JsonWebTokenHandler handler = new();
+
+        Dictionary<string, object> claims = new()
+        {
+            ["sub"] = subject ?? Guid.NewGuid().ToString(),
+            ["name"] = displayName,
+            ["scope"] = scope
+        };
+
+        if (email is not null)
+        {
+            claims["email"] = email;
+        }
+
+        if (roles is not null)
+        {
+            claims["role"] = roles;
+        }
+        else if (role is not null)
+        {
+            claims["role"] = role;
+        }
 
         SecurityTokenDescriptor descriptor = new()
         {
@@ -239,14 +259,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             NotBefore = expires.AddMinutes(-30),
             Expires = expires,
             SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256),
-            Claims = new Dictionary<string, object>
-            {
-                ["sub"] = subjectClaim ?? (subject ?? Guid.NewGuid()).ToString(),
-                ["name"] = displayName,
-                ["email"] = email,
-                ["role"] = roles is null ? role : roles,
-                ["scope"] = scope
-            }
+            Claims = claims
         };
 
         foreach (string audience in audiences ?? [])

@@ -288,11 +288,20 @@
                     </div>
                     @if (sameSourceText.Items.Count < sameSourceText.TotalCount)
                     {
+                        string? allRowsListHref = AllRowsListHref(detail.SourceText);
                         <p class="text-dim same-source-capped">
                             Pokazano @sameSourceText.Items.Count z @sameSourceText.TotalCount.
+                            @if (allRowsListHref is not null)
+                            {
+                                <a class="same-source-all" href="@allRowsListHref">Pokaż wszystkie (@sameSourceText.TotalCount) na liście</a>
+                            }
                             @if (sameSourceText.HasConflictingTranslations)
                             {
-                                <a href="@ConflictListHref(detail.SourceText)">Pokaż rozbieżne tłumaczenia na liście</a>
+                                @if (allRowsListHref is not null)
+                                {
+                                    <span aria-hidden="true"> · </span>
+                                }
+                                <a class="same-source-conflict-link" href="@ConflictListHref(detail.SourceText)">Pokaż rozbieżne tłumaczenia na liście</a>
                             }
                         </p>
                     }
@@ -308,10 +317,9 @@
     private const string ApproveFormName = "approve-translation";
 
     /// <summary>
-    /// The capped panel's list link searches for the English only up to this length, so the URL stays short.
-    /// A longer text links to the whole conflict list.
+    /// The capped panel's list links search for the English only up to this length, so the URL stays short.
     /// </summary>
-    private const int MaxConflictSearchLength = 200;
+    private const int MaxListSearchLength = 200;
 
     private TranslationDetailResponse? _detail;
     private SameSourceTextTranslationsResponse? _sameSourceText;
@@ -477,19 +485,38 @@
         _listQuery.ToEditorRelativeUri(id);
 
     /// <summary>
-    /// The list's conflict filter is the uncapped view of these rows. The English goes in as the search term
-    /// while it is short and has no line break, which the list's search box would drop on the next submit.
-    /// The list's search also finds other rows (a longer text that contains this one, or an id: docs/API.md),
-    /// so the list can show conflict rows of other texts too.
+    /// The list's conflict filter is the uncapped view of these rows. The list's search also finds other rows
+    /// (a longer text that contains this one, or an id: docs/API.md), so the list can show conflict rows of
+    /// other texts too. When <see cref="ListSearchFor"/> returns null, the link opens the whole conflict list.
     /// </summary>
     private static string ConflictListHref(string sourceText) =>
         TranslationListQuery
-            .From(
-                sourceText.Length <= MaxConflictSearchLength && sourceText.IndexOfAny(['\r', '\n']) < 0 ? sourceText : null,
-                status: null,
-                page: 1,
-                conflictsOnly: true)
+            .From(ListSearchFor(sourceText), status: null, page: 1, conflictsOnly: true)
             .ToPageRelativeUri(1);
+
+    /// <summary>
+    /// Every row with this English, past the panel's cap (#1492). The "Cały tekst" search ignores case and a
+    /// grammar mark, and it also matches the Polish and the ids (docs/API.md), so the list can show more rows.
+    /// Like the conflict link, it opens a new list. When <see cref="ListSearchFor"/> returns null there is no
+    /// link, because a list with no search shows every row.
+    /// </summary>
+    private static string? AllRowsListHref(string sourceText) =>
+        ListSearchFor(sourceText) is { } search
+            ? TranslationListQuery
+                .From(search, status: null, page: 1, match: TranslationSearchMatch.WholeText)
+                .ToPageRelativeUri(1)
+            : null;
+
+    /// <summary>
+    /// The English as a list search term, or null when it cannot be one: it is blank, it is too long, or it
+    /// has a line break. The list's search box drops a line break inside the text on the next submit.
+    /// </summary>
+    private static string? ListSearchFor(string sourceText) =>
+        !string.IsNullOrWhiteSpace(sourceText)
+        && sourceText.Length <= MaxListSearchLength
+        && sourceText.IndexOfAny(['\r', '\n']) < 0
+            ? sourceText
+            : null;
 
     private static RenderFragment RenderHighlighted(string text) => builder =>
     {

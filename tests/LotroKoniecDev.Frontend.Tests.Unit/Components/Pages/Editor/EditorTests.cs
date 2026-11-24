@@ -606,7 +606,7 @@ public sealed class EditorTests : BunitContext
 
         IElement capped = component.Find(".same-source-capped");
         capped.TextContent.ShouldContain("Pokazano 1 z 60");
-        capped.QuerySelector("a")!.GetAttribute("href")
+        capped.QuerySelector(".same-source-conflict-link")!.GetAttribute("href")
             .ShouldBe("/translations?page=1&search=Interrupted!&conflictsOnly=true");
     }
 
@@ -622,7 +622,7 @@ public sealed class EditorTests : BunitContext
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
-        component.Find(".same-source-capped a").GetAttribute("href")
+        component.Find(".same-source-conflict-link").GetAttribute("href")
             .ShouldBe($"/translations?page=1&search={limitText}&conflictsOnly=true");
     }
 
@@ -638,7 +638,7 @@ public sealed class EditorTests : BunitContext
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
-        component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+        component.Find(".same-source-conflict-link").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
     }
 
     [Theory]
@@ -656,11 +656,11 @@ public sealed class EditorTests : BunitContext
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 
-        component.Find(".same-source-capped a").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+        component.Find(".same-source-conflict-link").GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
     }
 
     [Fact]
-    public void Render_WhenThePanelIsCappedButThePolishAgrees_ShowsTheCountWithoutAListLink()
+    public void Render_WhenThePanelIsCappedButThePolishAgrees_LinksToAllRowsButNotToTheConflictList()
     {
         StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
         StubSameSourceText(new SameSourceTextTranslationsResponse(
@@ -672,7 +672,157 @@ public sealed class EditorTests : BunitContext
 
         IElement capped = component.Find(".same-source-capped");
         capped.TextContent.ShouldContain("Pokazano 1 z 60");
+        IHtmlCollection<IElement> links = capped.QuerySelectorAll("a");
+        links.Length.ShouldBe(1);
+        links[0].ClassList.ShouldContain("same-source-all");
+    }
+
+    [Fact]
+    public void Render_WhenThereAreMoreRowsThanThePanelShows_LinksToAWholeTextSearchForTheEnglish()
+    {
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            OtherRows(50),
+            TotalCount: 51,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement link = component.Find(".same-source-capped .same-source-all");
+        link.TextContent.ShouldBe("Pokaż wszystkie (51) na liście");
+        link.GetAttribute("href").ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
+    }
+
+    [Fact]
+    public void Render_WhenThePanelShowsEveryRow_HasNoLinkToAllRows()
+    {
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            OtherRows(50),
+            TotalCount: 50,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.FindAll("section.same-source tbody tr").Count.ShouldBe(50);
+        component.FindAll(".same-source-capped").ShouldBeEmpty();
+        component.FindAll(".same-source-all").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndTheEnglishIsExactlyTheLimit_LinksToAllRows()
+    {
+        string limitText = new('a', 200);
+        StubLoad(BuildDetail(sourceText: limitText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-all").GetAttribute("href")
+            .ShouldBe($"/translations?page=1&search={limitText}&match=WholeText");
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndTheEnglishIsLong_HasNoLinkToAllRows()
+    {
+        StubLoad(BuildDetail(sourceText: new string('a', 201), translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        capped.TextContent.ShouldContain("Pokazano 1 z 60");
         capped.QuerySelectorAll("a").Length.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("Line one\nline two")]
+    [InlineData("Line one\r\nline two")]
+    [InlineData("Line one\rline two")]
+    [InlineData("Interrupted!\n")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Render_WhenThePanelIsCappedAndTheEnglishCannotBeASearch_HasNoLinkToAllRows(string sourceText)
+    {
+        // A blank search would open the whole list, and the list's search box drops line breaks.
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        capped.TextContent.ShouldContain("Pokazano 1 z 60");
+        capped.QuerySelectorAll("a").Length.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Render_WhenThePanelIsCappedAndThePolishDiffers_ShowsBothLinksWithTheirOwnTargets()
+    {
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        capped.QuerySelector(".same-source-all")!.GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
+        capped.QuerySelector(".same-source-conflict-link")!.GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&conflictsOnly=true");
+        capped.TextContent.ShouldContain("na liście · Pokaż rozbieżne");
+    }
+
+    [Theory]
+    [InlineData("Line one\nline two")]
+    [InlineData("Line one\rline two")]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Render_WhenThePanelIsCappedAndThePolishDiffersButTheEnglishCannotBeASearch_ShowsOnlyTheConflictLink(
+        string sourceText)
+    {
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: true));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        IElement capped = component.Find(".same-source-capped");
+        IHtmlCollection<IElement> links = capped.QuerySelectorAll("a");
+        links.Length.ShouldBe(1);
+        links[0].ClassList.ShouldContain("same-source-conflict-link");
+        links[0].GetAttribute("href").ShouldBe("/translations?page=1&conflictsOnly=true");
+        capped.TextContent.ShouldNotContain("·");
+    }
+
+    [Theory]
+    [InlineData("  Interrupted!  ")]
+    [InlineData("\tInterrupted!")]
+    [InlineData("\u00A0Interrupted!")]
+    public void Render_WhenThePanelIsCappedAndTheEnglishHasSpacesAtTheEdges_SearchesForTheTrimmedText(string sourceText)
+    {
+        StubLoad(BuildDetail(sourceText: sourceText, translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+
+        IRenderedComponent<EditorComponent> component = RenderEditor();
+
+        component.Find(".same-source-all").GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
     }
 
     [Fact]
@@ -824,8 +974,26 @@ public sealed class EditorTests : BunitContext
 
         IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
-        component.Find(".same-source-capped a").GetAttribute("href")
+        component.Find(".same-source-conflict-link").GetAttribute("href")
             .ShouldBe("/translations?page=1&search=Interrupted!&conflictsOnly=true");
+    }
+
+    [Fact]
+    public void Render_AllRowsListLink_StartsANewSearchInsteadOfKeepingTheListState()
+    {
+        // A kept status filter would hide some of "all" the rows.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Interrupted!", translatedText: "Przerwano!", hasSameSourceText: true));
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(TranslationId.Create(Guid.NewGuid()), 2, "Przerwano!", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 60,
+            HasConflictingTranslations: false));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find(".same-source-all").GetAttribute("href")
+            .ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
     }
 
     private BunitNavigationManager Navigation() =>
@@ -859,6 +1027,12 @@ public sealed class EditorTests : BunitContext
         TranslationStatus status,
         string saver) =>
         new(id, 620756996, gossipId, polish, status, new TranslatorSummaryResponse(TranslatorId.Create(), saver));
+
+    private static SameSourceTextItemResponse[] OtherRows(int count) =>
+        Enumerable
+            .Range(1, count)
+            .Select(gossipId => Other(TranslationId.Create(Guid.NewGuid()), gossipId, "Przerwano!", TranslationStatus.Draft, "Gimli"))
+            .ToArray();
 
     private static TranslationDetailResponse BuildDetail(
         string sourceText,

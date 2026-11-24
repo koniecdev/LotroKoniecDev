@@ -5,7 +5,8 @@
 #                       ghcr.io/${IMAGE_NAMESPACE…} images are skipped: cd.yml and the other half of
 #                       image-scan.yml scan them. Exit 2 when a file is missing, has no image, has
 #                       a ref this reader cannot trust (another `${`, a quote, a comment, no tag),
-#                       or has an image key in another form (`- image:`, `{image: …}`).
+#                       or has an image key in another form (`- image:`, `{image: …}`, `"image":`,
+#                       `image :`).
 #   --backup <file>     Prints the default of POSTGRES_IMAGE in scripts/hetzner/backup.sh. Exit 2
 #                       unless exactly one such line holds a plain ref.
 #   --matrix staging=<sha> production=<sha>
@@ -29,7 +30,7 @@ set -euo pipefail
 export LC_ALL=C
 
 readonly REF_PATTERN='^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?$'
-readonly OTHER_IMAGE_FORM='(^|[^A-Za-z0-9_-])image:'
+readonly OTHER_IMAGE_FORM="(^|[^A-Za-z0-9_-])[\"']?image[\"']?[[:space:]]*:"
 readonly OUR_IMAGES_PREFIX='ghcr.io/${IMAGE_NAMESPACE'
 readonly TRIVY_DIR='.github/trivy'
 readonly ENVIRONMENTS=(staging production)
@@ -65,8 +66,8 @@ read_compose() {
     while IFS= read -r line || [ -n "$line" ]; do
         number=$((number + 1))
         if [[ ! "$line" =~ ^[[:space:]]*image:(.*)$ ]]; then
-            # `- image: x` or `{image: x}` is an image too. Reading only the plain form would skip it
-            # without a word, so any other form stops the list.
+            # `- image: x`, `{image: x}`, `"image": x` and `image : x` are images too. Reading only
+            # the plain form would skip them without a word, so these forms stop the list.
             if [[ ! "$line" =~ ^[[:space:]]*# ]] && [[ "$line" =~ $OTHER_IMAGE_FORM ]]; then
                 log "${name}:${number}: an image key in a form this reader does not follow (a list item, a flow mapping or after other text). Write it as its own \`image: <ref>\` line."
                 return 2
@@ -224,6 +225,8 @@ matrix() {
 # Every entry: exactly the keys below (paths optional), one package purl with no qualifiers, an
 # expiry at midnight UTC that is a real date, and a statement whose prefix sets the longest allowed
 # expiry. Trivy drops a key it does not know without a word, so `expires_at` would never expire.
+# A false positive is proven for one package version, so its purl names that version: a new pin
+# with another version gets its finding back instead of keeping the old proof for 180 days.
 readonly CHECK_PROGRAM='
 def problem($n; $id; $text): "entry \($n) (\($id)): \($text)";
 def real_midnight: type == "string"
@@ -255,7 +258,10 @@ def entry_problems($n; $e):
       (if $limit == null
          then problem($n; $id; "the statement must start with \"Waiting for a vendor fix: \" or \"False positive: \", followed by the reason") else empty end),
       (if $limit != null and ($e.expired_at | real_midnight) and ($e.expired_at | fromdateiso8601) > ($today + $limit * 86400)
-         then problem($n; $id; "expires \($e.expired_at), more than \($limit) days after \($today_text)") else empty end);
+         then problem($n; $id; "expires \($e.expired_at), more than \($limit) days after \($today_text)") else empty end),
+      (if $limit == 180 and ($e.purls | type) == "array" and ($e.purls | length) == 1 and ($e.purls[0] | type) == "string"
+          and ($e.purls[0] | test("@[^?#[:space:]]+$") | not)
+         then problem($n; $id; "a false positive is proven for one version, so its purl must name it (pkg:…@<version>)") else empty end);
 if type != "object" or (keys != ["vulnerabilities"]) then "the file must be a JSON object whose only key is \"vulnerabilities\""
 elif (.vulnerabilities | type) != "array" or (.vulnerabilities | length) == 0 then "\"vulnerabilities\" must be a non-empty list"
 else

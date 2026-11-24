@@ -10,12 +10,16 @@
 #      `git show :<path>` read the index), and one environment that cannot be read must not stop
 #      the legs of the other. So --matrix turns each such case into an error leg.
 #   3. An exception that is wider or longer than the owner's rule. Each entry names one package and
-#      expires within 30 days (waiting for a vendor fix) or 180 days (a proven false positive). The
-#      real exception files are checked here on every PR. The date rule only gets easier as days
-#      pass, so a date never turns this test red by itself.
-#   4. The workflow shape: the third-party legs give Trivy no registry credentials and scan for
-#      vulnerabilities only, and our own images never read an exception file. A broken copy of the
-#      workflow proves each check still fires.
+#      expires within 30 days (waiting for a vendor fix) or 180 days (a proven false positive, whose
+#      purl names the version the proof holds for). The real exception files are checked here on
+#      every PR. The date rule only gets easier as days pass, so a date never turns this test red by
+#      itself.
+#   4. The workflow shape: the third-party legs run when one environment failed to resolve, one red
+#      leg stops no other, a leg that could not be listed fails at its first step, a finding fails
+#      the leg, the legs give Trivy no registry credentials and scan for vulnerabilities only, and
+#      our own images never read an exception file. A broken copy of the workflow proves each check
+#      still fires. No root .trivyignore or trivy.yaml may exist, because every scan in a checkout
+#      would read it.
 # CI-only (Linux runners), so no .ps1 twin.
 # shellcheck disable=SC2016 # compose, backup.sh and workflow text holds `${` that must stay literal.
 set -uo pipefail
@@ -135,6 +139,10 @@ printf 'services:\n  one:\n    image: alpine:3.22\n  two:\n    - image: caddy:2.
 expect_exit 2 'an image key as a list item stops the list' --compose "$TMP_ROOT/bad.yaml"
 printf 'services:\n  one:\n    image: alpine:3.22\n  two: {image: caddy:2.11.9-alpine}\n' > "$TMP_ROOT/bad.yaml"
 expect_exit 2 'an image key in a flow mapping stops the list' --compose "$TMP_ROOT/bad.yaml"
+printf 'services:\n  one:\n    image: alpine:3.22\n  two:\n    "image": caddy:2.11.9-alpine\n' > "$TMP_ROOT/bad.yaml"
+expect_exit 2 'a quoted image key stops the list' --compose "$TMP_ROOT/bad.yaml"
+printf 'services:\n  one:\n    image: alpine:3.22\n  two:\n    image : caddy:2.11.9-alpine\n' > "$TMP_ROOT/bad.yaml"
+expect_exit 2 'an image key with a space before the colon stops the list' --compose "$TMP_ROOT/bad.yaml"
 expect_exit 2 'a missing file stops the list' --compose "$TMP_ROOT/missing.yaml"
 printf 'services:\n  api:\n    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/x:${IMAGE_TAG:-latest}\n' > "$TMP_ROOT/none.yaml"
 expect_exit 2 'a file with no third-party image stops the list' --compose "$TMP_ROOT/none.yaml"
@@ -282,6 +290,8 @@ expect_exceptions() {
 
 expect_exceptions 0 'a vendor-fix entry 30 days ahead passes' "$(entry)"
 expect_exceptions 0 'a false positive 180 days ahead passes' \
+    "$(entry ".statement = \"$FALSE\" | .expired_at = \"2027-05-23T00:00:00Z\" | .purls = [\"pkg:golang/golang.org/x/net@v0.60.0\"]")"
+expect_exceptions 1 'a false positive with no package version fails' \
     "$(entry ".statement = \"$FALSE\" | .expired_at = \"2027-05-23T00:00:00Z\"")"
 expect_exceptions 0 'an entry with a version in its purl and no paths passes' \
     "$(entry '.purls = ["pkg:apk/alpine/libxml2@2.13.9-r2"] | del(.paths)')"
@@ -291,7 +301,7 @@ expect_exceptions 0 'the same id for two packages passes' \
     "$(entry)" "$(entry '.purls = ["pkg:golang/stdlib"]')"
 expect_exceptions 1 'a vendor-fix entry 31 days ahead fails' "$(entry '.expired_at = "2026-12-25T00:00:00Z"')"
 expect_exceptions 1 'a false positive 181 days ahead fails' \
-    "$(entry ".statement = \"$FALSE\" | .expired_at = \"2027-05-24T00:00:00Z\"")"
+    "$(entry ".statement = \"$FALSE\" | .expired_at = \"2027-05-24T00:00:00Z\" | .purls = [\"pkg:golang/golang.org/x/net@v0.60.0\"]")"
 expect_exceptions 1 'a date with no time fails (Trivy stops on it)' "$(entry '.expired_at = "2026-12-24"')"
 expect_exceptions 1 'a time other than midnight fails' "$(entry '.expired_at = "2026-12-24T12:00:00Z"')"
 expect_exceptions 1 'a date that does not exist fails' "$(entry '.expired_at = "2026-02-30T00:00:00Z"')"
@@ -516,23 +526,32 @@ expect_changed 'the list job reads the tag instead of the commit' 'does not read
     '          STAGING_COMMIT: ${{ needs.resolve.outputs.staging }}'
 expect_broken 'no third-party scan job' 'no third-party-scan job' 's/^  third-party-scan:$/  other-scan:/'
 
-# Trivy reads a `.trivyignore` from the folder it runs in. A third-party leg checks the repo out, and
-# so do the scans of our own images in cd.yml and pr-verify, so such a file at the root would hide
-# findings in all of them, outside any rule above.
+# Trivy reads a `.trivyignore` and its `trivy.yaml` settings from the folder it runs in. A third-party
+# leg checks the repo out, and so do the scans of our own images in cd.yml and pr-verify, so such a
+# file at the root would hide findings in all of them, outside any rule above.
 CASE='root-ignore'
 root_ignore_files() {
     local name
-    for name in .trivyignore .trivyignore.yaml .trivyignore.yml; do
+    for name in .trivyignore .trivyignore.yaml .trivyignore.yml trivy.yaml trivy.yml; do
         [ -e "$1/$name" ] && printf '%s\n' "$name"
     done
     return 0
 }
 LAST_OUTPUT="$(root_ignore_files "$REPO_ROOT")"
 if [ -z "$LAST_OUTPUT" ]; then
-    pass 'the repo has no root .trivyignore'
+    pass 'the repo has no root .trivyignore or trivy.yaml'
 else
-    fail 'the repo has no root .trivyignore'
+    fail 'the repo has no root .trivyignore or trivy.yaml'
 fi
+mkdir -p "$TMP_ROOT/fake-root"
+printf 'severity: CRITICAL\n' > "$TMP_ROOT/fake-root/trivy.yaml"
+LAST_OUTPUT="$(root_ignore_files "$TMP_ROOT/fake-root")"
+if grep -qxF 'trivy.yaml' <<< "$LAST_OUTPUT"; then
+    pass 'a root trivy.yaml is found'
+else
+    fail 'a root trivy.yaml is found'
+fi
+rm -f "$TMP_ROOT/fake-root/trivy.yaml"
 mkdir -p "$TMP_ROOT/fake-root"
 printf 'CVE-2026-78661\n' > "$TMP_ROOT/fake-root/.trivyignore.yaml"
 LAST_OUTPUT="$(root_ignore_files "$TMP_ROOT/fake-root")"

@@ -62,7 +62,9 @@ reads it, and our own images never read any of them. The file is JSON, which Tri
 
 - `id`: one CVE or GHSA id;
 - `purls`: exactly one package, with no qualifiers (`pkg:golang/golang.org/x/net`), and `paths`
-  only to narrow it to one binary;
+  only to narrow it to one binary. A false positive names the package version too
+  (`pkg:golang/stdlib@v1.24.6`): its proof holds for that version only, so a new pin with another
+  version gets its finding back;
 - `expired_at`: a real date at midnight UTC (`2026-12-24T00:00:00Z`);
 - `statement`: one of two classes, then the reason.
   - `Waiting for a vendor fix: ` expires at most **30 days** after the day it was written.

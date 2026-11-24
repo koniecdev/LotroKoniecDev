@@ -2825,9 +2825,12 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
 
      The leg's table prints no purl. Read it from a local JSON scan of the same ref:
      `docker run --rm aquasec/trivy:0.70.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json <ref> | jq -r '.Results[] | .Target as $t | .Vulnerabilities[]? | [$t, .VulnerabilityID, .PkgIdentifier.PURL] | @tsv'`.
-     Write `purls` as that purl without its `@version` and `?qualifiers` (`pkg:golang/stdlib`,
-     `pkg:apk/alpine/libxml2`), and `paths` as the target when the target is a binary inside the
-     image (leave `paths` out for an operating system package, whose target is the image itself).
+     Write `purls` as that purl without its `?qualifiers` (`pkg:apk/alpine/libxml2`). Drop the
+     `@version` too for a `Waiting for a vendor fix: ` entry, so the next pin with the same bug
+     stays covered; keep it for a `False positive: ` entry (`pkg:golang/stdlib@v1.24.6`), whose
+     proof holds for that version only. Write `paths` as the target when the target is a binary
+     inside the image (leave `paths` out for an operating system package, whose target is the image
+     itself).
      The class decides the longest expiry: `Waiting for a vendor fix: ` up to 30 days,
      `False positive: ` up to 180 days, counted from today
      (`date -u -d '+30 days' +%FT00:00:00Z`). Check the file before the pull request:

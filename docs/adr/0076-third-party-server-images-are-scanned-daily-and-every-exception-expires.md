@@ -198,6 +198,22 @@ the proposal on demand, because that half reads the branch's own file. Caddy, Ra
 `postgres` are read at the deployed commits, so a new pin of theirs is scanned locally before the
 merge (runbook, "The daily image scan"), and the daily run follows within a day of the deploy.
 
+## Amendment (2026-11-24): Grafana gets patches only
+
+**Supersedes:** in §5, "majors ignored" as the whole rule for Grafana.
+
+The first `observability` pull request (#1553) moved Grafana from 13.0.13 to 13.3.1 and was merged.
+The scan of its branch found 20 fixable HIGH findings in 13.3.1, and 13.3.2 still had 15. From
+13.3 on, Grafana's data sources are separate programs built with older Go libraries, so a higher
+minor is not safer. A higher patch is: 13.0.14 came out the same day with three security fixes.
+Dependabot offers only the newest version, so with minors allowed it would never offer a 13.0.x
+patch, and each week's group pull request would carry a Grafana that fails the scan.
+
+Dependabot now ignores Grafana minors as well as majors, so it proposes only patches of the pinned
+minor. A move to a new minor is a pull request of our own, after the scan of that version is clean.
+The daily scan turning red on a finding that no patch of the pinned minor fixes is the sign that the
+time has come. The other observability images keep the rule of §5.
+
 ## References
 
 - #1325 (this decision and the owner's answers), #1326 (the daily scan of our own images), #1001

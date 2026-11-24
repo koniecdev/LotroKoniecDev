@@ -328,11 +328,9 @@ services:
             exit 1 ;;
         esac
 
-  # Grafana stays on the 13.0 line on purpose. A higher number is not safer here: 13.3.1 ships its
-  # data sources as separate programs with older Go libraries, and the scan found 20 fixable HIGH
-  # findings in it. Move up only after the scan of the newer version is clean (runbook).
+  # Dependabot proposes only patches of this Grafana minor; the reason is in .github/dependabot.yml.
   grafana:
-    image: grafana/grafana:13.0.13@sha256:9b031995a5483a44f80a5dd214a70cecb31448b42d765b44d3756e17b855775f
+    image: grafana/grafana:13.0.14@sha256:5b9445edbd1a35e7a09a4c5688e03f2138d3f8a1b1b70619707d35dc4388a1bb
     container_name: obs-grafana
     profiles: ["backend"]
     restart: unless-stopped

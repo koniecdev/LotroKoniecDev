@@ -2906,14 +2906,14 @@ config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of t
 **New image versions arrive the same way.** Every image in `compose.observability.yaml` is pinned by
 tag and digest, and Dependabot proposes new versions in one `observability` pull request with the
 `on-hold` label. Majors are left out, because they change config formats, and so are Grafana
-minors (the reason is next to the rule in `.github/dependabot.yml`). A minor can break config too:
-Alloy lists breaking changes in its minor releases. So before removing `on-hold`, first scan the
-branch (`gh workflow run image-scan.yml --ref <its branch>`) and read each observability leg, not
-only the colour of the run: a leg for a deployed image can make the run red for another reason.
-Then read each changelog against the files under `.docker/observability/`, and boot the new
-images with them on your machine: copy that folder and `compose.observability.yaml` into a scratch folder, write a
-`.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a network you
-create, and run `docker compose -f compose.observability.yaml up -d` once with
+minors (the reason is next to the rule in `.github/dependabot.yml`). Before removing `on-hold`,
+scan the branch (`gh workflow run image-scan.yml --ref <its branch>`) and read each observability
+leg, not only the colour of the run: a leg for a deployed image can make the run red for another
+reason. A minor can break config too: Alloy lists breaking changes in its minor releases. So also
+read each changelog against the files under `.docker/observability/`, and boot the new images with
+them on your machine: copy that folder and `compose.observability.yaml` into a scratch folder,
+write a `.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a
+network you create, and run `docker compose -f compose.observability.yaml up -d` once with
 `COMPOSE_PROFILES=backend` and once with it empty. No CI job boots this stack. After the merge,
 nothing changes on a box until the deploy above runs on **both** boxes (`lotro-staging` with the
 backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is

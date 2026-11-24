@@ -29,6 +29,8 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     private const int OtherFileId = 620756993;
     private const int ThirdFileId = 620756994;
     private const string SeederDisplayName = "Seed Author";
+    private const string AuthorName = "Quentin Author";
+    private const string ApproverName = "Rosalind Approver";
     private static readonly DateTimeOffset Now = new(2026, 6, 13, 0, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions JsonOptions =
         new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
@@ -898,6 +900,71 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         item.Links.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("none")]
+    [InlineData("expired")]
+    [InlineData("unknown-key")]
+    [InlineData("malformed")]
+    public async Task List_ForACallerWithNoUser_ShouldServeEveryRowWithoutItsAuthor(string tokenKind)
+    {
+        // Arrange: the terms share the translation without naming who wrote which part (#1543). The
+        // expired token names the author. The list has no approver today; the approver guards a later field.
+        Guid authorSubject = Guid.NewGuid();
+        Guid approverSubject = Guid.NewGuid();
+        TranslatorId authorId = await SeedTranslatorAsync(authorSubject, AuthorName);
+        TranslatorId approverId = await SeedTranslatorAsync(approverSubject, ApproverName);
+        await SeedAsync(Saved(1, "Decayed", "Zgniły", authorId, Now, approvedBy: approverId));
+        HttpClient client = _factory.CreateClient();
+        if (TokenWithNoUser(tokenKind, authorSubject) is { } token)
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        string body = await response.Content.ReadAsStringAsync();
+        PaginationResponse<TranslationListItemResponse> page =
+            JsonSerializer.Deserialize<PaginationResponse<TranslationListItemResponse>>(body, JsonOptions)!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslationListItemResponse item = page.Items.ShouldHaveSingleItem();
+        item.TranslatedText.ShouldBe("Zgniły");
+        item.Submitter.ShouldBeNull();
+        body.ShouldNotContain(AuthorName, Case.Insensitive);
+        body.ShouldNotContain(ApproverName, Case.Insensitive);
+        body.ShouldNotContain(authorId.ToString(), Case.Insensitive);
+        body.ShouldNotContain(approverId.ToString(), Case.Insensitive);
+        body.ShouldNotContain(authorSubject.ToString(), Case.Insensitive);
+        body.ShouldNotContain(approverSubject.ToString(), Case.Insensitive);
+    }
+
+    [Theory]
+    [InlineData("translator")]
+    [InlineData("admin")]
+    [InlineData("reviewer")]
+    [InlineData("unknown-role")]
+    public async Task List_ForASignedInCallerOfAnyRole_ShouldServeTheAuthor(string callerKind)
+    {
+        // Arrange: the approver is seeded too, so the row's author cannot be confused with them.
+        TranslatorId authorId = await SeedTranslatorAsync(Guid.NewGuid(), AuthorName);
+        TranslatorId approverId = await SeedTranslatorAsync(Guid.NewGuid(), ApproverName);
+        await SeedAsync(Saved(1, "Decayed", "Zgniły", authorId, Now, approvedBy: approverId));
+        HttpClient client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", SignedInToken(callerKind));
+
+        // Act
+        HttpResponseMessage response = await client.GetAsync("/api/v1/translations");
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        TranslatorSummaryResponse submitter = page.Items.ShouldHaveSingleItem().Submitter.ShouldNotBeNull();
+        submitter.Id.ShouldBe(authorId);
+        submitter.DisplayName.ShouldBe(AuthorName);
+    }
+
     [Fact]
     public async Task List_WithoutToken_ShouldSupportSearchAndStatusFilter()
     {
@@ -1396,6 +1463,25 @@ public sealed class ListTranslationsTests : IAsyncLifetime
 
         return cases;
     }
+
+    private static string? TokenWithNoUser(string tokenKind, Guid refusedSubject) => tokenKind switch
+    {
+        "none" => null,
+        "expired" => TranslationSystemApiFactory.CreateExpiredAccessToken(refusedSubject),
+        "unknown-key" => TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey(),
+        "malformed" => "not-a-jwt",
+        _ => throw new ArgumentOutOfRangeException(nameof(tokenKind), tokenKind, null)
+    };
+
+    private static string SignedInToken(string callerKind) => callerKind switch
+    {
+        "translator" => TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Translator),
+        "admin" => TranslationSystemApiFactory.CreateAccessToken(AuthConstants.Roles.Admin),
+        "reviewer" => TranslationSystemApiFactory.CreateAccessTokenWithRoles(
+            Guid.NewGuid(), AuthConstants.Roles.Translator, AuthConstants.Roles.Reviewer),
+        "unknown-role" => TranslationSystemApiFactory.CreateAccessToken("NotARole"),
+        _ => throw new ArgumentOutOfRangeException(nameof(callerKind), callerKind, null)
+    };
 
     private async Task<PaginationResponse<TranslationListItemResponse>> ListAsync(string queryString)
     {

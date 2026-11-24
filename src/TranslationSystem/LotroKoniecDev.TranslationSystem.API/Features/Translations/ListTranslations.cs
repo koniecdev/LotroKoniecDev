@@ -30,18 +30,18 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// <summary>
 /// The editor's list (spec 0001), without soft-removed rows; <c>status=NeedsReview</c> is the "needs
 /// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
-/// by nature; every action still needs a login, so other callers get no action links.
-/// <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more different
-/// Polish texts (#1347). <c>match</c> picks how the search term must match (#1477). <c>mine</c> keeps the
-/// rows whose current Polish text the caller saved; the caller comes from the token, and a caller with no
-/// token or no translator profile gets an empty page (#1491).
+/// by nature; every action still needs a login, so other callers get no action links and no author
+/// (#1543). <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more
+/// different Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
+/// <c>mine</c> keeps the rows whose current Polish text the caller saved; the caller comes from the
+/// token, and a caller with no token or no translator profile gets an empty page (#1491).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
     /// <summary>
     /// <see cref="ListTranslationsRequest"/> already holds the page limits, and the endpoint is the only
     /// place that builds this query. <see cref="Caller"/> is the token's subject, never a value from the
-    /// address.
+    /// address; without one, the items carry no author.
     /// </summary>
     internal sealed record Query(
         string? Search,
@@ -132,7 +132,9 @@ internal sealed class ListTranslations : IEndpoint
 
             List<TranslationListItemResponse> items = await Order(filtered, query)
                 .ApplyPagination(query.Page, query.PageSize)
-                .Select(TranslationProjections.ToListItem)
+                .Select(query.Caller.HasNoValue
+                    ? TranslationProjections.ToVisitorListItem
+                    : TranslationProjections.ToListItem)
                 .ToListAsync(cancellationToken);
 
             return Result.Success(new PaginationResponse<TranslationListItemResponse>

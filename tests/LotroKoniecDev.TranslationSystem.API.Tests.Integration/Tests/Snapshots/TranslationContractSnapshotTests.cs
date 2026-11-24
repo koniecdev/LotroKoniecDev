@@ -94,7 +94,7 @@ public sealed class TranslationContractSnapshotTests : IAsyncLifetime
     [Fact]
     public async Task ListTranslations_Anonymously_MatchesThePublicHateoasContract()
     {
-        // The public list (#309): items carry no links, the envelope keeps its pager.
+        // The public list (#309): items carry no links and no author (#1543), the envelope keeps its pager.
         using HttpClient client = _factory.CreateClient();
 
         using HttpResponseMessage response =

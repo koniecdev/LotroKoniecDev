@@ -730,9 +730,9 @@ to break). Instead (ADR-0004):
   normal case free: no database query per request. If your claims change (account renamed), the
   hash differs and the row is refreshed.
 
-Why it matters: the translation list must show *other people's* names ("submitted by X,
-approved by Y"). Your token proves who *you* are, but cannot resolve other users — so the TMS
-keeps its own small copy of each user's public profile.
+Why it matters: signed-in users must see *other people's* names ("submitted by X, approved by
+Y"). Your token proves who *you* are, but cannot resolve other users — so the TMS keeps its own
+small copy of each user's profile. A visitor who is not signed in never gets these names (#1543).
 
 ### 5.3 Registering a game version
 
@@ -799,7 +799,8 @@ rows and is read twice.
 
 ### 5.5 Translating and approving
 
-**Browsing.** `GET /api/v1/translations` — the public, paginated list. Filters: text search
+**Browsing.** `GET /api/v1/translations` — the public, paginated list. A caller with no user (no
+token, a refused token, or a service token) gets each row without its author (#1543). Filters: text search
 (case-insensitive, over both English and Polish; a plain number also finds the rows with that
 `FileId` or `GossipId`, and `FileId:GossipId` finds that one row, on top of the text matches, #1406),
 its `match` mode (#1477: `Contains`, the default, finds the term anywhere with `ILIKE` and the SQL

@@ -285,7 +285,7 @@ services:
   #     box-level OOM would kill exactly the wrong container. It is the same mistake the role line
   #     invites (the template ships the BACKEND value live), so it is caught in the same place.
   preflight:
-    image: alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
+    image: alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     network_mode: none
     # Backend tier, although this one-shot runs in BOTH roles: it exits in milliseconds and holds no
     # memory, and ranking it with the project it gates keeps "no observability container outranks an
@@ -329,7 +329,7 @@ services:
         esac
 
   grafana:
-    image: grafana/grafana:13.0.13@sha256:9b031995a5483a44f80a5dd214a70cecb31448b42d765b44d3756e17b855775f
+    image: grafana/grafana:13.3.1@sha256:0615ec4fbd4072004b7d86b46ded63013a74b7d6eb1119273dd89e8fa25c13cf
     container_name: obs-grafana
     profiles: ["backend"]
     restart: unless-stopped

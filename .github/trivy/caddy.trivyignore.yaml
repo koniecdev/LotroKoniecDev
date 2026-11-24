@@ -1,0 +1,11 @@
+{
+  "vulnerabilities": [
+    {
+      "id": "CVE-2026-78661",
+      "purls": ["pkg:golang/golang.org/x/net"],
+      "paths": ["usr/bin/caddy"],
+      "expired_at": "2026-12-24T00:00:00Z",
+      "statement": "Waiting for a vendor fix: Caddy 2.11.9 is the newest release (checked 2026-11-24) and still ships golang.org/x/net v0.60.0. The fix is in v0.62.0."
+    }
+  ]
+}

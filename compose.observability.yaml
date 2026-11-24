@@ -5,6 +5,11 @@
 # lifetime of the monitoring to the lifetime of the thing it monitors (ADR-0050 §2). This file is
 # its own compose project, lives in /opt/obs, and is deployed by hand.
 #
+# Every image here is pinned by digest (ADR-0076). Dependabot proposes new versions in one grouped
+# pull request with the `on-hold` label, and a merged pin reaches a box only with the next hand
+# deploy (runbook → "Observability & monitoring"). The daily scan (image-scan.yml) reads this file
+# on main, not what a box runs, so after a merge the box stays on the old images until that deploy.
+#
 # ONE file serves both roles; the env file next to it picks which (see .env.observability.example):
 #
 #   staging box  COMPOSE_PROFILES=backend   Grafana + Loki + Prometheus + Tempo + Alloy
@@ -63,7 +68,7 @@ services:
   # apps, and scrape the host and the containers.
   # ---------------------------------------------------------------------------------------------
   alloy:
-    image: grafana/alloy:v1.19.2
+    image: grafana/alloy:v1.22.0@sha256:9acc2529bc1edb7f5b2bd801dd8334ebc80c158e3a9e5526ecd7c9a273d43189
     container_name: obs-alloy
     restart: unless-stopped
     command:
@@ -177,7 +182,7 @@ services:
   # Backend — staging box only (COMPOSE_PROFILES=backend).
   # ---------------------------------------------------------------------------------------------
   loki:
-    image: grafana/loki:3.7.7
+    image: grafana/loki:3.7.10@sha256:b43c257ccfc925d4a50b8717cac61a3b51df8c48d01847936057e5c4075a24a7
     container_name: obs-loki
     profiles: ["backend"]
     restart: unless-stopped
@@ -198,7 +203,7 @@ services:
         max-file: "3"
 
   prometheus:
-    image: prom/prometheus:v3.14.0
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
     container_name: obs-prometheus
     profiles: ["backend"]
     restart: unless-stopped
@@ -228,7 +233,7 @@ services:
         max-file: "3"
 
   tempo:
-    image: grafana/tempo:2.10.8
+    image: grafana/tempo:2.10.10@sha256:12b0820f13ffa10ce956b6e9acc3b03f3cffded99109be6cc09d106fe56e5d38
     container_name: obs-tempo
     profiles: ["backend"]
     restart: unless-stopped
@@ -280,7 +285,7 @@ services:
   #     box-level OOM would kill exactly the wrong container. It is the same mistake the role line
   #     invites (the template ships the BACKEND value live), so it is caught in the same place.
   preflight:
-    image: alpine:3.22
+    image: alpine:3.22@sha256:49340b346798875b5592e5d420241f2f9cfba5f47e62ebb1446a1b34734e898f
     network_mode: none
     # Backend tier, although this one-shot runs in BOTH roles: it exits in milliseconds and holds no
     # memory, and ranking it with the project it gates keeps "no observability container outranks an
@@ -324,7 +329,7 @@ services:
         esac
 
   grafana:
-    image: grafana/grafana:13.0.7
+    image: grafana/grafana:13.0.13@sha256:9b031995a5483a44f80a5dd214a70cecb31448b42d765b44d3756e17b855775f
     container_name: obs-grafana
     profiles: ["backend"]
     restart: unless-stopped

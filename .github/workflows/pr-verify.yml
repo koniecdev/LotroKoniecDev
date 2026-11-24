@@ -212,6 +212,12 @@ jobs:
       - name: Build-once self-test
         run: ./scripts/tests/commit-image.tests.sh
 
+      # The third-party image list and its exception files (ADR-0076). The exception files sit under
+      # .github/, which the classifier calls inert, and the check takes a second, so it runs on
+      # every PR. Its date rule only gets easier as days pass, so it never turns red by itself.
+      - name: Third-party image list self-test
+        run: ./scripts/tests/list-third-party-images.tests.sh
+
       # The provenance check CD runs before every rollout and before every automatic rollback
       # (#1336). Its real inputs (GHCR, the attestation service) exist nowhere in CI, so the suite
       # stubs `docker` and `gh` and pins the exact check: the digest, never the tag, with the cd.yml

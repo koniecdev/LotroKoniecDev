@@ -30,6 +30,9 @@ on:
       - 'scripts/claude/**'
       - 'scripts/claude-loop.conf'
       - 'scripts/claude-loop.engine'
+      # The exception files of the daily image scan (ADR-0076) ship nothing either: a renewal must not
+      # start a rollout. pr-verify checked them on the PR that brought them.
+      - '.github/trivy/**'
 
 concurrency:
   group: ci-main-${{ github.ref }}
@@ -115,6 +118,12 @@ jobs:
       # Same build-once self-test as pr-verify (ADR-0070) — CD runs commit-image.sh after this.
       - name: Build-once self-test
         run: ./scripts/tests/commit-image.tests.sh
+
+      # Same third-party image list self-test as pr-verify (ADR-0076) — backstops direct pushes to main,
+      # except one that changes only .github/trivy/, which paths-ignore above skips; pr-verify checks
+      # those files on every PR.
+      - name: Third-party image list self-test
+        run: ./scripts/tests/list-third-party-images.tests.sh
 
       # Same three N-1 promotion gate self-tests as pr-verify (#534, #679) — CD is triggered by THIS
       # workflow concluding success, so every script the prod leg is about to run gets checked here too.

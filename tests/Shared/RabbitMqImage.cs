@@ -9,5 +9,5 @@ namespace LotroKoniecDev.Tests.Shared;
 /// </remarks>
 internal static class RabbitMqImage
 {
-    public const string Name = "rabbitmq:4.3.4-alpine";
+    public const string Name = "rabbitmq:4.3.8-alpine";
 }

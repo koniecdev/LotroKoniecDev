@@ -1,0 +1,298 @@
+{
+  "vulnerabilities": [
+    {
+      "id": "CVE-2026-86144",
+      "purls": [
+        "pkg:apk/alpine/libxml2"
+      ],
+      "expired_at": "2026-12-24T00:00:00Z",
+      "statement": "Waiting for a vendor fix: Alpine fixed this in libxml2 2.13.9-r3, but the newest postgres:18.7-alpine build (checked 2026-11-24) still has 2.13.9-r2."
+    },
+    {
+      "id": "CVE-2025-61726",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4341. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2025-61729",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2025-4155. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2025-68121",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4337. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-111943",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6809. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-25679",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4601. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-27145",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-5037. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-32280",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4947. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-32281",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4946. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-32283",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4870. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-33811",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4981. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-33814",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4918. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-33818",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-5972. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-39820",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4986. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-39821",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-5026. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-39822",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4970. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-39836",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4971. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-42499",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-4977. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-42504",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-5038. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-56853",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6089. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-56858",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6091. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-56859",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6088. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-56860",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6218. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-56862",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6090. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-78667",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6609. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-78669",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6611. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    },
+    {
+      "id": "CVE-2026-97031",
+      "purls": [
+        "pkg:golang/stdlib@v1.24.6"
+      ],
+      "paths": [
+        "usr/local/bin/gosu"
+      ],
+      "expired_at": "2027-05-23T00:00:00Z",
+      "statement": "False positive: govulncheck v1.10.0 (database of 2026-11-23) shows that gosu 1.20, built with go1.24.6, never calls the code of GO-2026-6607. gosu does not rebuild for Go fixes in code it never calls (its SECURITY.md)."
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "vulnerabilities": [
+    {
+      "id": "CVE-2026-116587",
+      "purls": ["pkg:golang/github.com/go-jose/go-jose/v4"],
+      "paths": ["tempo"],
+      "expired_at": "2026-12-24T00:00:00Z",
+      "statement": "Waiting for a vendor fix: Tempo 2.10.10 is the newest 2.10 release (checked 2026-11-24) and still ships go-jose v4.1.4. The fix is in v4.1.6. Tempo 3.1.1 has the same finding."
+    },
+    {
+      "id": "CVE-2026-78661",
+      "purls": ["pkg:golang/golang.org/x/net"],
+      "paths": ["tempo"],
+      "expired_at": "2026-12-24T00:00:00Z",
+      "statement": "Waiting for a vendor fix: Tempo 2.10.10 is the newest 2.10 release (checked 2026-11-24) and still ships golang.org/x/net v0.60.0. The fix is in v0.62.0."
+    }
+  ]
+}

@@ -79,7 +79,7 @@ TLS-terminating ingress:
 | **frontend** | `lotrokoniecdev-frontend` | `:8080` (HTTP) | `/health/live`, `/health/ready` (no deep check) | Data Protection keyring → `/keys` |
 | **migrator** | `lotrokoniecdev-migrator` | one-shot (exits 0) | exit code | — |
 | _ingress_ | **Caddy**, pinned by tag and digest in the `x-caddy-image` anchor of `compose.hetzner.yaml` (`compose.prod.yaml` mirrors it; the anchor's comment says how Dependabot moves both; never 2.11.6, it crashes — #988) | `:80`, `:443` | — | ACME certs + config volumes |
-| _broker_ | **RabbitMQ** (`rabbitmq:4.3.4-management-alpine`, pinned — see the compose comment) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` check of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
+| _broker_ | **RabbitMQ** (`rabbitmq:4.3.8-management-alpine`, pinned by tag and digest — see the compose comment; no Dependabot entry moves it, the daily image scan says when it must move, ADR-0076) | `:5672` in-stack (AMQP; auth-api, and tms-api for the account events of ADR-0065) | `rabbitmq-diagnostics ping` (container healthcheck) + the `rabbitmq` check of auth's deep `/health` | broker state (users, quorum queues, parked dead letters) → `rabbitmq-data` volume |
 
 Container contract (ADR-0008 §2): each app serves **plain HTTP on `:8080`** behind a TLS-terminating
 ingress, runs **non-root**, logs **structured JSON to stdout**, and takes **all runtime
@@ -2010,7 +2010,7 @@ including a table the rewound database did not have, and the grants to another r
 had to be granted again. A leftover table, with or without a foreign key into `Users`, made the
 restore fail with nothing changed, and it passed once the table was dropped. The rewind block also
 worked over such a database. The new SQL of "Neon is gone" step 3 ran too, and its LogQL ran on
-Loki 3.7.7 (the version prod runs) against a line shaped like auth-api's. Not proven here: the
+Loki 3.7.7 against a line shaped like auth-api's. Not proven here: the
 restore against Neon (the rehearsal above), and the `grep` lines against live CLEF output (the
 alert rules read the same `"@mt"` field).
 
@@ -2788,13 +2788,81 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
   `HEALTH_CHECK_KEY` differ, not that the site is down. A failed run e-mails the last committer of
   that file. Trigger it on demand: `gh workflow run health-ping.yml`.
 - **The daily image scan**: [`.github/workflows/image-scan.yml`](../../.github/workflows/image-scan.yml)
-  scans the four images that staging and prod run, once a day (05:10 UTC), with the same Trivy gate
-  as `cd.yml` (#1326). A vulnerability published after the image was built shows up here, not at the
-  next build. It finds each environment's image from its newest successful deployment record, so
-  after a deploy or rollback by hand on the box it scans the recorded image, not the running one. A
-  red run usually means the base image pins need to move (#1324); when only prod is red, the fix may
-  already be on staging and need a promotion. A failed run e-mails the user who last changed its
-  cron line. Trigger it on demand: `gh workflow run image-scan.yml`.
+  scans every image the servers run, once a day (05:10 UTC), with the same Trivy gate as `cd.yml`. A
+  vulnerability published after an image was built shows up here, not at the next build. A failed
+  run e-mails the user who last changed its cron line, once per run, so a red leg left standing hides
+  the next one. Trigger it on demand: `gh workflow run image-scan.yml`. It has two halves:
+  - **Our four images** (#1326), found from each environment's newest successful deployment record.
+    After a deploy or rollback by hand on the box it scans the recorded image, not the running one.
+    A red leg usually means the base image pins need to move (#1324); when only prod is red, the fix
+    may already be on staging and need a promotion.
+  - **The nine third-party images** (ADR-0076): Caddy and RabbitMQ from `compose.hetzner.yaml` at
+    each environment's deployed commit, the backup's `postgres` from `scripts/hetzner/backup.sh` at
+    prod's (only prod's crontab runs it), and the observability stack from
+    `compose.observability.yaml` on `main`. The job summary of
+    *List the third-party images* names every leg. A leg named `<environment>: …` could not read
+    that environment's files, and its first step says why.
+
+  **A red third-party leg.** Read the finding in the leg's log, then take the first answer that fits:
+  1. A newer release of that image fixes it: move the pin, tag and digest
+     (`docker buildx imagetools inspect <image>:<tag>`). For an observability image, the Dependabot
+     pull request of the `observability` group may already carry it. For RabbitMQ, move all four
+     pins (the compose comment). Then deploy it: CD for `compose.hetzner.yaml` and `backup.sh`, the
+     hand deploy for the observability stack (below).
+  2. Only prod is red: the fix may already be on staging and need a promotion.
+  3. No release fixes it yet: add an entry to that image's exception file,
+     `.github/trivy/<repository, / written as ->.trivyignore.yaml` (create it when missing; it is
+     JSON). One entry per finding and package:
+
+     ```json
+     {
+       "id": "CVE-2026-78661",
+       "purls": ["pkg:golang/golang.org/x/net"],
+       "paths": ["usr/bin/caddy"],
+       "expired_at": "2026-12-24T00:00:00Z",
+       "statement": "Waiting for a vendor fix: Caddy 2.11.9 is the newest release (checked 2026-11-24) and still ships x/net v0.60.0. The fix is in v0.62.0."
+     }
+     ```
+
+     The leg's table prints no purl. Read it from a local JSON scan of the same ref:
+     `docker run --rm aquasec/trivy:0.70.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json <ref> | jq -r '.Results[] | .Target as $t | .Vulnerabilities[]? | [$t, .VulnerabilityID, .PkgIdentifier.PURL] | @tsv'`.
+     Write `purls` as that purl without its `?qualifiers` (`pkg:apk/alpine/libxml2`). Drop the
+     `@version` too for a `Waiting for a vendor fix: ` entry, so the next pin with the same bug
+     stays covered; keep it for a `False positive: ` entry (`pkg:golang/stdlib@v1.24.6`), whose
+     proof holds for that version only. Write `paths` as the target when the target is a binary
+     inside the image (leave `paths` out for an operating system package, whose target is the image
+     itself).
+     The class decides the longest expiry: `Waiting for a vendor fix: ` up to 30 days,
+     `False positive: ` up to 180 days, counted from today
+     (`date -u -d '+30 days' +%FT00:00:00Z`). Check the file before the pull request:
+     `scripts/ci/list-third-party-images.sh --check-exceptions .github/trivy/*.trivyignore.yaml`.
+  4. An entry expired: Trivy reports its finding again. Renew it with a new date and a fresh reason,
+     or remove it when the finding is gone.
+
+  **A Go finding in `gosu`** (the backup's `postgres` image). `gosu` does not rebuild for Go fixes in
+  code it never calls, so expect one about once a month. It is a `False positive: ` only when
+  `govulncheck`, run on the `gosu` version and Go version the image ships, lists the finding and
+  shows it as not called. Build the tool once, then run it (the folder is any scratch folder on disk):
+
+  ```bash
+  mkdir -p bin
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e CGO_ENABLED=0 -e GOBIN=/out -v "$PWD/bin:/out" \
+    golang:1.26 go install golang.org/x/vuln/cmd/govulncheck@v1.10.0
+  docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e GOTOOLCHAIN=local -v "$PWD/bin:/tools:ro" \
+    golang:1.24.6-trixie sh -ec 'git clone -q --depth 1 --branch 1.20 https://github.com/tianon/gosu /tmp/gosu \
+    && cd /tmp/gosu && /tools/govulncheck -format json ./...' > gosu.json
+  ```
+
+  The `config` line must say `"go_version":"go1.24.6"`. The CVE must be in the `aliases` of an `osv`
+  line, and no `finding` for that `osv` id may have a `function` in its first `trace` entry. Take the
+  `gosu` version from `GOSU_VERSION` in the image's Dockerfile and the Go version from the Trivy
+  finding (`stdlib v1.24.6`). Any other result: `Waiting for a vendor fix: ` with 30 days.
+
+  **A new pin can be scanned before the merge.** For the `observability` group's pull request,
+  `gh workflow run image-scan.yml --ref <its branch>`: the observability half reads the branch's own
+  `compose.observability.yaml` and exception files. Caddy, RabbitMQ and `postgres` are read at the
+  deployed commits, so scan a new pin of theirs locally with the exception file from the branch:
+  `docker run --rm -v "$PWD/.github/trivy:/ign:ro" aquasec/trivy:0.70.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile /ign/caddy.trivyignore.yaml <image>:<tag>@<digest>`.
 - **Post-deploy smoke**: every CD rollout, with automatic rollback on red.
 - **Grafana**: logs, metrics and traces for **both projects** from both boxes, on the stack described
   below (epic #707).
@@ -2834,6 +2902,20 @@ ssh lotro-staging 'cd /opt/obs && docker compose -f compose.observability.yaml u
 `--force-recreate` is needed: each config file is a bind mount, `rsync` replaces the file, and
 compose does not look inside a mounted file, so a plain `up -d` leaves every container on its old
 config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of telemetry.
+
+**New image versions arrive the same way.** Every image in `compose.observability.yaml` is pinned by
+tag and digest, and Dependabot proposes new versions in one `observability` pull request with the
+`on-hold` label. Majors are left out, because they change config formats, but a minor can break
+config too: Alloy lists breaking changes in its minor releases. So before removing `on-hold`, read
+each changelog against the files under `.docker/observability/`, and boot the new images with them
+on your machine: copy that folder and `compose.observability.yaml` into a scratch folder, write a
+`.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a network you
+create, and run `docker compose -f compose.observability.yaml up -d` once with
+`COMPOSE_PROFILES=backend` and once with it empty. No CI job boots this stack. After the merge,
+nothing changes on a box until the deploy above runs on **both** boxes (`lotro-staging` with the
+backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is
+green for a box that missed this deploy (ADR-0076). Check what a box runs:
+`ssh lotro-prod 'docker ps --filter label=com.docker.compose.project=obs --format "{{.Names}} {{.Image}}"'`.
 
 This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land
 in the same tree, so run its two lines from a TheKittySaver checkout in the same sitting, or the box

@@ -204,7 +204,8 @@ and `post-mvp` (`skip_labels` in `scripts/claude-loop.conf`); see `docs/claude-l
 
 GitHub defaults: `question`, `duplicate`, `invalid`, `wontfix`, `good first issue`, `help wanted`.
 
-Dependabot applies `dependencies`, `github_actions`, `.NET` and `docker` to its own PRs. Its Caddy
-PR for the compose files also gets `on-hold`, because no CI check tests that PR (ADR-0060 §4).
+Dependabot applies `dependencies`, `github_actions`, `.NET` and `docker` to its own PRs. Its PRs for
+the compose files (Caddy, and the observability group) also get `on-hold`, because no CI check tests
+them (ADR-0060 §4).
 Renaming or deleting `on-hold` removes that hold without a warning: Dependabot drops a label the
 repo does not have, and the train then merges the PR unread.

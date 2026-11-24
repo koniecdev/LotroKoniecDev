@@ -2806,7 +2806,9 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
   **A red third-party leg.** Read the finding in the leg's log, then take the first answer that fits:
   1. A newer release of that image fixes it: move the pin, tag and digest
      (`docker buildx imagetools inspect <image>:<tag>`). For an observability image, the Dependabot
-     pull request of the `observability` group may already carry it. For RabbitMQ, move all four
+     pull request of the `observability` group may already carry it, but never a new Grafana minor:
+     that move is our own pull request, after a clean scan of the new version (ADR-0076, amendment
+     of 2026-11-24). For RabbitMQ, move all four
      pins (the compose comment). Then deploy it: CD for `compose.hetzner.yaml` and `backup.sh`, the
      hand deploy for the observability stack (below).
   2. Only prod is red: the fix may already be on staging and need a promotion.
@@ -2837,7 +2839,9 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
      (`date -u -d '+30 days' +%FT00:00:00Z`). Check the file before the pull request:
      `scripts/ci/list-third-party-images.sh --check-exceptions .github/trivy/*.trivyignore.yaml`.
   4. An entry expired: Trivy reports its finding again. Renew it with a new date and a fresh reason,
-     or remove it when the finding is gone.
+     or remove it when the finding is gone. For a Grafana entry, also look on Docker Hub for a
+     `<pinned version>-security-NN` tag: Grafana ships some security fixes first under that tag
+     form, and Dependabot never proposes it.
 
   **A Go finding in `gosu`** (the backup's `postgres` image). `gosu` does not rebuild for Go fixes in
   code it never calls, so expect one about once a month. It is a `False positive: ` only when
@@ -2905,16 +2909,19 @@ config (the same reason `deploy.sh` reloads Caddy). It costs about a minute of t
 
 **New image versions arrive the same way.** Every image in `compose.observability.yaml` is pinned by
 tag and digest, and Dependabot proposes new versions in one `observability` pull request with the
-`on-hold` label. Majors are left out, because they change config formats, but a minor can break
-config too: Alloy lists breaking changes in its minor releases. So before removing `on-hold`, read
-each changelog against the files under `.docker/observability/`, and boot the new images with them
-on your machine: copy that folder and `compose.observability.yaml` into a scratch folder, write a
-`.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a network you
-create, and run `docker compose -f compose.observability.yaml up -d` once with
+`on-hold` label. Majors are left out, because they change config formats, and so are Grafana
+minors (the reason is next to the rule in `.github/dependabot.yml`). Before removing `on-hold`,
+scan the branch (`gh workflow run image-scan.yml --ref <its branch>`) and read each observability
+leg, not only the colour of the run: a leg for a deployed image can make the run red for another
+reason. A minor can break config too: Alloy lists breaking changes in its minor releases. So also
+read each changelog against the files under `.docker/observability/`, and boot the new images with
+them on your machine: copy that folder and `compose.observability.yaml` into a scratch folder,
+write a `.env` from `.env.observability.example` with placeholders and `OBS_NETWORK` set to a
+network you create, and run `docker compose -f compose.observability.yaml up -d` once with
 `COMPOSE_PROFILES=backend` and once with it empty. No CI job boots this stack. After the merge,
 nothing changes on a box until the deploy above runs on **both** boxes (`lotro-staging` with the
-backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not what a box runs, so it is
-green for a box that missed this deploy (ADR-0076). Check what a box runs:
+backend, `lotro-prod` with the agent only). The daily image scan reads the pins on `main`, not
+what a box runs, so it is green for a box that missed this deploy (ADR-0076). Check what a box runs:
 `ssh lotro-prod 'docker ps --filter label=com.docker.compose.project=obs --format "{{.Names}} {{.Image}}"'`.
 
 This carries our half only. TheKittySaver's dashboard and alert rules live in its own repo and land

@@ -598,9 +598,7 @@ public sealed class EditorTests : BunitContext
     public void Render_WhenThePanelFailsToLoad_KeepsTheEditorAndShowsAShortNotice()
     {
         StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", canEdit: true, hasSameSourceText: true));
-        _client
-            .GetApiResultAsync<SameSourceTextTranslationsResponse>(SameSourceTextHref, Arg.Any<CancellationToken>())
-            .Returns(ApiResult.Failure<SameSourceTextTranslationsResponse>(new() { Title = "Błąd serwera." }));
+        StubSameSourceTextFailure();
 
         IRenderedComponent<EditorComponent> component = RenderEditor();
 

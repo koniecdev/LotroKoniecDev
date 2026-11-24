@@ -193,11 +193,10 @@ everything that matters must be committed and pushed.
      with the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
      is that round's reviewer and writes `<n>-review-r<round>-fallback.md`. A stale file (it names
-     a commit older than the one its brief named) gets the same replacement. A reviewer that ended
+     a commit other than the one its brief named) gets the same replacement. A reviewer that ended
      on an error before its file (`/ticket` step 7) never reviewed: the same fallback is that
      round's reviewer. A fallback that ends on an error, stalls or writes a stale file too →
-     `STATUS: BLOCKED`
-     (category: review-unclean). A stalled
+     `STATUS: BLOCKED` (category: review-unclean), push nothing. A stalled
      `gate-runner` run (`/ticket` step 8) is no round: it follows step 8's own stall rule.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the

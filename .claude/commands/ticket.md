@@ -471,7 +471,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     Major whose fix depends on it). First fix the round's other Critical or Major findings and get
     the gates green. Then take step 8's route for a choice that needs the maintainer: push the
     branch, put the question and your recommended answer under **Doubts**, and stop before the PR
-    (`/work-ticket`: step 6's rule for a finding only the maintainer can settle). Any other
+    (`/work-ticket`: the rules for it in steps 6 and 7). Any other
     unanswered question becomes a documented assumption (step 2: "After this gate: zero
     questions"). Write it in the report and in the next round's brief, so the next reviewer sees
     your answer, and the review goes on.
@@ -491,7 +491,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
     which a headless session never gets (`/work-ticket` spawns the replacement at once). A file
-    that names a commit older than the one its brief named is stale. A stall that one message does
+    that names a commit other than the one its brief named is stale. A stall that one message does
     not fix and a stale file are reviewer failures: the fallback above replaces that reviewer for
     the same round.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.

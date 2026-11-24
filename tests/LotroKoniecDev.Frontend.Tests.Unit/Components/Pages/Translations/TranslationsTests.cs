@@ -648,6 +648,19 @@ public sealed class TranslationsTests : BunitContext
     }
 
     [Fact]
+    public void Render_BulkApproveFormAction_LeavesTheNotesOfTheAddressOut()
+    {
+        // A post after an ended session comes back from the sign-in to this address, so an old note there
+        // would read as the answer to a click that never ran (#1493).
+        StubPage(AdminPageOf(Row(canEdit: true, canApprove: true)));
+        Navigation().NavigateTo($"/translations?search=Frodo&page=2&approved=2&skipped=1&savedRow={Guid.NewGuid()}&savedSlips=true");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find("form#bulk-approve").GetAttribute("action").ShouldBe("/translations?page=2&search=Frodo");
+    }
+
+    [Fact]
     public void Render_WhenRowCarriesTheUpsertRel_OffersItsOwnSaveFormUnderThePolishText()
     {
         TranslationListItemResponse row = Row(canEdit: true);

@@ -231,10 +231,13 @@
             TranslationId? rowAbove = null;
 
             @* The table sits outside this form, because each row holds its own save form (#1493) and the
-               HTML parser drops a form inside another form. The checkboxes join this form by its id. *@
+               HTML parser drops a form inside another form. The checkboxes join this form by its id. It
+               posts to the list's own address, so a sign-in after an ended session (#1493) never comes back
+               to an old "approved" or "saved" note. *@
             @if (canBulkApprove)
             {
-                <form id="@BulkApproveFormName" method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync">
+                <form id="@BulkApproveFormName" method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync"
+                      action="@_query.ToPageRelativeUri(_query.Page)">
                     <AntiforgeryToken/>
                     @if (anyApprovable)
                     {

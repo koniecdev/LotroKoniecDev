@@ -4,7 +4,8 @@
 - **Date:** 2026-11-12, updated 2026-11-13 (owner decisions in #1345, #1368, #1369, #1372, #1373,
   the domain model, and the owner's answers to Q1–Q9) and 2026-11-21/22 (#1494: the decisions
   made after 13 November and the gaps the reviews found, see "Changes of 2026-11-21 and 2026-11-22")
-  and 2026-11-24 (#1482: the history loads on a post too, see "Change of 2026-11-24")
+  and 2026-11-24 (#1482: a post that stays on the page loads the history after its write, see
+  "Change of 2026-11-24")
 - **Author:** koniecdev
 - **Ticket:** covers #49 (TP-14 review workflow), #50 (TP-15 history), #1345 (rejection with a
   reason) and the review points of #1332. Implementation tickets: #1476 (trailing line breaks)
@@ -338,12 +339,13 @@ back.
   reachable. An unknown translation is a 404.
   Restore is the `approve` rel on an approved proposal other than the live one, for a caller the
   policy allows.
-  - **Request budget.** The editor loads the history on every request, a post included, like the
-    panel of rows with the same text (#1482), so the answer to a refused post shows the page as a
-    GET would. A restore takes its href from the history that request loaded; the detail answer
-    carries no history links. The history costs one request on every editor view and one on every
-    post, so a save that redirects costs two. A post waits for this read before its own write: up
-    to about 30 seconds when the read hangs, with the website's retries.
+  - **Request budget.** The editor loads the history on a GET, like the panel of rows with the same
+    text. A post that stays on the page (a refused save, approve or restore) loads it after its
+    write, so the answer shows the page as a GET would (#1482); a good post redirects to a GET that
+    loads it, so it costs no extra request. A restore takes its href from the history, so the
+    restore POST loads the history once, before its write, and a refused restore shows that read
+    without a second one. The detail answer carries no history links. The history costs one request
+    on every editor view, the reload after a save included.
     Putting the history into the detail answer would cost no request, but every detail and save
     answer would then carry a list that only grows, and a failed history read would fail the editor.
 - **Bulk approve:** `POST /api/v1/translations/approve`, body
@@ -693,12 +695,15 @@ The owner decisions made after 13 November, and the gaps the reviews of this spe
 
 ### Change of 2026-11-24 (#1482)
 
-- **A design choice made in #1482, not an owner decision.** The history loads on every request, a
-  post included (Contract → History → Request budget). Loading the panel of rows with the same
-  text on a GET only hid that panel after a refused save, and the owner reported it as a bug. One
-  rule for every part of the editor removes that kind of bug: no post handler has to remember to
-  load a part again after a failure. The cost is one more request per post, and the post waits for
-  that read before its write.
+- **A design choice made in #1482, not an owner decision.** A post that stays on the page loads
+  the history after its write (Contract → History → Request budget). Loading the panel of rows
+  with the same text on a GET only hid that panel after a refused save, and the owner reported it
+  as a bug. Every editor form posts through one helper of the page, which loads these parts after
+  the write when the post does not redirect. Loading them on every request, a post included, was
+  weighed and not taken: it needs no helper, but every good save would pay one more request, the
+  write would wait for the read, and a read that keeps failing right before the write could open
+  the website's shared circuit breaker and get the save refused. The cost of this choice is the
+  rule that a new editor form posts through that helper.
 
 ### Empirical (answered)
 

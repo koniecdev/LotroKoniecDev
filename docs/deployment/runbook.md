@@ -2823,9 +2823,12 @@ names an environment"). To drop a waiting run, choose *Reject* in the same dialo
      }
      ```
 
-     `purls` is the leg's package purl without its version and qualifiers, and `paths` is its target
-     when that target is a binary inside the image (leave `paths` out for an operating system
-     package). The class decides the longest expiry: `Waiting for a vendor fix: ` up to 30 days,
+     The leg's table prints no purl. Read it from a local JSON scan of the same ref:
+     `docker run --rm aquasec/trivy:0.70.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --format json <ref> | jq -r '.Results[] | .Target as $t | .Vulnerabilities[]? | [$t, .VulnerabilityID, .PkgIdentifier.PURL] | @tsv'`.
+     Write `purls` as that purl without its `@version` and `?qualifiers` (`pkg:golang/stdlib`,
+     `pkg:apk/alpine/libxml2`), and `paths` as the target when the target is a binary inside the
+     image (leave `paths` out for an operating system package, whose target is the image itself).
+     The class decides the longest expiry: `Waiting for a vendor fix: ` up to 30 days,
      `False positive: ` up to 180 days, counted from today
      (`date -u -d '+30 days' +%FT00:00:00Z`). Check the file before the pull request:
      `scripts/ci/list-third-party-images.sh --check-exceptions .github/trivy/*.trivyignore.yaml`.

@@ -73,7 +73,8 @@ reads it, and our own images never read any of them. The file is JSON, which Tri
 `ci`. It has no "already expired" rule on purpose: a date passing must never turn an unrelated PR
 red, or stop CD through a red `ci` on `main`. The limit only gets easier as days pass. When an entry
 expires, Trivy reports the finding again, so the daily scan turns red and someone renews or removes
-it.
+it. A change to `.github/trivy/` alone ships nothing, so `ci.yml` ignores it (`paths-ignore`) and a
+renewal starts no rollout.
 
 ### 4. Every server image is pinned by digest
 

@@ -112,37 +112,18 @@
 <section class="container content-wrap">
     @* An inline save is sent before the list loads (#1493), and Blazor sends a post only to a form on the
        page (#1122). So the form with the posted name is drawn here whenever its row does not draw it:
-       hidden while the save runs, and with the typed text when a refused save's row is not on the list. *@
+       hidden while the save runs, and with the typed text when a refused save's row is not on the list.
+       A refused row that is on the list without its form gets the same form under it. *@
     @if (_inlineSaveId is { } postedRowId && !DrawsRowForm(postedRowId))
     {
         @if (!_inlineRefused)
         {
             <form method="post" @formname="@InlineSaveFormName(postedRowId)" @onsubmit="SaveInlineAsync" hidden></form>
         }
-        else
+        else if (!IsRowOnPage(postedRowId))
         {
-            TranslationId? postedRowAbove = ParseRowId(InlineSavedAfter);
-            <div class="inline-recovery" id="@(IsRowOnPage(postedRowId) ? null : TranslationListQuery.RowElementId(postedRowId))">
-                <div class="status-message status-error" role="alert">
-                    <ApiProblemAlert Problem="@_inlineProblem" Fallback="@SaveFailedMessage"/>
-                </div>
-                <form method="post" class="inline-edit-form" @formname="@InlineSaveFormName(postedRowId)"
-                      @onsubmit="SaveInlineAsync" action="@_query.ToInlineSaveActionUri(postedRowId)">
-                    <AntiforgeryToken/>
-                    <input type="hidden" name="InlineFileId" value="@InlineFileId"/>
-                    <input type="hidden" name="InlineGossipId" value="@InlineGossipId"/>
-                    @if (postedRowAbove is { } rowAbove)
-                    {
-                        <input type="hidden" name="InlineSavedAfter" value="@rowAbove.Value"/>
-                    }
-                    <p>Tekstu nie zapisano. Jest poniżej, więc możesz go poprawić i zapisać ponownie.</p>
-                    <label for="inline-text-recovery">Tłumaczenie polskie, FileId @InlineFileId, GossipId @InlineGossipId</label>
-                    <textarea id="inline-text-recovery" name="InlineText" class="editor-textarea mono" rows="3"
-                              maxlength="@DatFormatConstants.MaxTranslatedTextLength">@_inlineText</textarea>
-                    <div>
-                        <button type="submit" class="btn btn-primary btn-sm">Zapisz ponownie</button>
-                    </div>
-                </form>
+            <div class="inline-recovery" id="@TranslationListQuery.RowElementId(postedRowId)">
+                @InlineRecoveryForm(postedRowId)
             </div>
         }
     }
@@ -290,6 +271,7 @@
                         @foreach (TranslationListItemResponse item in pageData.Items)
                         {
                             bool refused = _inlineRefused && _inlineSaveId == item.Id;
+                            bool refusedWithoutItsForm = refused && !DrawsInlineForm(item);
                             <tr id="@TranslationListQuery.RowElementId(item.Id)">
                                 @if (canBulkApprove)
                                 {
@@ -360,7 +342,15 @@
                                     }
                                 </td>
                             </tr>
-                            @if (_savedRow == item.Id)
+                            @if (refusedWithoutItsForm)
+                            {
+                                <tr class="row-note">
+                                    <td colspan="@columnCount">
+                                        <div class="inline-recovery">@InlineRecoveryForm(item.Id)</div>
+                                    </td>
+                                </tr>
+                            }
+                            else if (_savedRow == item.Id)
                             {
                                 <tr class="row-note">
                                     <td colspan="@columnCount">
@@ -698,6 +688,34 @@
                     </p>
                 </div>
             }
+        </text>;
+
+    /// <summary>
+    /// The refused text of a row whose own form is not drawn: the row left the list, the list did not load, or
+    /// the row no longer offers its save. The key fields come from the post, as in the editor's recovery form.
+    /// </summary>
+    private RenderFragment InlineRecoveryForm(TranslationId postedRowId) =>
+        @<text>
+            <div class="status-message status-error" role="alert">
+                <ApiProblemAlert Problem="@_inlineProblem" Fallback="@SaveFailedMessage"/>
+            </div>
+            <form method="post" class="inline-edit-form" @formname="@InlineSaveFormName(postedRowId)"
+                  @onsubmit="SaveInlineAsync" action="@_query.ToInlineSaveActionUri(postedRowId)">
+                <AntiforgeryToken/>
+                <input type="hidden" name="InlineFileId" value="@InlineFileId"/>
+                <input type="hidden" name="InlineGossipId" value="@InlineGossipId"/>
+                @if (ParseRowId(InlineSavedAfter) is { } rowAbove)
+                {
+                    <input type="hidden" name="InlineSavedAfter" value="@rowAbove.Value"/>
+                }
+                <p>Tekstu nie zapisano. Jest poniżej, więc możesz go poprawić i zapisać ponownie.</p>
+                <label for="inline-text-recovery">Tłumaczenie polskie, FileId @InlineFileId, GossipId @InlineGossipId</label>
+                <textarea id="inline-text-recovery" name="InlineText" class="editor-textarea mono" rows="3"
+                          maxlength="@DatFormatConstants.MaxTranslatedTextLength">@_inlineText</textarea>
+                <div>
+                    <button type="submit" class="btn btn-primary btn-sm">Zapisz ponownie</button>
+                </div>
+            </form>
         </text>;
 
     /// <summary>Only advice, as in the editor (#1489).</summary>

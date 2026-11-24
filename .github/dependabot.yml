@@ -6,10 +6,10 @@
 # Three is the floor, not a preference: Dependabot raises pull requests per ecosystem and cannot
 # combine across them. Every group below therefore matches "*" with no `update-types` filter, so
 # nothing can fall outside a group and earn a pull request of its own.
-# The fourth entry, docker-compose, is the one exception and needs no group. It allows a single
-# image (caddy), so it opens at most one pull request, and only in a week when a new Caddy image is
-# out: a new release, or Docker Hub rebuilding the pinned tag. A normal week still brings three. That
-# pull request also carries `on-hold`, so /merge-train leaves it for the owner to read (ADR-0060 §4).
+# The fourth entry, docker-compose, is the one exception. It opens at most two pull requests: one
+# for Caddy and one for the observability group, each only in a week when a new image is out (a new
+# release, or Docker Hub rebuilding a pinned tag). A normal week still brings three. Both carry
+# `on-hold`, so /merge-train leaves them for the owner to read (ADR-0060 §4).
 #
 # Security updates are deliberately NOT grouped (that needs `applies-to: security-updates`). They
 # should keep arriving as their own immediate pull requests -- a CVE fix must never sit behind a
@@ -109,24 +109,53 @@ updates:
       - dependency-name: "dotnet/*"
         update-types: ["version-update:semver-major"]
 
-  # Caddy, the proxy in front of both servers (#1001). Its image is only in compose files, which the
-  # `docker` entry above does not read. How its pull request moves the pins: the comment above
+  # Caddy, the proxy in front of both servers (#1001), and the observability images in
+  # compose.observability.yaml (#1325). These images are only in compose files, which the `docker`
+  # entry above does not read. How Caddy's pull request moves its pins: the comment above
   # `x-caddy-image` in compose.hetzner.yaml.
-  # Only caddy, on purpose. Every other compose image is a separate decision: a postgres major needs
-  # a data migration. The ghcr.io app images take their tag from variables, and Dependabot skips them.
+  # RabbitMQ and the backup's postgres stay manual: each has a second pin that Dependabot cannot
+  # move (tests/Shared/RabbitMqImage.cs, scripts/hetzner/backup.sh). The daily image scan watches
+  # them (ADR-0076). A postgres major also needs a data migration. The ghcr.io app images take their
+  # tag from variables, and Dependabot skips them.
   - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "weekly"
-    # No CI check tests a pull request that changes only compose files, so a new Caddy first runs on
-    # staging, after the merge (#988). `on-hold` makes /merge-train skip it. The owner reads the pull
-    # request, then removes the label. These names replace Dependabot's default labels, and a name
-    # that does not exist in the repo is dropped without a warning, so each one must exist.
+    # No CI check tests a pull request that changes only compose files. A new Caddy first runs on
+    # staging after the merge (#988), and a new observability image runs only after the owner's hand
+    # deploy (ADR-0050 §2). `on-hold` makes /merge-train skip both. The owner reads the pull request,
+    # then removes the label. These names replace Dependabot's default labels, and a name that does
+    # not exist in the repo is dropped without a warning, so each one must exist.
     labels: ["dependencies", "docker", "on-hold"]
     allow:
       - dependency-name: "caddy"
+      - dependency-name: "grafana/grafana"
+      - dependency-name: "grafana/loki"
+      - dependency-name: "grafana/tempo"
+      - dependency-name: "grafana/alloy"
+      - dependency-name: "prom/prometheus"
+      - dependency-name: "alpine"
+    # One pull request for the observability stack, because it is deployed as one. Caddy is not in
+    # the group, so it keeps its own pull request.
+    groups:
+      observability:
+        patterns:
+          - "grafana/grafana"
+          - "grafana/loki"
+          - "grafana/tempo"
+          - "grafana/alloy"
+          - "prom/prometheus"
+          - "alpine"
     ignore:
       # 2.11.6 crashes the proxy (#988). This also covers the `2.11.6-alpine` tag we would pin:
       # Dependabot compares only the version part of a tag and drops the `-alpine` suffix.
       - dependency-name: "caddy"
         versions: ["2.11.6"]
+      # A major of an observability component changes its config format, so it comes in a PR of our
+      # own, with the config moved and booted locally.
+      - dependency-name: "grafana/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "prom/prometheus"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "alpine"
+        update-types: ["version-update:semver-major"]

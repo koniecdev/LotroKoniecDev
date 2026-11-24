@@ -32,6 +32,18 @@ TMP_ROOT="$(CDPATH='' cd -- "$TMP_ROOT" && pwd -P)" || exit 1
 [ -d "$TMP_ROOT" ] || exit 1
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
+# Git exports GIT_DIR, GIT_INDEX_FILE and the like to a hook or a `git rebase -x` command. Left in
+# place, they would point the scratch repo below at the real one, and its commits would land on
+# your branch.
+for var in $(git rev-parse --local-env-vars); do
+    unset "$var"
+done
+
+# Isolate from the developer's git config (gpg signing, hooks, defaults).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
+export GIT_AUTHOR_NAME=list-third-party-images-tests GIT_AUTHOR_EMAIL=tests@localhost
+export GIT_COMMITTER_NAME=list-third-party-images-tests GIT_COMMITTER_EMAIL=tests@localhost
+
 D1="sha256:$(printf '1%.0s' {1..64})"
 D2="sha256:$(printf '2%.0s' {1..64})"
 
@@ -119,6 +131,10 @@ write_compose_with 'caddy'
 expect_exit 2 'a ref with no tag stops the list' --compose "$TMP_ROOT/bad.yaml"
 write_compose_with "caddy@${D1}"
 expect_exit 2 'a ref with a digest and no tag stops the list' --compose "$TMP_ROOT/bad.yaml"
+printf 'services:\n  one:\n    image: alpine:3.22\n  two:\n    - image: caddy:2.11.9-alpine\n' > "$TMP_ROOT/bad.yaml"
+expect_exit 2 'an image key as a list item stops the list' --compose "$TMP_ROOT/bad.yaml"
+printf 'services:\n  one:\n    image: alpine:3.22\n  two: {image: caddy:2.11.9-alpine}\n' > "$TMP_ROOT/bad.yaml"
+expect_exit 2 'an image key in a flow mapping stops the list' --compose "$TMP_ROOT/bad.yaml"
 expect_exit 2 'a missing file stops the list' --compose "$TMP_ROOT/missing.yaml"
 printf 'services:\n  api:\n    image: ghcr.io/${IMAGE_NAMESPACE:-koniecdev}/x:${IMAGE_TAG:-latest}\n' > "$TMP_ROOT/none.yaml"
 expect_exit 2 'a file with no third-party image stops the list' --compose "$TMP_ROOT/none.yaml"
@@ -148,7 +164,7 @@ expect_exit 2 '--backup takes exactly one file' --backup "$BACKUP" "$BACKUP"
 CASE='matrix'
 MATRIX_REPO="$TMP_ROOT/repo"
 git_in_repo() {
-    git -C "$MATRIX_REPO" -c user.name='Self Test' -c user.email='self-test@example.invalid' "$@"
+    git -C "$MATRIX_REPO" "$@"
 }
 write_stack() {
     mkdir -p "$MATRIX_REPO/scripts/hetzner"
@@ -281,6 +297,7 @@ expect_exceptions 1 'a time other than midnight fails' "$(entry '.expired_at = "
 expect_exceptions 1 'a date that does not exist fails' "$(entry '.expired_at = "2026-02-30T00:00:00Z"')"
 expect_exceptions 1 'a misspelt key fails (Trivy drops it without a word)' \
     "$(entry '.expires_at = .expired_at | del(.expired_at)')"
+expect_exceptions 1 'an unknown key next to every required one fails' "$(entry '.note = "kept for later"')"
 expect_exceptions 1 'a missing statement fails' "$(entry 'del(.statement)')"
 expect_exceptions 1 'a statement with another prefix fails' "$(entry '.statement = "Accepted risk: no reason."')"
 expect_exceptions 1 'a prefix with no reason after it fails' "$(entry '.statement = "False positive:  "')"
@@ -373,24 +390,54 @@ job_block() {
     ' "$1"
 }
 
+# has_line <text> <exact line>: the text holds that line.
+has_line() {
+    grep -qxF -- "$2" <<< "$1"
+}
+
 # workflow_problems <file>: one line per broken rule, nothing when the shape holds.
 workflow_problems() {
-    local file="$1" own list scan
+    local file="$1" resolve own list scan first_step
+    resolve="$(job_block "$file" resolve)"
     own="$(job_block "$file" scan)"
     list="$(job_block "$file" third-party-list)"
     scan="$(job_block "$file" third-party-scan)"
     [ -n "$own" ] || echo 'no scan job'
     [ -n "$list" ] || echo 'no third-party-list job'
     [ -n "$scan" ] || echo 'no third-party-scan job'
+
+    # The deployed commits reach the list job, even when one environment failed to resolve.
+    has_line "$resolve" '            echo "${environment}_commit=${sha}" >> "$GITHUB_OUTPUT"' \
+        || echo 'resolve does not write the deployed commits'
+    has_line "$resolve" '      staging_commit: ${{ steps.tags.outputs.staging_commit }}' \
+        && has_line "$resolve" '      production_commit: ${{ steps.tags.outputs.production_commit }}' \
+        || echo 'resolve does not hand on the deployed commits'
+    has_line "$list" "    if: \${{ !cancelled() && github.repository == 'koniecdev/LotroKoniecDev' }}" \
+        || echo 'the list job does not run when resolve failed'
+    has_line "$list" '          STAGING_COMMIT: ${{ needs.resolve.outputs.staging_commit }}' \
+        && has_line "$list" '          PRODUCTION_COMMIT: ${{ needs.resolve.outputs.production_commit }}' \
+        || echo 'the list job does not read the deployed commits'
+    grep -qF './scripts/ci/list-third-party-images.sh --matrix' <<< "$list" || echo 'the list job does not run --matrix'
+
+    # One leg per image: it runs when resolve failed, it fails on a finding, and it never stops another.
+    has_line "$scan" "    if: \${{ !cancelled() && needs.third-party-list.result == 'success' && github.repository == 'koniecdev/LotroKoniecDev' }}" \
+        || echo 'the third-party legs do not run when resolve failed'
+    has_line "$scan" '      fail-fast: false' || echo 'one red third-party leg cancels the others'
+    first_step="$(awk '/^    steps:$/ { steps = 1; next } steps && /^      - / { print; exit }' <<< "$scan")"
+    [ "$first_step" = '      - name: Check that the image could be listed' ] \
+        && has_line "$scan" '          LEG_ERROR: ${{ matrix.error }}' \
+        && has_line "$scan" '            exit 1' \
+        || echo 'an error leg does not fail at its first step'
+    has_line "$scan" "          exit-code: '1'" || echo 'a finding does not fail the leg'
+    has_line "$scan" '          severity: HIGH,CRITICAL' || echo 'the leg does not scan for HIGH and CRITICAL'
+    has_line "$scan" '          scanners: vuln' || echo 'the third-party scan does not set scanners: vuln'
+    has_line "$scan" '          trivyignores: ${{ matrix.ignore }}' || echo 'the third-party scan does not read the leg'"'"'s exception file'
     if grep -qE 'TRIVY_USERNAME|TRIVY_PASSWORD|secrets\.' <<< "${list}"$'\n'"${scan}"; then
         echo 'a third-party job passes registry credentials'
     fi
-    grep -qE '^          scanners: vuln$' <<< "$scan" || echo 'the third-party scan does not set scanners: vuln'
-    grep -qF 'trivyignores: ${{ matrix.ignore }}' <<< "$scan" || echo 'the third-party scan does not read the leg'"'"'s exception file'
     if grep -qE 'trivyignores|actions/checkout' <<< "$own"; then
         echo 'our own images may read an exception file'
     fi
-    grep -qF './scripts/ci/list-third-party-images.sh --matrix' <<< "$list" || echo 'the list job does not run --matrix'
 }
 
 expect_workflow() {
@@ -417,14 +464,83 @@ expect_broken() {
     expect_workflow "$2" "$1" "$TMP_ROOT/broken.yml"
 }
 
+# expect_changed <description> <expected problem> <job> <exact line> <new text, or - to delete it>
+# Changes the first copy of that line inside that job of a copy of the workflow. `\n` in the new
+# text starts a new line.
+expect_changed() {
+    local description="$1" expected="$2" job="$3" old="$4" new="$5"
+    awk -v job="  ${job}:" -v old="$old" -v new="$new" '
+        $0 == job { inside = 1; print; next }
+        inside && /^  [^ #]/ { inside = 0 }
+        inside && !done && $0 == old { done = 1; if (new != "-") print new; next }
+        { print }
+    ' "$WORKFLOW" > "$TMP_ROOT/broken.yml"
+    if cmp -s "$WORKFLOW" "$TMP_ROOT/broken.yml"; then
+        LAST_OUTPUT="the line was not found in job ${job}: ${old}"
+        fail "$description"
+        return
+    fi
+    expect_workflow "$expected" "$description" "$TMP_ROOT/broken.yml"
+}
+
 expect_workflow '' 'image-scan.yml keeps the third-party rules' "$WORKFLOW"
-expect_broken 'a token given to a third-party scan' 'passes registry credentials' \
-    '/^          trivyignores: \${{ matrix.ignore }}$/a\        env:\n          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}'
-expect_broken 'a third-party scan with the secret scanner' 'does not set scanners: vuln' '/^          scanners: vuln$/d'
-expect_broken 'a third-party scan without its exception file' 'exception file' '/^          trivyignores: \${{ matrix.ignore }}$/d'
-expect_broken 'our own images reading an exception file' 'our own images may read an exception file' \
-    '0,/^          exit-code: .1.$/s//          exit-code: '"'"'1'"'"'\n          trivyignores: .github\/trivy\/caddy.trivyignore.yaml/'
+expect_changed 'a token given to a third-party scan' 'passes registry credentials' third-party-scan \
+    '          trivyignores: ${{ matrix.ignore }}' \
+    '          trivyignores: ${{ matrix.ignore }}\n        env:\n          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}'
+expect_changed 'a third-party scan with the secret scanner' 'does not set scanners: vuln' third-party-scan \
+    '          scanners: vuln' -
+expect_changed 'a third-party scan without its exception file' 'exception file' third-party-scan \
+    '          trivyignores: ${{ matrix.ignore }}' -
+expect_changed 'our own images reading an exception file' 'our own images may read an exception file' scan \
+    "          exit-code: '1'" "          exit-code: '1'\n          trivyignores: .github/trivy/caddy.trivyignore.yaml"
+expect_changed 'a third-party leg that does not fail on a finding' 'a finding does not fail the leg' third-party-scan \
+    "          exit-code: '1'" "          exit-code: '0'"
+expect_changed 'a third-party leg that scans for CRITICAL only' 'HIGH and CRITICAL' third-party-scan \
+    '          severity: HIGH,CRITICAL' '          severity: CRITICAL'
+expect_changed 'one red leg cancels the others' 'cancels the others' third-party-scan \
+    '      fail-fast: false' '      fail-fast: true'
+expect_changed 'the legs follow the default success(), which counts resolve' 'do not run when resolve failed' third-party-scan \
+    "    if: \${{ !cancelled() && needs.third-party-list.result == 'success' && github.repository == 'koniecdev/LotroKoniecDev' }}" \
+    "    if: github.repository == 'koniecdev/LotroKoniecDev'"
+expect_changed 'the list job is skipped when resolve failed' 'list job does not run when resolve failed' third-party-list \
+    "    if: \${{ !cancelled() && github.repository == 'koniecdev/LotroKoniecDev' }}" \
+    "    if: github.repository == 'koniecdev/LotroKoniecDev'"
+expect_changed 'an error leg that goes on to the scan' 'error leg does not fail at its first step' third-party-scan \
+    '          LEG_ERROR: ${{ matrix.error }}' -
+expect_changed 'resolve stops handing on a commit' 'resolve does not hand on the deployed commits' resolve \
+    '      staging_commit: ${{ steps.tags.outputs.staging_commit }}' -
+expect_changed 'resolve writes no commit' 'resolve does not write the deployed commits' resolve \
+    '            echo "${environment}_commit=${sha}" >> "$GITHUB_OUTPUT"' -
+expect_changed 'the list job reads the tag instead of the commit' 'does not read the deployed commits' third-party-list \
+    '          STAGING_COMMIT: ${{ needs.resolve.outputs.staging_commit }}' \
+    '          STAGING_COMMIT: ${{ needs.resolve.outputs.staging }}'
 expect_broken 'no third-party scan job' 'no third-party-scan job' 's/^  third-party-scan:$/  other-scan:/'
+
+# Trivy reads a `.trivyignore` from the folder it runs in. A third-party leg checks the repo out, and
+# so do the scans of our own images in cd.yml and pr-verify, so such a file at the root would hide
+# findings in all of them, outside any rule above.
+CASE='root-ignore'
+root_ignore_files() {
+    local name
+    for name in .trivyignore .trivyignore.yaml .trivyignore.yml; do
+        [ -e "$1/$name" ] && printf '%s\n' "$name"
+    done
+    return 0
+}
+LAST_OUTPUT="$(root_ignore_files "$REPO_ROOT")"
+if [ -z "$LAST_OUTPUT" ]; then
+    pass 'the repo has no root .trivyignore'
+else
+    fail 'the repo has no root .trivyignore'
+fi
+mkdir -p "$TMP_ROOT/fake-root"
+printf 'CVE-2026-78661\n' > "$TMP_ROOT/fake-root/.trivyignore.yaml"
+LAST_OUTPUT="$(root_ignore_files "$TMP_ROOT/fake-root")"
+if [ "$LAST_OUTPUT" = '.trivyignore.yaml' ]; then
+    pass 'a root .trivyignore.yaml is found'
+else
+    fail 'a root .trivyignore.yaml is found'
+fi
 
 echo
 if [ "$failures" -ne 0 ]; then

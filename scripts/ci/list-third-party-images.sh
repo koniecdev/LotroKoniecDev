@@ -3,8 +3,9 @@
 #
 #   --compose <file>…   Prints the image ref of every line whose first text is `image:`. Our own
 #                       ghcr.io/${IMAGE_NAMESPACE…} images are skipped: cd.yml and the other half of
-#                       image-scan.yml scan them. Exit 2 when a file is missing, has no image, or
-#                       has a ref this reader cannot trust: another `${`, a quote, a comment, no tag.
+#                       image-scan.yml scan them. Exit 2 when a file is missing, has no image, has
+#                       a ref this reader cannot trust (another `${`, a quote, a comment, no tag),
+#                       or has an image key in another form (`- image:`, `{image: …}`).
 #   --backup <file>     Prints the default of POSTGRES_IMAGE in scripts/hetzner/backup.sh. Exit 2
 #                       unless exactly one such line holds a plain ref.
 #   --matrix staging=<sha> production=<sha>
@@ -28,6 +29,7 @@ set -euo pipefail
 export LC_ALL=C
 
 readonly REF_PATTERN='^[a-z0-9][a-z0-9._/-]*:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?$'
+readonly OTHER_IMAGE_FORM='(^|[^A-Za-z0-9_-])image:'
 readonly OUR_IMAGES_PREFIX='ghcr.io/${IMAGE_NAMESPACE'
 readonly TRIVY_DIR='.github/trivy'
 readonly ENVIRONMENTS=(staging production)
@@ -62,7 +64,15 @@ read_compose() {
     fi
     while IFS= read -r line || [ -n "$line" ]; do
         number=$((number + 1))
-        [[ "$line" =~ ^[[:space:]]*image:(.*)$ ]] || continue
+        if [[ ! "$line" =~ ^[[:space:]]*image:(.*)$ ]]; then
+            # `- image: x` or `{image: x}` is an image too. Reading only the plain form would skip it
+            # without a word, so any other form stops the list.
+            if [[ ! "$line" =~ ^[[:space:]]*# ]] && [[ "$line" =~ $OTHER_IMAGE_FORM ]]; then
+                log "${name}:${number}: an image key in a form this reader does not follow (a list item, a flow mapping or after other text). Write it as its own \`image: <ref>\` line."
+                return 2
+            fi
+            continue
+        fi
         ref="${BASH_REMATCH[1]}"
         ref="${ref#"${ref%%[![:space:]]*}"}"
         ref="${ref%"${ref##*[![:space:]]}"}"

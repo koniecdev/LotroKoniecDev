@@ -30,6 +30,9 @@ on:
       - 'scripts/claude/**'
       - 'scripts/claude-loop.conf'
       - 'scripts/claude-loop.engine'
+      # The exception files of the daily image scan (ADR-0076) ship nothing either: a renewal must not
+      # start a rollout. pr-verify checked them on the PR that brought them.
+      - '.github/trivy/**'
 
 concurrency:
   group: ci-main-${{ github.ref }}

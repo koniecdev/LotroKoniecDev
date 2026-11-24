@@ -63,10 +63,6 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
         _factory = factory;
     }
 
-    /// <summary>
-    /// The translation API answers 404, so the page shows its calm notice at once and never calls out of
-    /// the test.
-    /// </summary>
     private WebApplicationFactory<Program> CreateHost() =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             services.AddHttpClient(DashboardTranslationSystem.ClientName)
@@ -92,12 +88,4 @@ public sealed partial class HomePageImageTests : IClassFixture<ProductionFronten
 
     [GeneratedRegex("""<link\b[^>]*\brel="icon"[^>]*\bhref="(?<href>[^"]+)""")]
     private static partial Regex IconLinkRegex();
-
-    private sealed class NotFoundServer : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
-    }
 }

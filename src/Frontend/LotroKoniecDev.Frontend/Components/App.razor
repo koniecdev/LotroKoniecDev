@@ -1,3 +1,5 @@
+@inject NavigationManager Navigation
+
 <!DOCTYPE html>
 <html lang="pl">
 
@@ -10,6 +12,17 @@
     @* No import-map component (#670): it emits an inline script, which our CSP blocks, and a Static SSR
        app never resolves a module specifier. Bring it back only with a CSP nonce. *@
     <link rel="icon" href="@Assets["favicon.ico"]"/>
+    @* Link preview tags for every page (#1416). Plain markup, not a HeadContent: a page's own HeadContent
+       would replace them. The addresses follow the request's origin, so staging and prod each send
+       their own. The 300x300 image gets the small square preview, not the large one. *@
+    <meta property="og:site_name" content="lotro-translator.pl"/>
+    <meta property="og:locale" content="pl_PL"/>
+    <meta property="og:type" content="website"/>
+    <meta property="og:image" content="@PreviewImageUrl"/>
+    <meta property="og:image:width" content="300"/>
+    <meta property="og:image:height" content="300"/>
+    <meta property="og:image:alt" content="Logo Polskie LOTRO"/>
+    <meta name="twitter:card" content="summary"/>
     <HeadOutlet/>
 </head>
 
@@ -19,3 +32,7 @@
 </body>
 
 </html>
+
+@code {
+    private string PreviewImageUrl => new Uri(new Uri(Navigation.BaseUri), Assets["og-logo.png"]).AbsoluteUri;
+}

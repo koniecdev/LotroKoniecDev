@@ -30,9 +30,9 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// <summary>
 /// The editor's list (spec 0001), without soft-removed rows; <c>status=NeedsReview</c> is the "needs
 /// retranslation" view. Anyone may read it (#309), because game texts and their translations are public
-/// by nature; every action still needs a login, so other callers get no action links and no author
-/// (#1543). <c>conflictsOnly</c> keeps the translated rows whose identical English has two or more
-/// different Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
+/// by nature; every action still needs a login, so other callers get no action links. A caller with no
+/// user gets no author either (#1543). <c>conflictsOnly</c> keeps the translated rows whose identical
+/// English has two or more different Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
 /// <c>mine</c> keeps the rows whose current Polish text the caller saved; the caller comes from the
 /// token, and a caller with no token or no translator profile gets an empty page (#1491).
 /// </summary>

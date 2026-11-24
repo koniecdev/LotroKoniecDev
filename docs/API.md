@@ -109,8 +109,8 @@ endpoint without its own metadata returns **401** to an anonymous caller. Public
 
 Anonymous by explicit opt-out: the discovery document `GET /` (ADR-0040), `GET /api/v1/translation-files/{lang}`,
 `GET /api/v1/progress` and the **read-only translations list** `GET /api/v1/translations` (#309,
-the data is public game text). An answer to a caller with no user (no token, a refused, for example
-expired, token, or a service token) carries no person's name or id, so the list has no author for
+the data is public game text). An answer to a caller with no user (no token, a refused (for example
+expired) token, or a service token) carries no person's name or id, so the list has no author for
 such a caller (#1543). Every state change needs a login. On every authenticated request a
 middleware creates the caller's TMS `Translator` profile if it is missing (ADR-0004, amended
 2026-06-24); write handlers also do it before they stamp the author.
@@ -439,7 +439,7 @@ unknown name, such as the old `lang`, is ignored.
 
 Soft-removed rows are always left out. Default order `(FileId, GossipId)`, or newest change first with
 `mine=true`. Anonymous callers get the items without any links. A caller with no user (no token, a
-refused, for example expired, token, or a service token) gets every item with `submitter: null`
+refused (for example expired) token, or a service token) gets every item with `submitter: null`
 (#1543).
 
 **`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`.

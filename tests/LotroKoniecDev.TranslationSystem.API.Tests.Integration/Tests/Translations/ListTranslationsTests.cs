@@ -905,10 +905,12 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     [InlineData("expired")]
     [InlineData("unknown-key")]
     [InlineData("malformed")]
+    [InlineData("service")]
     public async Task List_ForACallerWithNoUser_ShouldServeEveryRowWithoutItsAuthor(string tokenKind)
     {
         // Arrange: the terms share the translation without naming who wrote which part (#1543). The
-        // expired token names the author. The list has no approver today; the approver guards a later field.
+        // expired token names the author, and the valid service token names a client, not a user. The
+        // list has no approver today; the approver guards a later field.
         Guid authorSubject = Guid.NewGuid();
         Guid approverSubject = Guid.NewGuid();
         TranslatorId authorId = await SeedTranslatorAsync(authorSubject, AuthorName);
@@ -1470,6 +1472,7 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         "expired" => TranslationSystemApiFactory.CreateExpiredAccessToken(refusedSubject),
         "unknown-key" => TranslationSystemApiFactory.CreateTokenSignedWithUnknownKey(),
         "malformed" => "not-a-jwt",
+        "service" => TranslationSystemApiFactory.CreateServiceAccessToken(),
         _ => throw new ArgumentOutOfRangeException(nameof(tokenKind), tokenKind, null)
     };
 

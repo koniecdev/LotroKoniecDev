@@ -200,6 +200,20 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             new SymmetricSecurityKey("some-other-unknown-key-32-bytes-long!!!!"u8.ToArray()),
             DateTime.UtcNow.AddMinutes(30));
 
+    /// <summary>
+    /// Shaped like the client-credentials token: its <c>sub</c> and <c>name</c> are the client id, not a
+    /// user's GUID, and it holds no role.
+    /// </summary>
+    public static string CreateServiceAccessToken()
+        => CreateToken(
+            TestSigningKey,
+            DateTime.UtcNow.AddMinutes(30),
+            scope: AuthConstants.Scopes.Service,
+            displayName: AuthConstants.ClientIds.Api,
+            email: "",
+            roles: [],
+            subjectClaim: AuthConstants.ClientIds.Api);
+
     private static string CreateToken(
         SymmetricSecurityKey signingKey,
         DateTime expires,
@@ -210,7 +224,8 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
         string email = TestUserEmail,
         string[]? audiences = null,
         string tokenType = AuthConstants.TokenTypes.AccessToken,
-        string[]? roles = null)
+        string[]? roles = null,
+        string? subjectClaim = null)
     {
         JsonWebTokenHandler handler = new();
 
@@ -226,7 +241,7 @@ public class TranslationSystemApiFactory : WebApplicationFactory<Program>, IAsyn
             SigningCredentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256),
             Claims = new Dictionary<string, object>
             {
-                ["sub"] = (subject ?? Guid.NewGuid()).ToString(),
+                ["sub"] = subjectClaim ?? (subject ?? Guid.NewGuid()).ToString(),
                 ["name"] = displayName,
                 ["email"] = email,
                 ["role"] = roles is null ? role : roles,

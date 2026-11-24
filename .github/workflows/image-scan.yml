@@ -1,19 +1,29 @@
-name: Image scan (deployed)
+name: Image scan
 
 # cd.yml scans an image once, when it builds it. A vulnerability published after that build stays
-# invisible until some later change rebuilds the image (#1326). This job scans again, every day, the
-# images that staging and prod actually run, with the same Trivy gate as cd.yml.
+# invisible until some later change rebuilds the image (#1326). This workflow scans again, every day,
+# the images the servers run, with the same Trivy gate as cd.yml. It has two halves:
 #
-# Prod promotion is batched, so prod can run an older image than main builds. That is why this scans
+#   * Our own four images (`scan`), as each environment deployed them.
+#   * The third-party images (`third-party-*`, ADR-0076): Caddy, RabbitMQ and the backup's postgres,
+#     read from compose.hetzner.yaml and scripts/hetzner/backup.sh at each environment's deployed
+#     commit, and the observability stack, read from compose.observability.yaml on the run's ref.
+#     A finding no vendor release fixes yet goes into that image's exception file under
+#     .github/trivy/, with a reason and an expiry. Our own images never read those files.
+#
+# Prod promotion is batched, so prod can run older images than main. That is why both halves read
 # what each environment deployed, not main.
 #
-# Known gap: the deployment record can name a different image than the box runs. A cd.yml dispatch
-# with an explicit image_tag records the run's commit, not the tag it rolled out; a deploy or rollback
-# run by hand on the box (runbook, "Deploy or roll back by hand") leaves no record at all. After
-# either, this scans the image the newest successful record names. Third-party images: #1325.
+# Known gaps:
+#   * The deployment record can name a different commit than the box runs (#1521). A cd.yml dispatch
+#     with an explicit image_tag records the run's commit, not the tag it rolled out; a deploy or
+#     rollback run by hand on the box (runbook, "Deploy or roll back by hand") leaves no record at
+#     all. After either, both halves read the commit the newest successful record names.
+#   * The observability stack is deployed by hand (ADR-0050 §2) and leaves no record, so its half
+#     reads the pins on the run's ref. A box that missed a hand deploy still runs the older images.
 #
-# A failed scheduled run e-mails the user who last changed the cron line, like health-ping.yml.
-# Cron is UTC.
+# A failed scheduled run e-mails the user who last changed the cron line, like health-ping.yml. It is
+# one e-mail per run, so a red leg left standing hides the next one. Cron is UTC.
 
 on:
   schedule:
@@ -34,6 +44,8 @@ jobs:
     outputs:
       staging: ${{ steps.tags.outputs.staging }}
       production: ${{ steps.tags.outputs.production }}
+      staging_commit: ${{ steps.tags.outputs.staging_commit }}
+      production_commit: ${{ steps.tags.outputs.production_commit }}
     steps:
       # The same rule as resolve_via_api in scripts/ci/resolve-prod-baseline.sh: the newest deployment
       # that ever reached `success`. A newer success marks the older one `inactive`, so the latest
@@ -66,6 +78,9 @@ jobs:
               failed=1
               continue
             fi
+            # Written before the GHCR check: the third-party half reads files at this commit, and
+            # a missing image of our own does not change which files the box got.
+            echo "${environment}_commit=${sha}" >> "$GITHUB_OUTPUT"
             tag="sha-${sha:0:7}"
             # The tag is published only when all four images exist, so a missing image fails the
             # legs at their clear check step, not with a Trivy pull error.
@@ -129,3 +144,81 @@ jobs:
         env:
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+  # Builds the third-party matrix (ADR-0076). It always writes one: a deployed commit or a file it
+  # cannot read becomes a leg that fails at its first step, so every other image is still scanned.
+  third-party-list:
+    name: List the third-party images
+    needs: resolve
+    if: ${{ !cancelled() && github.repository == 'koniecdev/LotroKoniecDev' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The deployed commits are older commits of main, read with `git show`.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: List the images each environment runs
+        id: list
+        env:
+          STAGING_COMMIT: ${{ needs.resolve.outputs.staging_commit }}
+          PRODUCTION_COMMIT: ${{ needs.resolve.outputs.production_commit }}
+        run: |
+          set -euo pipefail
+          matrix="$(./scripts/ci/list-third-party-images.sh --matrix "staging=${STAGING_COMMIT}" "production=${PRODUCTION_COMMIT}")"
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo '## Third-party images' >> "$GITHUB_STEP_SUMMARY"
+          # The backticks are markdown for the job summary, not command substitution.
+          # shellcheck disable=SC2016
+          jq -r '.include[] | "- `\(.leg)`" + (if .error != "" then ": \(.error)" else "" end)' <<< "$matrix" >> "$GITHUB_STEP_SUMMARY"
+
+  # The `if` names the list job's result instead of the default success(), which also counts resolve:
+  # one environment that fails to resolve must not stop the legs of the other one.
+  third-party-scan:
+    name: Scan third-party / ${{ matrix.leg }}
+    needs: third-party-list
+    if: ${{ !cancelled() && needs.third-party-list.result == 'success' && github.repository == 'koniecdev/LotroKoniecDev' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.third-party-list.outputs.matrix) }}
+    steps:
+      - name: Check that the image could be listed
+        env:
+          LEG_ERROR: ${{ matrix.error }}
+        run: |
+          if [ -n "$LEG_ERROR" ]; then
+            echo "::error::${LEG_ERROR}"
+            exit 1
+          fi
+
+      - name: Check out the exception files
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/trivy
+          persist-credentials: false
+
+      # No registry credentials: these are public Docker Hub images, and a token handed to Trivy
+      # would go to Docker Hub (ADR-0067 §7). `scanners: vuln`, because the action's default adds
+      # the secret scanner, and a secret inside a vendor's image is nothing we can rotate.
+      - name: Scan image for vulnerabilities (Trivy — fail HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ matrix.ref }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          scanners: vuln
+          trivyignores: ${{ matrix.ignore }}

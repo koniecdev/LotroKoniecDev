@@ -70,7 +70,7 @@ public sealed partial class EditorPlaceholderRefusalTests : IClassFixture<Produc
         _factory = factory;
     }
 
-    [GeneratedRegex("""<textarea id="translated"[^>]*>(?<text>[^<]*)</textarea>""")]
+    [GeneratedRegex("""<textarea id="translated"[^>]*>\n(?<text>[^<]*)</textarea>""")]
     private static partial Regex TranslatedTextarea();
 
     private WebApplicationFactory<Program> CreateHost(StubTranslationSystem translationSystem) =>

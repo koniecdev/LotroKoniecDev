@@ -1,7 +1,9 @@
 using System.Globalization;
+using LotroKoniecDev.Frontend.Components.Pages.Translations;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
@@ -52,6 +54,31 @@ internal sealed class TranslationEditorLoader
         ArgumentException.ThrowIfNullOrWhiteSpace(sameSourceTextHref);
 
         return _client.GetApiResultAsync<SameSourceTextTranslationsResponse>(sameSourceTextHref, cancellationToken);
+    }
+
+    /// <summary>
+    /// The rows after <paramref name="place"/> in the list the editor came from (#1490, ADR-0077), read
+    /// through the same <c>translations</c> rel as the list. The answer's page is the page they start on.
+    /// </summary>
+    public async Task<ApiResult<PaginationResponse<TranslationListItemResponse>>> LoadRowsAfterAsync(
+        TranslationListQuery listQuery,
+        string place,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(listQuery);
+        ArgumentException.ThrowIfNullOrWhiteSpace(place);
+
+        ApiResult<string> collectionHref = await _discoveryCache.ResolveTranslationSystemHrefAsync(
+            Rels.Translations,
+            cancellationToken);
+        if (collectionHref.IsFailure)
+        {
+            return ApiResult.Failure<PaginationResponse<TranslationListItemResponse>>(collectionHref.ProblemDetails!);
+        }
+
+        return await _client.GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(
+            listQuery.ToApiUri(collectionHref.Value, place),
+            cancellationToken);
     }
 
     /// <summary>

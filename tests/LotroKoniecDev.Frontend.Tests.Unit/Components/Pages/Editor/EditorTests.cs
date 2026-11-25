@@ -1124,6 +1124,119 @@ public sealed class EditorTests : BunitContext
             .ShouldBe("/translations?page=1&search=Interrupted!&match=WholeText");
     }
 
+    [Fact]
+    public void Render_WithAPlace_ShowsSaveAndNextBesideSaveAndCarriesTheShownText()
+    {
+        // Only "Edytuj" on the list writes a place (#1490, spec 0018).
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        IReadOnlyList<IElement> buttons = component.FindAll(".editor-actions button[type=submit]");
+        buttons.Select(button => button.TextContent).ShouldBe(["Zapisz", "Zapisz i następny"]);
+        buttons[0].HasAttribute("name").ShouldBeFalse();
+        buttons[1].GetAttribute("name").ShouldBe("SaveAction");
+        buttons[1].GetAttribute("value").ShouldBe("next");
+        component.Find("input[name=ShownTextField]").GetAttribute("value").ShouldBe("Cześć.");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("?" + ListState)]
+    [InlineData("?place=%20")]
+    public void Render_WithoutAPlace_ShowsOnlySave(string query)
+    {
+        // A pasted link, "Otwórz" and the note after an inline save have no place in a list (Q2).
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}{query}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.FindAll(".editor-actions button[type=submit]").Select(button => button.TextContent).ShouldBe(["Zapisz"]);
+        component.FindAll("input[name=ShownTextField]").ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Render_WithAPlaceOnARowTheCallerCannotSave_ShowsNoSaveForm()
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: false));
+        Navigation().NavigateTo($"/editor/{id}?place=azoxOjI");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.FindAll("button[name=SaveAction]").ShouldBeEmpty();
+        component.FindAll("input[name=ShownTextField]").ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("Cześć.", "Cześć.")]
+    [InlineData("\nCześć.", "\nCześć.")]
+    [InlineData("\r\nCześć.", "\nCześć.")]
+    public void Render_TheTextareaAndTheShownText_HoldTheSameTextAsTheStoredOne(string stored, string parsed)
+    {
+        // The browser's parser drops one line break after <textarea>, as AngleSharp's does, so the page writes
+        // one first. It also reads CRLF as LF in both places, and a post sends both as CRLF again.
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: stored));
+        Navigation().NavigateTo($"/editor/{id}?place=azoxOjI");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find("textarea#translated").TextContent.ShouldBe(parsed);
+        component.Find("input[name=ShownTextField]").GetAttribute("value").ShouldBe(parsed);
+    }
+
+    [Theory]
+    [InlineData("previousSaved=true", "Poprzednie tłumaczenie zapisano.")]
+    [InlineData("nextFailed=true", "Nie udało się otworzyć następnego wiersza. Spróbuj jeszcze raz albo wróć do listy.")]
+    public void Render_WithALineAfterSaveAndNext_ShowsIt(string flag, string line)
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?place=azoxOjI&{flag}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.FindAll(".status-message").Select(message => message.TextContent.Trim()).ShouldContain(line);
+    }
+
+    [Theory]
+    [InlineData("previousSaved=true", "Poprzednie tłumaczenie zapisano.")]
+    [InlineData("nextFailed=true", "Nie udało się otworzyć następnego wiersza. Spróbuj jeszcze raz albo wróć do listy.")]
+    public void Render_WhenTheRowFailsToLoadAfterSaveAndNext_StillShowsItsLineAboveTheLoadError(string flag, string line)
+    {
+        // A good save never ends without a sign, also when the next row cannot load (#1122, spec 0018).
+        Guid id = Guid.NewGuid();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        Navigation().NavigateTo($"/editor/{id}?place=azoxOjI&{flag}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.FindAll(".status-message").Select(message => message.TextContent.Trim()).ShouldContain(line);
+        component.Find(".error-message").TextContent.ShouldContain("Nie znaleziono.");
+    }
+
+    [Theory]
+    [InlineData("previousSaved=yes&nextFailed=1")]
+    [InlineData("previousSaved=false&nextFailed=false")]
+    public void Render_WithAFlagThatIsNotTrue_ShowsTheEditorWithoutTheLine(string flags)
+    {
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
+        Navigation().NavigateTo($"/editor/{id}?place=azoxOjI&{flags}");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.FindAll("textarea#translated").Count.ShouldBe(1);
+        component.FindAll(".status-message").ShouldBeEmpty();
+    }
+
     private BunitNavigationManager Navigation() =>
         (BunitNavigationManager)Services.GetRequiredService<NavigationManager>();
 

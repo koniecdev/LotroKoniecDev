@@ -24,6 +24,18 @@ internal sealed record TranslationListQuery
     internal const string SavedAfterName = "savedAfter";
     internal const string SavedSlipsName = "savedSlips";
 
+    /// <summary>
+    /// The row's place in the list, in the editor's address (#1490, ADR-0077). Only "Edytuj" writes it, and
+    /// only an editor with a place offers "Zapisz i następny".
+    /// </summary>
+    internal const string PlaceName = "place";
+
+    /// <summary>The list's note after "Zapisz i następny" passed the last row (#1490). The list page reads it.</summary>
+    internal const string LastRowName = "lastRow";
+
+    internal const string LastRowSavedValue = "saved";
+    internal const string LastRowUnchangedValue = "unchanged";
+
     private const string PagePath = "/translations";
     private const string RowElementIdPrefix = "row-";
     private const string EditorPathPrefix = "/editor/";
@@ -91,7 +103,11 @@ internal sealed record TranslationListQuery
                 TranslationSearchMatch.Contains);
     }
 
-    public ListTranslationsRequest ToApiRequest()
+    /// <summary>
+    /// With <paramref name="after"/>, the API returns the rows after that place instead of this page, and
+    /// says which page they start on (ADR-0077).
+    /// </summary>
+    public ListTranslationsRequest ToApiRequest(string? after = null)
         => new(
             Search: Search,
             Status: Status,
@@ -99,18 +115,23 @@ internal sealed record TranslationListQuery
             PageSize: PageSize,
             ConflictsOnly: ConflictsOnly,
             Match: Match,
-            Mine: Mine);
+            Mine: Mine,
+            After: after);
 
     /// <summary>
     /// The API's option names come from <see cref="ListTranslationsRequest"/>, the record the API binds,
     /// so the two ends cannot spell them differently (#1478).
     /// </summary>
-    public string ToApiUri(string collectionHref)
+    public string ToApiUri(string collectionHref, string? after = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(collectionHref);
 
-        return QueryHelpers.AddQueryString(collectionHref, ToApiRequest().ToQueryParameters());
+        return QueryHelpers.AddQueryString(collectionHref, ToApiRequest(after).ToQueryParameters());
     }
+
+    /// <summary>The same list on another page, for the row "Zapisz i następny" opens (#1490).</summary>
+    public TranslationListQuery AtPage(int page) =>
+        new(Search, Status, page, PageSize, ConflictsOnly, Match, Mine);
 
     /// <summary>
     /// For the pager links. The page's own address is the website's contract with the browser, so it keeps
@@ -134,12 +155,21 @@ internal sealed record TranslationListQuery
 
     /// <summary>
     /// The editor's address carries the list state, so the editor can build the way back (#1452). Default
-    /// values stay out, so the first page of an unfiltered list links to a bare <c>/editor/{id}</c>.
+    /// values stay out, so the first page of an unfiltered list links to a bare <c>/editor/{id}</c>. The
+    /// <paramref name="place"/> is the row's place in this list (#1490); a link from outside the list has none.
     /// </summary>
-    public string ToEditorRelativeUri(TranslationId id) =>
-        QueryHelpers.AddQueryString(
+    public string ToEditorRelativeUri(TranslationId id, string? place = null)
+    {
+        Dictionary<string, string?> parameters = PageQueryParameters(PageUnlessFirst());
+        if (!string.IsNullOrWhiteSpace(place))
+        {
+            parameters[PlaceName] = place;
+        }
+
+        return QueryHelpers.AddQueryString(
             string.Create(CultureInfo.InvariantCulture, $"{EditorPathPrefix}{id.Value}"),
-            PageQueryParameters(PageUnlessFirst()));
+            parameters);
+    }
 
     /// <summary>
     /// The editor's way back to the list (#1452). The path is always the list page, and every value is
@@ -147,6 +177,17 @@ internal sealed record TranslationListQuery
     /// </summary>
     public string ToListRelativeUri() =>
         QueryHelpers.AddQueryString(PagePath, PageQueryParameters(PageUnlessFirst()));
+
+    /// <summary>
+    /// Where "Zapisz i następny" ends after the last row (#1490). The note says whether that press saved.
+    /// </summary>
+    public string ToListRelativeUriWithLastRowNote(bool saved)
+    {
+        Dictionary<string, string?> parameters = PageQueryParameters(PageUnlessFirst());
+        parameters[LastRowName] = saved ? LastRowSavedValue : LastRowUnchangedValue;
+
+        return QueryHelpers.AddQueryString(PagePath, parameters);
+    }
 
     /// <summary>
     /// Where a row's own save form posts (#1493). The fragment opens a refused save at its row. A bare

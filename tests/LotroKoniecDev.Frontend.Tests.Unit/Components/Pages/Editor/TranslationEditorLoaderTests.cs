@@ -2,11 +2,13 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LotroKoniecDev.Frontend.Components.Pages.Editor;
+using LotroKoniecDev.Frontend.Components.Pages.Translations;
 using LotroKoniecDev.Frontend.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Discovery;
 using LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
+using LotroKoniecDev.TranslationSystem.Contracts.Common;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
@@ -270,6 +272,25 @@ public sealed class TranslationEditorLoaderTests
 
         result.IsFailure.ShouldBeTrue();
         result.ProblemDetails!.Status.ShouldBe(403);
+    }
+
+    [Fact]
+    public async Task LoadRowsAfterAsync_AsksTheTranslationsRelForTheRowsAfterThePlaceInTheSameList()
+    {
+        // The list's own filters and page size, so the API names the page in the list the editor came from.
+        TranslationEditorLoader loader = CreateLoader(
+            HttpStatusCode.OK,
+            """{ "items": [], "page": 4, "pageSize": 25, "totalCount": 99 }""",
+            out StubHttpMessageHandler handler);
+        TranslationListQuery list = TranslationListQuery.From(search: "axe", status: "Untranslated", page: 2, pageSize: 25);
+
+        ApiResult<PaginationResponse<TranslationListItemResponse>> result = await loader.LoadRowsAfterAsync(list, "azoxOjI");
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Page.ShouldBe(4);
+        handler.LastRequest.ShouldNotBeNull().Method.ShouldBe(HttpMethod.Get);
+        handler.LastRequest.RequestUri.ShouldNotBeNull().ToString().ShouldBe(
+            $"{ResolvedTranslationsUri}?search=axe&status=Untranslated&after=azoxOjI&page=2&pageSize=25");
     }
 
     private static TranslationEditorLoader CreateLoader(

@@ -503,8 +503,8 @@ approved.
 ```
 
 `TranslationListItemResponse` is the lighter `{ id, fileId, gossipId, sourceText, translatedText,
-status, submitter, updatedAt }`; its `submitter` is `null` for an untranslated row and on every row
-for a caller with no user (#1543). `previousSourceText` is the **old English** kept for review after a
+status, submitter, updatedAt, place }`; its `submitter` is `null` for an untranslated row and on every row
+for a caller with no user (#1543), and its `place` is the opaque value for `after` (ADR-0077). `previousSourceText` is the **old English** kept for review after a
 game update invalidated the row; it is set from the invalidation until the row is approved again.
 
 **`GET /translations/{id}/same-source-text`** (#1347) — the editor's "other rows with the same text"

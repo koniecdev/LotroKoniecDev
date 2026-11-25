@@ -165,10 +165,13 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
         translationSystem.Upserts.ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task Post_SaveAndNext_OnAnUntranslatedRowWithAnEmptyField_StillSendsTheSaveAndShowsItsRefusal()
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Post_SaveAndNext_OnAnUntranslatedRowWithABlankField_StillSendsTheSaveAndShowsItsRefusal(string blank)
     {
-        // Arrange: an empty field on an untranslated row stays a failed save (owner decision of 2026-11-24).
+        // Arrange: an empty field on an untranslated row stays a failed save (owner decision of 2026-11-24). A
+        // blank shown text never counts as unchanged, so a field of spaces goes to the save and its refusal too.
         StubTranslationSystem translationSystem = new()
         {
             StoredTranslatedText = null,
@@ -181,11 +184,11 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
 
         // Act
         using HttpResponseMessage posted = await browser.SendAsync(
-            SavePost(antiforgeryToken, typed: string.Empty, shown: string.Empty, saveAction: "next"));
+            SavePost(antiforgeryToken, typed: blank, shown: blank, saveAction: "next"));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
-        translationSystem.Upserts.ShouldBe([new UpsertTranslationRequest(FileId, GossipId, string.Empty)]);
+        translationSystem.Upserts.ShouldBe([new UpsertTranslationRequest(FileId, GossipId, blank)]);
         translationSystem.ListReads.ShouldBeEmpty();
         (await posted.Content.ReadAsStringAsync()).ShouldContain("status-message status-error");
     }

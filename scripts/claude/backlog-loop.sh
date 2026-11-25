@@ -15,7 +15,9 @@
 # To stop after the tickets that run now, create the file stop-after-running in the lock folder,
 # from the main checkout: `touch .claude/backlog-loop.lock/stop-after-running`. The loop starts
 # nothing new, lets the running tickets finish, and lists the tickets it did not start.
-# Ctrl-C stops the running tickets too.
+# Ctrl-C stops the running tickets too. Started with start-loop.sh, one press only warns: the
+# launcher counts the presses and stops the run on a second one within 5 seconds. Started
+# directly, one press stops it.
 #
 # Start a real run with scripts/claude/start-loop.sh, in a plain terminal: a Claude Code session
 # kills its background commands after two hours. Running this script directly is for a

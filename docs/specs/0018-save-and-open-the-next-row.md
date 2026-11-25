@@ -7,7 +7,8 @@
 - **Related:** ADR-0077 (the place and `after` contract), #1452 (the list state in the editor's address),
   #1489 (the warnings), #1493 (the list's inline save), #1384 (proposals, which changes the "Tylko moje"
   order), #1569 (a second click in the browser), #1571 (the slip check before the save, which extends
-  this button), ADR-0039 §6 and #1476 (line breaks at the end),
+  this button), #1538 (every text box drops a first line break; this ticket fixes the save form's),
+  ADR-0039 §6 and #1476 (line breaks at the end),
   ADR-0040, ADR-0041, ADR-0044, ADR-0072
 
 ## Business context

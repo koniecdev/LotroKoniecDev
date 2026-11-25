@@ -125,6 +125,7 @@ public sealed class TranslationListOrderTests
             { false, Encode("k:99999999999:1") },
             { false, Encode("K:620756992:1") },
             { false, new string('a', 200) },
+            { false, Encode($"k:{new string('0', 100)}620756992:1") },
             { true, Encode("m:1:620756992") },
             { true, Encode("m:-1:620756992:1") },
             { true, Encode($"m:{DateTimeOffset.MaxValue.UtcTicks + 1}:620756992:1") },

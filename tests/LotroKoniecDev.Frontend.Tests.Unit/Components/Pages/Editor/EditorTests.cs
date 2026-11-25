@@ -1089,6 +1089,25 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
+    public void Render_OtherRowLink_FromAnEditorWithAPlace_CarriesNoPlace()
+    {
+        // The other row has no place in the list, so it gets no "Zapisz i następny" (Q2, #1490).
+        Guid id = Guid.NewGuid();
+        StubLoad(BuildDetail(sourceText: "Stout-axe[D]", translatedText: "Topór wojenny", hasSameSourceText: true));
+        TranslationId otherId = TranslationId.Create(Guid.NewGuid());
+        StubSameSourceText(new SameSourceTextTranslationsResponse(
+            [Other(otherId, 127768437, "Krzepki Topornik", TranslationStatus.Draft, "Gimli")],
+            TotalCount: 1,
+            HasConflictingTranslations: true));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
+
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        component.Find("section.same-source tbody tr a").GetAttribute("href")
+            .ShouldBe($"/editor/{otherId.Value}?{ListState}");
+    }
+
+    [Fact]
     public void Render_ConflictListLink_StartsANewSearchInsteadOfKeepingTheListState()
     {
         // The ticket keeps this link as it is: it opens a new list, it is not the way back.
@@ -1127,7 +1146,7 @@ public sealed class EditorTests : BunitContext
     [Fact]
     public void Render_WithAPlace_ShowsSaveAndNextBesideSaveAndCarriesTheShownText()
     {
-        // Only "Edytuj" on the list writes a place (#1490, spec 0018).
+        // A row opened from the list carries its place (#1490, spec 0018).
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
         Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");

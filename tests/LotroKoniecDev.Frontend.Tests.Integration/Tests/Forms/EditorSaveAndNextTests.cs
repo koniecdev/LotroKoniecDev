@@ -193,8 +193,14 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
     [Fact]
     public async Task Post_SaveAndNext_WhenTheSaveFails_StaysWithTheTypedTextTheShownTextAndNoOldLine()
     {
-        // Arrange: the form posts to its own address, so the last redirect's flags come along.
-        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Conflict, RowsAfter = NextRowOnPage(2) };
+        // Arrange: someone else saved the row after the page loaded, so the save is refused. The form posts to
+        // its own address, so the last redirect's flags come along.
+        StubTranslationSystem translationSystem = new()
+        {
+            StoredTranslatedText = "Nowszy tekst.",
+            UpsertAnswer = HttpStatusCode.Conflict,
+            RowsAfter = NextRowOnPage(2)
+        };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");

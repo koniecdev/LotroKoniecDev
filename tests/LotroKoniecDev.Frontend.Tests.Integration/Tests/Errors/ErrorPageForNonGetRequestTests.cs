@@ -135,6 +135,20 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         (await response.Content.ReadAsStringAsync()).ShouldContain(ErrorTitle);
     }
 
+    /// <summary>A HEAD run of the page would answer 405, because the pages take only GET and POST.</summary>
+    [Fact]
+    public async Task Head_AnUnknownAddress_AnswersWithStatus404()
+    {
+        // Arrange
+        using CookieJarBrowser browser = new(_factory);
+
+        // Act
+        using HttpResponseMessage response = await browser.SendAsync(new HttpRequestMessage(HttpMethod.Head, "/no-such-page"));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+    }
+
     public ErrorPageForNonGetRequestTests(ProductionFrontendFactory factory)
     {
         _factory = factory;

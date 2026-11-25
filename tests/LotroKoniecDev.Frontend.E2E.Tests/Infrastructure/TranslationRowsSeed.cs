@@ -7,7 +7,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Infrastructure;
 /// <summary>
 /// The translation rows of every flow that needs them, seeded once per stack through the site as the admin
 /// (ADR-0009 §5 amendment). An import removes every row it does not carry, so the flows share one import,
-/// and each flow searches for its own token. The flows of one collection run one at a time, so the seed
+/// and each list flow searches for its own token. The flows of one collection run one at a time, so the seed
 /// needs no lock.
 /// </summary>
 internal sealed class TranslationRowsSeed

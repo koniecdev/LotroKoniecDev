@@ -84,7 +84,12 @@ One test class per flow, in `Flows/`:
 - `HomeDiscordBannerTests`: the home page's Discord band sits right on top of the footer on short and
   tall screens, and keeps its own width on a screen wider than the strip.
 - `HomeLayoutTests`: the home page's player and translator boxes have the same height side by side,
-  and the big percentage is centred against its text.
+  the big percentage is centred against its text, and the gap between the boxes and between the
+  sections is 24 px on a wide screen and 20 px on a phone (#1572).
+- `PageWidthTests`: the page is as wide as the window up to 1920 px and centred on a wider one; the
+  terms document and the home page's risk note stop at their width on a 1400 px page (#1572).
+- `EditorLayoutTests`: the editor's English and Polish boxes are 24 px apart side by side and 20 px
+  apart stacked on a phone (#1572).
 - `TranslationsFilterLayoutTests`: the translation list's filter row keeps every control inside the
   form and the search and status fields wide enough on every desktop width, shares one row on a wide
   screen, and stacks its fields on a phone.
@@ -93,7 +98,8 @@ One test class per flow, in `Flows/`:
 - `TranslationListInlineSaveTests`: "Edytuj tutaj" on a row below the fold → save → the same list,
   scrolled to the saved row below the navbar; a refused save stays in its open row; a row the save
   took out of the status filter leaves a note in its place; bulk approve still works (#1493).
-- Both list flows get their rows from `TranslationRowsSeed` (`PlaywrightStackFixture.TranslationRows`):
+- Both list flows and `EditorLayoutTests` get their rows from `TranslationRowsSeed`
+  (`PlaywrightStackFixture.TranslationRows`):
   the first flow that needs them signs in as the admin the auth host seeds
   (`PlaywrightStackFixture.Admin`), registers a game version and uploads one `exported.txt` built in
   memory. An import removes every row it does not carry, so the flows share that one import, and each

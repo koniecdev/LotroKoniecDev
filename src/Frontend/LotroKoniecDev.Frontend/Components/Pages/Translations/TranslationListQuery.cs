@@ -25,8 +25,9 @@ internal sealed record TranslationListQuery
     internal const string SavedSlipsName = "savedSlips";
 
     /// <summary>
-    /// The row's place in the list, in the editor's address (#1490, ADR-0077). Only "Edytuj" writes it, and
-    /// only an editor with a place offers "Zapisz i następny".
+    /// The row's place in the list, in the editor's address (#1490, ADR-0077). "Edytuj" on the list writes
+    /// it, and so does the editor when it opens the next row; only an editor with a place offers "Zapisz i
+    /// następny".
     /// </summary>
     internal const string PlaceName = "place";
 
@@ -155,8 +156,9 @@ internal sealed record TranslationListQuery
 
     /// <summary>
     /// The editor's address carries the list state, so the editor can build the way back (#1452). Default
-    /// values stay out, so the first page of an unfiltered list links to a bare <c>/editor/{id}</c>. The
-    /// <paramref name="place"/> is the row's place in this list (#1490); a link from outside the list has none.
+    /// values stay out, so without a <paramref name="place"/> the first page of an unfiltered list links to a
+    /// bare <c>/editor/{id}</c>. The place is the row's place in this list (#1490); a link from outside the
+    /// list has none.
     /// </summary>
     public string ToEditorRelativeUri(TranslationId id, string? place = null)
     {

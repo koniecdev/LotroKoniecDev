@@ -1,12 +1,13 @@
 # Spec 0018: Save and open the next row
 
-- **Status:** Agreed
+- **Status:** Implemented
 - **Date:** 2026-11-25
 - **Author:** Claude Opus 5.5, from the owner decisions on #1490
 - **Ticket:** #1490
 - **Related:** ADR-0077 (the place and `after` contract), #1452 (the list state in the editor's address),
   #1489 (the warnings), #1493 (the list's inline save), #1384 (proposals, which changes the "Tylko moje"
-  order), #1569 (a second click in the browser), ADR-0039 §6 and #1476 (line breaks at the end),
+  order), #1569 (a second click in the browser), #1571 (the slip check before the save, which extends
+  this button), ADR-0039 §6 and #1476 (line breaks at the end),
   ADR-0040, ADR-0041, ADR-0044, ADR-0072
 
 ## Business context
@@ -62,15 +63,16 @@ From the comments on #1490 of 2026-11-24 17:41 UTC and 2026-11-25:
   a row to a later place in either default order (a save sets the change time to now, and "Tylko moje"
   shows the newest change first), so a second save of the same row, a save after warnings, „Zatwierdź”
   and then the button, or two posts one after the other all open the same next row.
-- **Only „Edytuj” on the list writes a place** into the editor's address. A bare `/editor/{id}`, a row
-  opened with „Otwórz”, and a row opened with „Otwórz w edytorze” from the note after an inline save
-  show no button: none of them has a place in a list (Q2's reason). Page 1 of the unfiltered list does
-  show it.
+- **Only „Edytuj” on the list writes a place** into the editor's address, and the editor carries it on
+  to the next row it opens. A bare `/editor/{id}`, a row opened with „Otwórz”, and a row opened with
+  „Otwórz w edytorze” from the note after an inline save show no button: none of them has a place in a
+  list (Q2's reason). Page 1 of the unfiltered list does show it.
 - „Zapisz” and „Zatwierdź” keep the place in the address, so the button stays after them.
 - **A changed text** is saved as „Zapisz” saves it (the same API call, the same save budget, the same
   checks). A failed save stays on the row with the error and the typed text. A good save whose text has
   warnings (#1489) stays on the row with „Tłumaczenie zapisano.” and the warnings, so the translator can
-  fix the slip. A second press with no change then moves on.
+  fix the slip. A second press with no change then moves on. #1571 changes this rule later (see "Duties
+  for #1571").
 - **An unchanged text** is not sent. It spends nothing from the save budget and writes nothing.
   - The field is compared with the text the form showed, which the form carries in a hidden field. After
     a failed save the hidden field keeps the text first shown, so the next press still compares with it.
@@ -156,6 +158,19 @@ When every save becomes a proposal (#1384), "Tylko moje" moves to the newest pro
 3. A reject or withdraw (#1345, #1385) moves a row's "Tylko moje" time back to an older proposal, so the
    row moves later in the list and can be offered again as "next". Name it as a third kind of row in this
    spec, or keep it out of the order.
+
+## Duties for #1571
+
+The owner decision of 2026-11-25 19:31 UTC on #1490 says #1571 moves the slip check before the save, in the
+editor and on the list, and that #1571 extends this button when this ticket lands first. Then:
+
+1. A text with slips is not saved and does not move on: the editor stays on the row with the typed text
+   and the warnings, as „Zapisz” does under #1571.
+2. „Zapisz mimo to” after that stop repeats the button the translator pressed: after „Zapisz i następny”
+   it saves and moves to the next row.
+3. A clean text still saves and moves on, and an unchanged text still moves on without a save. Keep the
+   unchanged check before the slip check, so a correct text with a slip never becomes a dead end
+   (`EditorSaveAndNextTests.Post_SaveAndNext_WithAnUnchangedTextThatHasSlips_MovesOnWithoutASave`).
 
 ## Open questions
 

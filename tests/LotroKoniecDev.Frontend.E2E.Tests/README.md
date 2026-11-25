@@ -89,10 +89,15 @@ One test class per flow, in `Flows/`:
   form and the search and status fields wide enough on every desktop width, shares one row on a wide
   screen, and stacks its fields on a phone.
 - `TranslationListWayBackTests`: search + status + page 2 on the list → "Edytuj" → save →
-  "Wróć do listy" shows the same list (#1452). It is the one flow that seeds its own rows: it signs
-  in as the admin the auth host seeds (`PlaywrightStackFixture.Admin`), registers a game version and
-  uploads an `exported.txt` it builds in memory, whose English carries a token no other flow uses
-  (ADR-0009 §5 amendment).
+  "Wróć do listy" shows the same list (#1452).
+- `TranslationListInlineSaveTests`: "Edytuj tutaj" on a row below the fold → save → the same list,
+  scrolled to the saved row below the navbar; a refused save stays in its open row; a row the save
+  took out of the status filter leaves a note in its place; bulk approve still works (#1493).
+- Both list flows get their rows from `TranslationRowsSeed` (`PlaywrightStackFixture.TranslationRows`):
+  the first flow that needs them signs in as the admin the auth host seeds
+  (`PlaywrightStackFixture.Admin`), registers a game version and uploads one `exported.txt` built in
+  memory. An import removes every row it does not carry, so the flows share that one import, and each
+  flow's English carries a token no other flow uses (ADR-0009 §5 amendment).
 
 > PL-only: the Auth pages and the FE nav are Polish-only (no culture routing), so there is no
 > culture parameter.

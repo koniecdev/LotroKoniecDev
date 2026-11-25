@@ -201,6 +201,73 @@ public sealed class TranslationListLoaderTests
         result.ProblemDetails!.Status.ShouldBe(400);
     }
 
+    [Fact]
+    public async Task SaveAsync_PutsTheRequestToTheUpsertHrefTheServiceDocumentAdvertises()
+    {
+        // #1493: the list does not load on that post, so the href comes from the service document.
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.OK,
+            JsonSerializer.Serialize(SavedRow(), ApiJsonOptions));
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Upsert), CreateClient(handler));
+
+        ApiResult<TranslationDetailResponse> result =
+            await loader.SaveAsync(new UpsertTranslationRequest(620756992, 1002, "Masz <--DO_NOT_TOUCH!--> złota"));
+
+        result.IsSuccess.ShouldBeTrue();
+        result.Value.Id.ShouldBe(SavedRow().Id);
+        handler.LastRequest!.Method.ShouldBe(HttpMethod.Put);
+        handler.LastRequest.RequestUri!.ToString()
+            .ShouldBe(BaseUrl.TrimEnd('/') + StubDiscoveryCache.HrefFor(Rels.Upsert));
+        // System.Text.Json escapes '<', '>' and non-ASCII, so only a round trip can compare the text.
+        JsonSerializer.Deserialize<UpsertTranslationRequest>(handler.LastRequestBody!, ApiJsonOptions)
+            .ShouldBe(new UpsertTranslationRequest(620756992, 1002, "Masz <--DO_NOT_TOUCH!--> złota"));
+    }
+
+    [Fact]
+    public async Task SaveAsync_WhenTheUpsertRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Translations), CreateClient(handler));
+
+        ApiResult<TranslationDetailResponse> result =
+            await loader.SaveAsync(new UpsertTranslationRequest(620756992, 1002, "x"));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task SaveAsync_WhenTheApiRefusesTheSave_ReturnsFailureWithProblemDetails()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.TooManyRequests,
+            """{ "title": "Too many saves", "status": 429 }""");
+        TranslationListLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Upsert), CreateClient(handler));
+
+        ApiResult<TranslationDetailResponse> result =
+            await loader.SaveAsync(new UpsertTranslationRequest(620756992, 1002, "x"));
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(429);
+    }
+
+    private static TranslationDetailResponse SavedRow() =>
+        new(
+            TranslationId.Create(Guid.Parse("0192a000-0000-7000-8000-000000000002")),
+            FileId: 620756992,
+            GossipId: 1002,
+            SourceText: "You have <--DO_NOT_TOUCH!--> gold",
+            ArgsOrder: "1",
+            ArgsId: "1",
+            TranslatedText: "Masz <--DO_NOT_TOUCH!--> złota",
+            PreviousSourceText: null,
+            Submitter: null,
+            Approver: null,
+            TranslationStatus.Draft,
+            CreatedAt: DateTimeOffset.UnixEpoch,
+            UpdatedAt: DateTimeOffset.UnixEpoch);
+
     private static PaginationResponse<TranslationListItemResponse> EmptyPage() =>
         PageOf([], page: 1, pageSize: 50, totalCount: 0);
 

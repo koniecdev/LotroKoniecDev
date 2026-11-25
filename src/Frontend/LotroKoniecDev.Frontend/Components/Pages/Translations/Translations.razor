@@ -1,15 +1,21 @@
 @page "/translations"
-@attribute [AllowAnonymous]
+@attribute [Authorize(Policy = ReadOnlyForVisitorsPolicy.Name)]
 @attribute [StreamRendering]
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
+@using LotroKoniecDev.Frontend.Components.Pages.Editor
+@using LotroKoniecDev.Frontend.Infrastructure.Auth
+@using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.Hateoas.Abstractions
 @using LotroKoniecDev.TranslationSystem.Contracts.Common
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
+@using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums
+@using LotroKoniecDev.TranslationSystem.Primitives.Constants
 @inject TranslationListLoader Loader
 @inject NavigationManager Navigation
 
@@ -105,6 +111,23 @@
 </section>
 
 <section class="container content-wrap">
+    @* Blazor sends a post only to a form on the page (#1122), and the save runs before the list loads. So
+       the posted form is drawn here when its row does not draw it: hidden during the save, and with the
+       typed text after a refusal when the row left the list. *@
+    @if (_inlineSaveId is { } postedRowId && !DrawsRowForm(postedRowId))
+    {
+        @if (!_inlineRefused)
+        {
+            <form method="post" @formname="@InlineSaveFormName(postedRowId)" @onsubmit="SaveInlineAsync" hidden></form>
+        }
+        else if (!IsRowOnPage(postedRowId))
+        {
+            <div class="inline-recovery" id="@TranslationListQuery.RowElementId(postedRowId)">
+                @InlineRecoveryForm(postedRowId)
+            </div>
+        }
+    }
+
     @if (_result is null)
     {
         <div class="loading-indicator">
@@ -113,6 +136,13 @@
     }
     else if (_result.IsFailure)
     {
+        @* The save happened even when the list cannot load after its redirect (#1122). *@
+        @if (_savedRow is not null)
+        {
+            <div class="status-message status-success" role="status">
+                <p>Tłumaczenie zapisano.</p>
+            </div>
+        }
         <div class="error-message" role="alert">
             <span class="em-ico" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -178,6 +208,12 @@
 
         @if (pageData.Items.Count == 0)
         {
+            @if (_savedRow is { } savedRowOffEmptyPage)
+            {
+                <div class="row-note-alone" id="@TranslationListQuery.RowElementId(savedRowOffEmptyPage)">
+                    @SavedRowLeftNote(savedRowOffEmptyPage)
+                </div>
+            }
             <div class="empty">
                 <span class="empty-glyph" aria-hidden="true">
                     <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -191,8 +227,27 @@
         }
         else
         {
-            // One table for both paths, wrapped in the bulk-approve form only for an admin.
-            RenderFragment resultsTable = @<div class="table-wrap">
+            int columnCount = canBulkApprove ? 7 : 6;
+            TranslationId? rowAbove = null;
+
+            @* The table sits outside this form: each row holds its own save form, and HTML drops a form
+               inside another form. The checkboxes join it by its id. It posts to a clean list address, so
+               no old note comes back with it. *@
+            @if (canBulkApprove)
+            {
+                <form id="@BulkApproveFormName" method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync"
+                      action="@_query.ToPageRelativeUri(_query.Page)">
+                    <AntiforgeryToken/>
+                    @if (anyApprovable)
+                    {
+                        <div class="bulk-bar">
+                            <button type="submit" class="btn btn-primary btn-sm">Zatwierdź zaznaczone</button>
+                        </div>
+                    }
+                </form>
+            }
+
+            <div class="table-wrap">
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -209,17 +264,26 @@
                         </tr>
                     </thead>
                     <tbody>
+                        @if (_savedRow is { } savedRowOffTop && !IsRowOnPage(savedRowOffTop) && !IsRowOnPage(_savedAfter))
+                        {
+                            <tr class="row-note" id="@TranslationListQuery.RowElementId(savedRowOffTop)">
+                                <td colspan="@columnCount">@SavedRowLeftNote(savedRowOffTop)</td>
+                            </tr>
+                        }
                         @foreach (TranslationListItemResponse item in pageData.Items)
                         {
-                            <tr>
+                            bool refused = _inlineRefused && _inlineSaveId == item.Id;
+                            bool refusedWithoutItsForm = refused && !DrawsInlineForm(item);
+                            <tr id="@TranslationListQuery.RowElementId(item.Id)">
                                 @if (canBulkApprove)
                                 {
                                     <td class="col-check">
-                                        @* The same `approve` rel the editor's Zatwierdź button uses. *@
+                                        @* The same `approve` rel the editor's Zatwierdź button uses. A field #1384 adds
+                                           per row for the bulk approve needs this form attribute too. *@
                                         @if (item.Links.HasLink(Rels.Approve))
                                         {
                                             <input type="checkbox" name="SelectedRows[@item.Id.Value]" value="true"
-                                                   aria-label="Zaznacz do zatwierdzenia"/>
+                                                   form="@BulkApproveFormName" aria-label="Zaznacz do zatwierdzenia"/>
                                         }
                                     </td>
                                 }
@@ -235,6 +299,38 @@
                                     {
                                         @item.TranslatedText
                                     }
+                                    @if (DrawsInlineForm(item))
+                                    {
+                                        string textId = InlineTextElementId(item.Id);
+                                        <details class="inline-edit" open="@refused">
+                                            <summary>Edytuj tutaj</summary>
+                                            @* Never data-enhance: an enhanced post loses the #row fragment of its redirect. *@
+                                            <form method="post" class="inline-edit-form" @formname="@InlineSaveFormName(item.Id)"
+                                                  @onsubmit="SaveInlineAsync" action="@_query.ToInlineSaveActionUri(item.Id)">
+                                                <AntiforgeryToken/>
+                                                <input type="hidden" name="InlineFileId" value="@item.FileId"/>
+                                                <input type="hidden" name="InlineGossipId" value="@item.GossipId"/>
+                                                @if (rowAbove is { } above)
+                                                {
+                                                    <input type="hidden" name="InlineSavedAfter" value="@above.Value"/>
+                                                }
+                                                <label class="visually-hidden" for="@textId">Tłumaczenie polskie, FileId @item.FileId, GossipId @item.GossipId</label>
+                                                <textarea id="@textId" name="InlineText" class="editor-textarea mono" rows="3"
+                                                          maxlength="@DatFormatConstants.MaxTranslatedTextLength"
+                                                          placeholder="Wpisz tłumaczenie…">@(refused ? _inlineText : item.TranslatedText)</textarea>
+                                                @if (refused)
+                                                {
+                                                    <div class="status-message status-error" role="alert">
+                                                        <ApiProblemAlert Problem="@_inlineProblem" Fallback="@SaveFailedMessage"/>
+                                                    </div>
+                                                    @SlipWarnings(TranslationSlipChecker.Check(item.SourceText, _inlineText))
+                                                }
+                                                <div>
+                                                    <button type="submit" class="btn btn-primary btn-sm">Zapisz</button>
+                                                </div>
+                                            </form>
+                                        </details>
+                                    }
                                 </td>
                                 <td class="col-status">
                                     <span class="badge @TranslationStatusDisplay.BadgeClass(item.Status)">
@@ -248,28 +344,37 @@
                                     }
                                 </td>
                             </tr>
+                            @if (refusedWithoutItsForm)
+                            {
+                                <tr class="row-note">
+                                    <td colspan="@columnCount">
+                                        <div class="inline-recovery">@InlineRecoveryForm(item.Id)</div>
+                                        @SlipWarnings(TranslationSlipChecker.Check(item.SourceText, _inlineText))
+                                    </td>
+                                </tr>
+                            }
+                            else if (_savedRow == item.Id)
+                            {
+                                <tr class="row-note">
+                                    <td colspan="@columnCount">
+                                        <div class="status-message status-success" role="status">
+                                            <p>Tłumaczenie zapisano.</p>
+                                        </div>
+                                        @SlipWarnings(TranslationSlipChecker.Check(item.SourceText, item.TranslatedText))
+                                    </td>
+                                </tr>
+                            }
+                            else if (_savedRow is { } savedRowOff && _savedAfter == item.Id && !IsRowOnPage(savedRowOff))
+                            {
+                                <tr class="row-note" id="@TranslationListQuery.RowElementId(savedRowOff)">
+                                    <td colspan="@columnCount">@SavedRowLeftNote(savedRowOff)</td>
+                                </tr>
+                            }
+                            rowAbove = item.Id;
                         }
                     </tbody>
                 </table>
-            </div>;
-
-            @if (canBulkApprove)
-            {
-                <form method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync">
-                    <AntiforgeryToken/>
-                    @if (anyApprovable)
-                    {
-                        <div class="bulk-bar">
-                            <button type="submit" class="btn btn-primary btn-sm">Zatwierdź zaznaczone</button>
-                        </div>
-                    }
-                    @resultsTable
-                </form>
-            }
-            else
-            {
-                @resultsTable
-            }
+            </div>
         }
 
         @* The pager buttons come from the server's pagination links, never from Page and TotalPages
@@ -327,11 +432,26 @@
 @code
 {
     private const string BulkApproveFormName = "bulk-approve";
+    private const string InlineSaveFormNamePrefix = "inline-save-";
+    private const string SaveFailedMessage = "Nie udało się zapisać tłumaczenia.";
 
     private TranslationListQuery _query = TranslationListQuery.From(null, null, 1);
     private ApiResult<PaginationResponse<TranslationListItemResponse>>? _result;
     private ProblemDetails? _bulkProblem;
     private string? _bulkNotice;
+
+    /// <summary>The row whose inline form was posted (#1493), read from the posted form's name.</summary>
+    private TranslationId? _inlineSaveId;
+
+    private bool _inlineRefused;
+    private ProblemDetails? _inlineProblem;
+    private string? _inlineText;
+
+    /// <summary>The note after a good inline save, read only on a GET.</summary>
+    private TranslationId? _savedRow;
+
+    private TranslationId? _savedAfter;
+    private bool _savedSlips;
 
     [SupplyParameterFromQuery]
     private string? Search { get; set; }
@@ -378,10 +498,44 @@
     [SupplyParameterFromQuery]
     private int? Skipped { get; set; }
 
-    // Static SSR form binding reads keyed names such as `SelectedRows[<id>]`; a repeated plain name does
-    // not bind to a collection. Only ticked rows are posted.
+    /// <summary>
+    /// Strings for the same reason as <see cref="ConflictsOnly"/>: a value that is not a row id shows the list
+    /// with no note.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = TranslationListQuery.SavedRowName)]
+    private string? SavedRow { get; set; }
+
+    [SupplyParameterFromQuery(Name = TranslationListQuery.SavedAfterName)]
+    private string? SavedAfter { get; set; }
+
+    [SupplyParameterFromQuery(Name = TranslationListQuery.SavedSlipsName)]
+    private string? SavedSlips { get; set; }
+
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    /// <summary>
+    /// Static SSR form binding reads keyed names such as <c>SelectedRows[&lt;id&gt;]</c>; a repeated plain name
+    /// does not bind to a collection. Only ticked rows are posted.
+    /// </summary>
     [SupplyParameterFromForm(FormName = BulkApproveFormName)]
     private Dictionary<Guid, bool>? SelectedRows { get; set; }
+
+    /// <summary>
+    /// No form name on the inline fields: every row's form has its own name, and these come with any of them.
+    /// </summary>
+    [SupplyParameterFromForm]
+    private int InlineFileId { get; set; }
+
+    [SupplyParameterFromForm]
+    private long InlineGossipId { get; set; }
+
+    [SupplyParameterFromForm]
+    private string? InlineText { get; set; }
+
+    /// <summary>The row above the posted one, for the note when the save takes the row off the page.</summary>
+    [SupplyParameterFromForm]
+    private string? InlineSavedAfter { get; set; }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -393,6 +547,25 @@
             TranslationListQuery.ParseConflictsOnly(ConflictsOnly),
             TranslationListQuery.ParseMatch(Match),
             TranslationListQuery.ParseMine(Mine) && await IsSignedInAsync());
+
+        string? postedFormName = PostedForm.NameOf(HttpContext);
+        _inlineSaveId = InlineSaveIdOf(postedFormName);
+
+        // The list's own forms post to an address with no note, but a hand-made post may still carry one, so a
+        // post shows none (#1122).
+        if (postedFormName is null)
+        {
+            _savedRow = ParseRowId(SavedRow);
+            _savedAfter = ParseRowId(SavedAfter);
+            _savedSlips = bool.TryParse(SavedSlips, out bool hasSlips) && hasSlips;
+        }
+
+        // The save does not need the list, so a good save costs no list read. A refused one loads it.
+        if (_inlineSaveId is not null)
+        {
+            return;
+        }
+
         _result = await Loader.LoadAsync(_query, CancellationToken.None);
     }
 
@@ -433,6 +606,31 @@
         _bulkProblem = result.ProblemDetails;
     }
 
+    private async Task SaveInlineAsync()
+    {
+        string text = InlineText ?? string.Empty;
+        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(
+            new UpsertTranslationRequest(InlineFileId, InlineGossipId, text),
+            CancellationToken.None);
+
+        if (result.IsSuccess)
+        {
+            // Redirect after post (#321). The page is streamed, so after a slow save blazor.web.js follows
+            // the redirect, and the browser still scrolls to its #row fragment.
+            TranslationDetailResponse saved = result.Value;
+            bool hasSlips = TranslationSlipChecker.Check(saved.SourceText, saved.TranslatedText).Count > 0;
+            Navigation.NavigateTo(
+                _query.ToPageRelativeUriWithSavedRow(saved.Id, ParseRowId(InlineSavedAfter), hasSlips));
+            return;
+        }
+
+        // A refusal does not redirect: the typed text and the error stay in the row, on the list as it is now.
+        _result = await Loader.LoadAsync(_query, CancellationToken.None);
+        _inlineText = text;
+        _inlineProblem = result.ProblemDetails;
+        _inlineRefused = true;
+    }
+
     private async Task<bool> IsSignedInAsync()
     {
         if (AuthenticationState is null)
@@ -449,6 +647,98 @@
     /// </summary>
     private string EditorHref(TranslationListItemResponse item) =>
         _query.ToEditorRelativeUri(item.Id);
+
+    /// <summary>The server decides: only a row it lets the caller save carries <c>upsert</c> (ADR-0040).</summary>
+    private static bool DrawsInlineForm(TranslationListItemResponse item) =>
+        item.Links.HasLink(Rels.Upsert);
+
+    private bool DrawsRowForm(TranslationId id) =>
+        _result is { IsSuccess: true } && _result.Value.Items.Any(item => item.Id == id && DrawsInlineForm(item));
+
+    private bool IsRowOnPage(TranslationId? id) =>
+        id is { } rowId && _result is { IsSuccess: true } && _result.Value.Items.Any(item => item.Id == rowId);
+
+    /// <summary>
+    /// A form name per row: static SSR sends the post to the matching <c>@@formname</c>.
+    /// </summary>
+    private static string InlineSaveFormName(TranslationId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"{InlineSaveFormNamePrefix}{id.Value:D}");
+
+    private static string InlineTextElementId(TranslationId id) =>
+        string.Create(CultureInfo.InvariantCulture, $"inline-text-{id.Value:D}");
+
+    /// <summary>Only a name this page draws counts. Any other name still gets Blazor's 400.</summary>
+    private static TranslationId? InlineSaveIdOf(string? postedFormName) =>
+        postedFormName is not null
+        && postedFormName.StartsWith(InlineSaveFormNamePrefix, StringComparison.Ordinal)
+        && Guid.TryParseExact(postedFormName.AsSpan(InlineSaveFormNamePrefix.Length), "D", out Guid id)
+            ? TranslationId.FromValue(id)
+            : null;
+
+    private static TranslationId? ParseRowId(string? value) =>
+        Guid.TryParse(value, out Guid id) ? TranslationId.FromValue(id) : null;
+
+    /// <summary>
+    /// The note in the saved row's place when the save took it off this page, for example out of a status
+    /// filter. A message needs both texts, so for slips the note only points to the editor.
+    /// </summary>
+    private RenderFragment SavedRowLeftNote(TranslationId savedRow) =>
+        @<text>
+            <div class="status-message status-success" role="status">
+                <p>Tłumaczenie zapisano. Tego wiersza nie ma już na tej stronie listy.</p>
+            </div>
+            @if (_savedSlips)
+            {
+                <div class="status-message status-warning" role="status">
+                    <p>
+                        Edytor pokazuje uwagi do tego tekstu.
+                        <a href="@_query.ToEditorRelativeUri(savedRow)">Otwórz w edytorze</a>
+                    </p>
+                </div>
+            }
+        </text>;
+
+    /// <summary>
+    /// The refused text of a row whose own form is not drawn: the row left the list, the list did not load, or
+    /// the row no longer offers its save. The key fields come from the post, as in the editor's recovery form.
+    /// </summary>
+    private RenderFragment InlineRecoveryForm(TranslationId postedRowId) =>
+        @<text>
+            <div class="status-message status-error" role="alert">
+                <ApiProblemAlert Problem="@_inlineProblem" Fallback="@SaveFailedMessage"/>
+            </div>
+            <form method="post" class="inline-edit-form" @formname="@InlineSaveFormName(postedRowId)"
+                  @onsubmit="SaveInlineAsync" action="@_query.ToInlineSaveActionUri(postedRowId)">
+                <AntiforgeryToken/>
+                <input type="hidden" name="InlineFileId" value="@InlineFileId"/>
+                <input type="hidden" name="InlineGossipId" value="@InlineGossipId"/>
+                @if (ParseRowId(InlineSavedAfter) is { } rowAbove)
+                {
+                    <input type="hidden" name="InlineSavedAfter" value="@rowAbove.Value"/>
+                }
+                <p>Tekstu nie zapisano. Jest poniżej, więc możesz go poprawić i zapisać ponownie.</p>
+                <label for="inline-text-recovery">Tłumaczenie polskie, FileId @InlineFileId, GossipId @InlineGossipId</label>
+                <textarea id="inline-text-recovery" name="InlineText" class="editor-textarea mono" rows="3"
+                          maxlength="@DatFormatConstants.MaxTranslatedTextLength">@_inlineText</textarea>
+                <div>
+                    <button type="submit" class="btn btn-primary btn-sm">Zapisz ponownie</button>
+                </div>
+            </form>
+        </text>;
+
+    /// <summary>Only advice, as in the editor (#1489).</summary>
+    private static RenderFragment SlipWarnings(IReadOnlyList<TranslationSlip> slips) =>
+        @<text>
+            @if (slips.Count > 0)
+            {
+                <div class="status-message status-warning translation-slips" role="alert">
+                    @foreach (TranslationSlip slip in slips)
+                    {
+                        <p>@slip.Message</p>
+                    }
+                </div>
+            }
+        </text>;
 
     /// <summary>
     /// The auth API has its own copy of this rule (<c>AuthSystem.API.Common.PolishPlural</c>, #1032).

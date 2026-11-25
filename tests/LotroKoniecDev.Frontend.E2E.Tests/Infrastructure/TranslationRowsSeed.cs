@@ -28,6 +28,7 @@ internal sealed class TranslationRowsSeed
 
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
 
+    private bool _versionRegistered;
     private bool _seeded;
 
     public string WayBackToken { get; } = NewToken("waybk");
@@ -42,7 +43,13 @@ internal sealed class TranslationRowsSeed
             return;
         }
 
-        await RegisterGameVersionAsync(page, frontendBaseUrl);
+        // The version stays registered when the import fails, and a second registration would never succeed.
+        if (!_versionRegistered)
+        {
+            await RegisterGameVersionAsync(page, frontendBaseUrl);
+            _versionRegistered = true;
+        }
+
         await ImportRowsAsync(page, frontendBaseUrl);
         _seeded = true;
     }

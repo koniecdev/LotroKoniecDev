@@ -349,6 +349,7 @@
                                 <tr class="row-note">
                                     <td colspan="@columnCount">
                                         <div class="inline-recovery">@InlineRecoveryForm(item.Id)</div>
+                                        @SlipWarnings(TranslationSlipChecker.Check(item.SourceText, _inlineText))
                                     </td>
                                 </tr>
                             }
@@ -513,12 +514,16 @@
     [CascadingParameter]
     private HttpContext? HttpContext { get; set; }
 
-    // Static SSR form binding reads keyed names such as `SelectedRows[<id>]`; a repeated plain name does
-    // not bind to a collection. Only ticked rows are posted.
+    /// <summary>
+    /// Static SSR form binding reads keyed names such as <c>SelectedRows[&lt;id&gt;]</c>; a repeated plain name
+    /// does not bind to a collection. Only ticked rows are posted.
+    /// </summary>
     [SupplyParameterFromForm(FormName = BulkApproveFormName)]
     private Dictionary<Guid, bool>? SelectedRows { get; set; }
 
-    // No form name on the inline fields: every row's form has its own name, and these come with any of them.
+    /// <summary>
+    /// No form name on the inline fields: every row's form has its own name, and these come with any of them.
+    /// </summary>
     [SupplyParameterFromForm]
     private int InlineFileId { get; set; }
 

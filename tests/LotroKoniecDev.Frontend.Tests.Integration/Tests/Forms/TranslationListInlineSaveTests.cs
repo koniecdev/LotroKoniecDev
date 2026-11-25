@@ -335,21 +335,22 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     public async Task Post_InlineSave_WhenTheSaveIsRefusedAndTheRowNoLongerOffersItsSave_ShowsTheTextUnderTheRow()
     {
         // Arrange: the API refused the caller, and the reloaded row has no upsert link, so it draws no form.
-        // The answer's address points at the row, so the text and the error must be right under it.
+        // The answer's address points at the row, so the text, the error and the slips must be right under it.
         StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Forbidden, RowOffersItsSave = false };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
 
         // Act
-        using HttpResponseMessage posted = await browser.SendAsync(InlineSavePost(antiforgeryToken, "Witaj, wędrowcze!"));
+        using HttpResponseMessage posted = await browser.SendAsync(InlineSavePost(antiforgeryToken, "Witaj,  wędrowcze!"));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string frame = WebUtility.HtmlDecode(LastStreamedFrame(await posted.Content.ReadAsStringAsync()));
         Match noteUnderTheRow = RecoveryUnderTheRow().Match(frame);
         noteUnderTheRow.Success.ShouldBeTrue();
-        RecoveryTextarea().Match(noteUnderTheRow.Value).Groups["text"].Value.ShouldBe("Witaj, wędrowcze!");
+        RecoveryTextarea().Match(noteUnderTheRow.Value).Groups["text"].Value.ShouldBe("Witaj,  wędrowcze!");
+        noteUnderTheRow.Value.ShouldContain("W tłumaczeniu są co najmniej dwie spacje z rzędu, a w angielskim nie ma.");
         Regex.Count(frame, Regex.Escape($"id=\"row-{RowId}\"")).ShouldBe(1);
         Regex.Count(frame, Regex.Escape($"value=\"inline-save-{RowId}\"")).ShouldBe(1);
     }

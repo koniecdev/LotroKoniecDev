@@ -6,7 +6,10 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
 /// Like the built-in <c>UseStatusCodePagesWithReExecute</c>, but with a page per status code, so each
-/// error lands on a page that says what really happened. It follows the framework's own implementation.
+/// error lands on a page that says what really happened. The status code page always runs as GET
+/// (#1555). The pages take only GET and POST, and a POST run would check the antiforgery token again:
+/// ASP.NET Core throws when a form whose token check failed is read. That failed check stays on the
+/// request, so an error page and its layout must never read the form.
 /// </summary>
 public static class StatusCodePagesApplicationBuilderExtensions
 {
@@ -32,6 +35,7 @@ public static class StatusCodePagesApplicationBuilderExtensions
                 PathString originalPath = httpContext.Request.Path;
                 PathString originalPathBase = httpContext.Request.PathBase;
                 QueryString originalQueryString = httpContext.Request.QueryString;
+                string originalMethod = httpContext.Request.Method;
 
                 httpContext.Features.Set<IStatusCodeReExecuteFeature>(new ReExecuteFeature
                 {
@@ -48,6 +52,7 @@ public static class StatusCodePagesApplicationBuilderExtensions
 
                 httpContext.Request.Path = new PathString(newPath);
                 httpContext.Request.QueryString = QueryString.Empty;
+                httpContext.Request.Method = HttpMethods.Get;
 
                 try
                 {
@@ -74,6 +79,8 @@ public static class StatusCodePagesApplicationBuilderExtensions
                 }
                 finally
                 {
+                    // The request log line is written after this and must show the real method.
+                    httpContext.Request.Method = originalMethod;
                     httpContext.Request.QueryString = originalQueryString;
                     httpContext.Request.Path = originalPath;
                     httpContext.Features.Set<IStatusCodeReExecuteFeature?>(null);

@@ -32,6 +32,12 @@ public class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:Authority", "https://auth.staging.invalid");
         builder.UseSetting("AuthSystem:CallerKey", CallerKey);
         builder.UseSetting("AuthSystem:ClientSecret", ClientSecret);
+
+        // A test build has a build manifest, and with it MapStaticAssets adds a development fallback
+        // route for GET and HEAD on every address. Routing checks the method before the route's file
+        // name rule, so another method gets 405 instead of 404 at an address with no endpoint for it. A
+        // box runs a publish manifest without the route (#1555).
+        builder.UseSetting("ReloadStaticAssetsAtRuntime", "false");
     }
 
     protected override IHost CreateHost(IHostBuilder builder) => HostStartOrder.BuildAndStart(builder);

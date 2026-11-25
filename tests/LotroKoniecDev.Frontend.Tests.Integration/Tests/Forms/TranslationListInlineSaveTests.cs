@@ -174,6 +174,7 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         string page = WebUtility.HtmlDecode(await redirected.Content.ReadAsStringAsync());
         page.ShouldContain("Tłumaczenie zapisano.");
         page.ShouldContain(ServiceUnavailableMessage);
+        page.ShouldContain("Wyloguj");
         translationSystem.Upserts.Count.ShouldBe(1);
     }
 
@@ -527,7 +528,10 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
                     Links =
                     [
                         new LinkDto(ListHref.AbsoluteUri, Rels.Translations, "GET"),
-                        new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT")
+                        new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT"),
+
+                        // The signed-in marker: without it the website takes the session for dead after this answer.
+                        new LinkDto($"{TmsOrigin}/advertised/contributions", Rels.ContributionDataExport, "GET")
                     ]
                 });
             }

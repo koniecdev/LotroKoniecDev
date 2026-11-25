@@ -1,5 +1,11 @@
 using System.Net;
 using LotroKoniecDev.Frontend.Tests.Integration.Shared;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Errors;
 
@@ -47,6 +53,26 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await response.Content.ReadAsStringAsync()).ShouldContain(BadRequestTitle);
+    }
+
+    /// <summary>The request log line is written after the error page and must show the method the browser sent.</summary>
+    [Fact]
+    public async Task Post_TheDataDownloadWithNoToken_LeavesTheMethodAsPostAfterTheErrorPage()
+    {
+        // Arrange
+        MethodAfterPipelineStartupFilter methodAfterPipeline = new();
+        using WebApplicationFactory<Program> host = _factory.WithWebHostBuilder(builder =>
+            builder.ConfigureTestServices(services =>
+                services.AddSingleton<IStartupFilter>(methodAfterPipeline)));
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+
+        // Act: the body ends only after the whole pipeline has returned.
+        using HttpResponseMessage response = await browser.SendAsync(DownloadPost(antiforgeryToken: null));
+        await response.Content.ReadAsStringAsync();
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        methodAfterPipeline.Method.ShouldBe(HttpMethods.Post);
     }
 
     /// <summary>
@@ -107,5 +133,24 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         }
 
         return new HttpRequestMessage(HttpMethod.Post, DownloadPath) { Content = new FormUrlEncodedContent(form) };
+    }
+
+    /// <summary>Stands first in the pipeline, where the request log reads the method.</summary>
+    private sealed class MethodAfterPipelineStartupFilter : IStartupFilter
+    {
+        public string? Method { get; private set; }
+
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
+        {
+            return app =>
+            {
+                app.Use(async (context, nextMiddleware) =>
+                {
+                    await nextMiddleware(context);
+                    Method = context.Request.Method;
+                });
+                next(app);
+            };
+        }
     }
 }

@@ -335,8 +335,8 @@ back-channel (the single-`Authority` constraint of ADR-0006). It references no p
 everything over HTTP and the browser. The flows live in `Flows/`: the register → confirm → login →
 logout happy path, the auth pages' CSP, the one-time-link pages (back, reload, double click), the
 submit-once button, the e-mail change success style, the cookie banner, self-hosted fonts, the
-account's GDPR self-service, the home page's Discord band and its box layout, the translation list's
-filter row layout, the editor's way back to the same list after a save (#1452), and the list's save
+account's GDPR self-service, the home page's Discord band and its box layout, the page width up to
+1920 px (#1572), the translation list's filter row layout, the editor's way back to the same list after a save (#1452), and the list's save
 in place (#1493): the page scrolls back to the saved row below the navbar, a refused save stays in
 its row, a row that left the filter leaves a note, and bulk approve still works. The two list flows
 seed their rows once per stack through the import page as the seeded admin, in one shared import

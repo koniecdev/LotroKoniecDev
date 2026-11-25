@@ -85,6 +85,9 @@ One test class per flow, in `Flows/`:
   tall screens, and keeps its own width on a screen wider than the strip.
 - `HomeLayoutTests`: the home page's player and translator boxes have the same height side by side,
   and the big percentage is centred against its text.
+- `PageWidthTests`: the page is as wide as the window up to 1920 px and centred on a wider one; the
+  terms document and the home page's risk note keep the width they had under the old 1400 px limit
+  (#1572).
 - `TranslationsFilterLayoutTests`: the translation list's filter row keeps every control inside the
   form and the search and status fields wide enough on every desktop width, shares one row on a wide
   screen, and stacks its fields on a phone.

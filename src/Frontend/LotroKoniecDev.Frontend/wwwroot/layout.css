@@ -49,7 +49,7 @@
     --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-    --container-max: 1400px;
+    --container-max: 1920px;
     --container-px: 32px;
 }
 
@@ -819,9 +819,11 @@ code {
     font-size: 12.5px;
 }
 
-/* The font and colours come from .home-tech, the block the note sits in. */
+/* The font and colours come from .home-tech, the block the note sits in. The note keeps the width it
+   had under the old 1400 px page limit, so a wide screen does not make it one very long line (#1572). */
 .risk-note {
-    margin: 14px 0 0;
+    margin: 14px auto 0;
+    max-width: calc(1400px - 2 * 32px);
     line-height: 1.6;
 }
 
@@ -2057,9 +2059,12 @@ main:has(> .home-banner) {
 }
 
 /* ───────── Legal documents (terms) ───────── */
+/* The document keeps the width it had under the old 1400 px page limit, because longer lines are hard
+   to read; on a wider screen the contents list moves to the right edge (#1572). */
 .legal-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 260px;
+    grid-template-columns: minmax(0, calc(1400px - 2 * 32px - 20px - 260px)) 260px;
+    justify-content: space-between;
     gap: 20px;
     align-items: start;
     padding-bottom: 48px;

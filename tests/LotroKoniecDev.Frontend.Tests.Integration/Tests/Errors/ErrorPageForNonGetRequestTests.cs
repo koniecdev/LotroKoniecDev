@@ -20,6 +20,7 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
     private const string OtherSubject = "22222222-2222-2222-2222-222222222222";
     private const string BadRequestTitle = "<title>Nieprawidłowe żądanie — lotro-translator.pl</title>";
     private const string AccessDeniedTitle = "<title>Brak dostępu — lotro-translator.pl</title>";
+    private const string NotFoundTitle = "<title>Nie znaleziono — lotro-translator.pl</title>";
     private const string ErrorTitle = "<title>Błąd — lotro-translator.pl</title>";
 
     private readonly ProductionFrontendFactory _factory;
@@ -95,17 +96,14 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         (await response.Content.ReadAsStringAsync()).ShouldContain(AccessDeniedTitle);
     }
 
-    /// <summary>
-    /// Routing answers 405 here, because the static assets fallback route takes every path for GET and
-    /// HEAD. The error pages take only GET and POST, so every other method must reach them as GET.
-    /// </summary>
+    /// <summary>The error pages take only GET and POST, so every other method must reach them as GET.</summary>
     [Theory]
     [InlineData("POST")]
     [InlineData("PUT")]
     [InlineData("PATCH")]
     [InlineData("DELETE")]
     [InlineData("OPTIONS")]
-    public async Task Send_ToAnUnknownAddressWithAMethodOtherThanGet_ShowsTheErrorPageWithStatus405(string method)
+    public async Task Send_ToAnUnknownAddressWithAMethodOtherThanGet_ShowsTheNotFoundPage(string method)
     {
         // Arrange
         using CookieJarBrowser browser = new(_factory);
@@ -113,6 +111,24 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         // Act
         using HttpResponseMessage response = await browser.SendAsync(
             new HttpRequestMessage(new HttpMethod(method), "/no-such-page"));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await response.Content.ReadAsStringAsync()).ShouldContain(NotFoundTitle);
+    }
+
+    /// <summary>The login route takes only GET, so a post to it gets no token check before the 405.</summary>
+    [Theory]
+    [InlineData("PUT", "/dashboard")]
+    [InlineData("DELETE", "/")]
+    [InlineData("POST", "/auth/login")]
+    public async Task Send_ToAnAddressThatDoesNotTakeTheMethod_ShowsTheErrorPageWithStatus405(string method, string path)
+    {
+        // Arrange
+        using CookieJarBrowser browser = new(_factory);
+
+        // Act
+        using HttpResponseMessage response = await browser.SendAsync(new HttpRequestMessage(new HttpMethod(method), path));
 
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.MethodNotAllowed);

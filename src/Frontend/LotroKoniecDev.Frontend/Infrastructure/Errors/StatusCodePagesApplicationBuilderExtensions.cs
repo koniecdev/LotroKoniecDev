@@ -6,10 +6,10 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Errors;
 
 /// <summary>
 /// Like the built-in <c>UseStatusCodePagesWithReExecute</c>, but with a page per status code, so each
-/// error lands on a page that says what really happened. The error page always runs as GET (#1555). The
-/// pages take only GET and POST, and a POST run would check the antiforgery token again: ASP.NET Core
-/// throws when a form whose token check failed is read. That failed check stays on the request, so an
-/// error page and its layout must never read the form.
+/// error lands on a page that says what really happened. The status code page always runs as GET
+/// (#1555). The pages take only GET and POST, and a POST run would check the antiforgery token again:
+/// ASP.NET Core throws when a form whose token check failed is read. That failed check stays on the
+/// request, so an error page and its layout must never read the form.
 /// </summary>
 public static class StatusCodePagesApplicationBuilderExtensions
 {

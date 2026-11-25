@@ -41,7 +41,7 @@ public sealed class ErrorPageForNonGetRequestTests : IClassFixture<ProductionFro
         (await response.Content.ReadAsStringAsync()).ShouldContain(BadRequestTitle);
     }
 
-    /// <summary>A key ring that changed or a deleted antiforgery cookie leaves the post with no token.</summary>
+    /// <summary>The post has no antiforgery cookie and no form token, as after the cookie was deleted.</summary>
     [Fact]
     public async Task Post_TheDataDownloadWithNoToken_ShowsTheBadRequestPage()
     {

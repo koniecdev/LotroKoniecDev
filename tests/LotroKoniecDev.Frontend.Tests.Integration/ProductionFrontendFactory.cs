@@ -35,8 +35,8 @@ public class ProductionFrontendFactory : WebApplicationFactory<Program>
 
         // A test build has a build manifest, and with it MapStaticAssets adds a development fallback
         // route for GET and HEAD on every address. Routing checks the method before the route's file
-        // name rule, so any other method gets 405 everywhere. A box runs a publish manifest without the
-        // route (#1555).
+        // name rule, so another method gets 405 instead of 404 at an address with no endpoint for it. A
+        // box runs a publish manifest without the route (#1555).
         builder.UseSetting("ReloadStaticAssetsAtRuntime", "false");
     }
 

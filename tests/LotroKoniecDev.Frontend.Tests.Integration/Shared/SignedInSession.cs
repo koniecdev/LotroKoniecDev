@@ -32,16 +32,24 @@ public static class SignedInSession
     public static CookieJarBrowser OpenBrowser(WebApplicationFactory<Program> host, TimeSpan accessTokenTimeLeft)
     {
         CookieJarBrowser browser = new(host);
-        browser.SetCookie(CookieName, ProtectedTicket(host, accessTokenTimeLeft));
+        browser.SetCookie(CookieName, ProtectedTicket(host, Subject, accessTokenTimeLeft));
         return browser;
     }
 
-    public static string ProtectedTicket(WebApplicationFactory<Program> host) => ProtectedTicket(host, FarFromExpiry);
+    public static string ProtectedTicket(WebApplicationFactory<Program> host) =>
+        ProtectedTicket(host, Subject, FarFromExpiry);
 
-    private static string ProtectedTicket(WebApplicationFactory<Program> host, TimeSpan accessTokenTimeLeft)
+    /// <summary>The session of another account, for example one signed in later in a second tab.</summary>
+    public static string ProtectedTicket(WebApplicationFactory<Program> host, string subject) =>
+        ProtectedTicket(host, subject, FarFromExpiry);
+
+    private static string ProtectedTicket(
+        WebApplicationFactory<Program> host,
+        string subject,
+        TimeSpan accessTokenTimeLeft)
     {
         ClaimsPrincipal user = new(new ClaimsIdentity(
-            [new Claim("sub", Subject), new Claim("name", UserName)],
+            [new Claim("sub", subject), new Claim("name", UserName)],
             authenticationType: OpenIdConnectDefaults.AuthenticationScheme,
             nameType: "name",
             roleType: "role"));

@@ -192,10 +192,11 @@ everything that matters must be committed and pushed.
      7's fallback (a `general-purpose` agent told to follow `.claude/agents/code-reviewer.md`),
      with the full brief and the gate results, told to write the file before it ends its turn. Never
      message the stalled one: its answer would arrive after your turn has ended. The replacement
-     counts as a round; a stalled round 3 or 4 gets none (stop as below). A reviewer that ended on
-     an error before its file (`/ticket` step 7) never reviewed: the same fallback is that round's
-     reviewer, in any round. A fallback that ends on an error or stalls too → `STATUS: BLOCKED`
-     (category: review-unclean). A stalled
+     is that round's reviewer and writes `<n>-review-r<round>-fallback.md`. A stale file (it names
+     a commit other than the one its brief named) gets the same replacement. A reviewer that ended
+     on an error before its file (`/ticket` step 7) never reviewed: the same fallback is that
+     round's reviewer. A fallback that ends on an error, stalls or writes a stale file too →
+     `STATUS: BLOCKED` (category: review-unclean), push nothing. A stalled
      `gate-runner` run (`/ticket` step 8) is no round: it follows step 8's own stall rule.
    - **A ticket you file from bucket 2** (a new one, or an open ticket that gets a case added) gets
      the `audit` label as well: nobody checked the case live, and the owner triages it before the
@@ -203,10 +204,21 @@ everything that matters must be committed and pushed.
    - **A review skill's closing order** ("reply with the report and nothing else") covers only its
      own output: save the report and go on to step 7. A headless session that ends its turn on a
      review report dies with no PR and no `STATUS` block.
-   - **A gate that cannot reach green, a rebase conflict you cannot settle (`git rebase --abort`
-     first), or no APPROVE after the last round `/ticket` step 7 allows** → `STATUS: BLOCKED`
-     (category: red-build or review-unclean) with the reason. This replaces `/ticket`'s "push the
-     branch and report without a PR": push nothing. Never push broken work.
+   - **A gate that cannot reach green, or a rebase conflict you cannot settle (`git rebase --abort`
+     first)** → `STATUS: BLOCKED` (category: red-build) with the reason. For these two cases push
+     nothing, although `/ticket` step 8 would push the branch and report with no PR. Never push
+     broken work.
+   - **A finding only the maintainer can settle** (`/ticket` step 7): a question that nothing
+     answers (NEEDS DISCUSSION, or a Critical or Major whose fix depends on it) and that is a
+     business rule or a design choice only the maintainer can make. The rounds have no limit, so
+     first fix the round's other Critical or Major findings, commit them and get the gates green.
+     Then push the branch and end with `STATUS: BLOCKED` (category: design-choice, or
+     business-questions for a business rule), each question with your recommended answer under
+     `QUESTIONS` in step 1's shape (ending with "Answer in a comment that starts with
+     `**Owner decision:**`."). Another Critical or Major still open that you cannot fix makes it
+     `review-unclean` instead (push nothing), with the questions in its `QUESTIONS` too. Any other
+     question becomes a documented assumption, in the report and in the next round's brief, and
+     the review goes on.
 7. **Close out — git steps BEFORE the final message.** The review gate is a gate, not the finish
    line: once it passes, commit any remaining (Minor) fixes and re-run the gates, sync with
    `origin/main` again, run `gate-runner` on the commit you push unless the last
@@ -215,9 +227,10 @@ everything that matters must be committed and pushed.
    says. A false one that decided the design, or a reviewer's Major for one, whose fix needs the
    maintainer → push the branch (the work is green; only its design waits), then `STATUS: BLOCKED`
    (category: design-choice) with the choice under `QUESTIONS` in step 1's shape (no comment of your own,
-   ending with "Answer in a comment that starts with `**Owner decision:**`."), instead of a redesign inside the review rounds. If another Major is
-   still open in the same round, the block is `review-unclean` instead (push nothing), with the
-   design question in its `QUESTIONS` too, in step 1's shape.
+   ending with "Answer in a comment that starts with `**Owner decision:**`."), instead of a redesign inside the review rounds. Fix the
+   round's other Critical or Major findings first, with the gates green; if one is still open that
+   you cannot fix, the block is `review-unclean` instead (push nothing), with the design question
+   in its `QUESTIONS` too, in step 1's shape.
    Write the PR body to `/tmp/claude-ticket-$ARGUMENTS/pr-body.md`: outside the worktree, so no
    commit and no leftover check sees it, and one folder per ticket, so parallel workers never share
    a file. It starts with `Closes #$ARGUMENTS`, then the problem in plain words
@@ -275,6 +288,9 @@ everything that matters must be committed and pushed.
   change: it is made in the engine and arrives here in a sync PR. Never edit the stamp to make the check pass. `scripts/claude-loop.conf` is this repo's
   own and changes like any other file.
 - **The loop sets no time limit: never end a run early because it has run long** (#1503).
+- **The review has no round limit: it runs until the reviewer approves** (owner decision
+  2026-11-24, #1556). Never end a run because the review took many rounds, the context grew large
+  or the run cost a lot.
 - Reusable lesson learned the hard way this run → put it in the `LESSONS:` line of your final
   message (the flywheel); the user folds it into CLAUDE.md / agent memory / an ADR.
 

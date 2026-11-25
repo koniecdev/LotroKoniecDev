@@ -53,11 +53,11 @@ the engine version of the copy. A one-run environment variable can override some
 | `gh_user` | `koniecdev` | The machine's active `gh` account may be one that cannot write here. |
 | `claude_config_dir` | `.claude-account1` | The Claude account the sessions run on. |
 
-## No invented limits (#1503, #1507)
+## No invented limits (#1503, #1507, #1556)
 
-The loop adds no limit the maintainer did not ask for (owner decisions 2026-11-22). A review finding
-or a plan that adds one is already decided. When a limit of our own causes trouble, it goes; nobody
-works around it with a budget.
+The loop adds no limit the maintainer did not ask for (owner decisions 2026-11-22 and 2026-11-24).
+A review finding or a plan that adds one is already decided. When a limit of our own causes trouble,
+it goes; nobody works around it with a budget.
 
 - **No ticket clock.** No time limit, no ceiling and no stuck-session watchdog on a ticket's run.
 - **No cut on the BLOCKED comment.** The worker's whole final message goes on the issue: the old
@@ -65,6 +65,13 @@ works around it with a budget.
   every question and fitting the cut. If GitHub refuses the comment, the issue gets a short note
   instead, and the questions stay in the run's `ticket-<n>.json` (`scripts/claude/LOOP.md`). If
   GitHub refuses the note too, nothing is posted, and the worker's line says so.
+- **No review round limit.** The review runs until the reviewer approves: no round count, no last
+  round and no confirmation round (#1556). #1493 ended without a PR after three review rounds, with
+  the build, the whole suite and every guard green on its last commit, and the gate audit (#1501)
+  found that every review round still finds a real Critical or Major in about half its runs. A run
+  that stops on a finding only the maintainer can settle (`design-choice` or `business-questions`)
+  first fixes the round's other findings and leaves its branch pushed; the next run goes on from
+  that branch.
 
 Why there is no clock: a clock measures how long a ticket takes, not whether it is stuck. Every
 ticket the old clock stopped (240 minutes, then 360 for one day) was still working. #1494 and

@@ -433,27 +433,25 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
       unhappy paths included; wording and taste anywhere, text a user sees included, are Minor and do
       not block APPROVE; only text a user sees that is wrong (false, misleading or broken) is visible
       wrong behaviour (`code-reviewer.md` → Severities);
-    - in round 3, "this is round 3", every commit made since round 1's review as it is on `HEAD`
-      now (found again by subject after a rebase), and the files each conflicted rebase since round
-      1 resolved, so the report carries its `Fix-made defects:` line (`code-reviewer.md` → Output);
     - "write the report, the reviewed SHA and a final `VERDICT:` line to
       `<scratchpad>/<n>-review-r<round>.md`, and end your turn only after the file exists".
 
     Wait for the reviewer: while it runs, do not edit, commit or run tests in this worktree. Its gate
     run reads this folder, and two runs of a suite at the same time in one worktree break the E2E
     images (`tests/CLAUDE.md`). A Phase 0 Critical with no code to fix (a test project missing from your
-    results but green there) is fixed by running that gate yourself; the next round still counts.
+    results but green there) is fixed by running that gate yourself; then run the next round.
 
     **Fallback.** A reviewer that ends on an error before it wrote its file (such as `Agent
     terminated early due to an API error`, a usage-limit or credits message, or an unknown agent
     type) never reviewed: spawn the same brief once as `general-purpose`, told to read
     `.claude/agents/code-reviewer.md`, to follow it as its instructions and to use only the tools
-    its frontmatter lists, and it is that round's reviewer, in any round. It runs on the model a
-    plain subagent gets (step 2's triage fallback). A reviewer that stalled (no file with a
-    `VERDICT:` line, below) gets the same `general-purpose` agent as its replacement, under the
-    stall rules below. The cause may be Fable's share of the weekly limit running out, or an account
-    with no Fable. The fallback runs once per round: when it too ends on an error, or stalls and the
-    one message below does not fix it, the round has no verdict, so stop as step 8 says for an
+    its frontmatter lists, and it is that round's reviewer, writing
+    `<scratchpad>/<n>-review-r<round>-fallback.md`. It runs on the model a plain subagent gets
+    (step 2's triage fallback). A reviewer that stalled or wrote a stale file (below) gets the same
+    `general-purpose` agent as its replacement for that round. The cause may be Fable's share of the
+    weekly limit running out, or an account with no Fable. The fallback runs once per round: when it
+    too ends on an error, writes a stale file, or stalls and the one message below does not fix it,
+    the round has no verdict, so stop as step 8 says for an
     unproven gate (`/work-ticket`: `BLOCKED`, review-unclean). The report's Proof names the model of
     each round (its report's `Model:` line) and, for a fallback, why it ran in a few plain words,
     never the raw error (step 2).
@@ -464,37 +462,27 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     the check is another part's job (ADR-0067, below) with the reason, writing the next `-r<round>`
     file. Never ask the old reviewer to re-verify: it has already formed its view and can send its
     old verdict back as if it were new. Minor-only fixes need no new round. NEEDS DISCUSSION counts
-    as REQUEST CHANGES: answer each question from the wiki, the code or an ADR and fix, or stop as
-    below.
+    as REQUEST CHANGES: answer each question from the wiki, the knowledge base, a spec, an ADR or
+    the code, cite the source, and fix.
 
-    **Three rounds, plus one confirmation round when the review is ending (#1310).** After round
-    3, run a fourth and last round only when all of these hold:
-    - the second pass has not run yet in this review, and round 3's verdict came from its
-      reviewer's own file, naming the commit round 3 was briefed on (after one nudge in an
-      interactive session is fine; a stale file, or a reviewer spawned for a stalled round 3,
-      is a stalled round 3; the fallback for a reviewer that ended on an error is round 3's own
-      reviewer);
-    - round 3 returned REQUEST CHANGES with exactly one Critical or Major, and you fixed it (a
-      NEEDS DISCUSSION, more than one Critical or Major, one left alone under ADR-0067, or a
-      design-route Major means no round 4);
-    - the round-3 report has the line `Fix-made defects: none`: no commit or conflict resolution
-      since round 1 wrote that defect (no such line also means no round 4);
-    - the fix has a test that fails on the code before it: the regression-test bullet above, with
-      the parent of the first round-3 fix commit as the code before the fix, unless the fix changes
-      no behavior;
-    - no rebase since round 3 needed a conflict resolved (that changed reviewed code, so stop).
+    **A choice only the maintainer can make.** Some findings need one: a design-route Major whose
+    right design needs the maintainer (step 8), or a question that none of those sources answers
+    and that is a business rule or a design choice (a NEEDS DISCUSSION question, or a Critical or
+    Major whose fix depends on it). First fix the round's other Critical or Major findings and get
+    the gates green. Then take step 8's route for a choice that needs the maintainer: push the
+    branch, put the question and your recommended answer under **Doubts**, and stop before the PR
+    (`/work-ticket`: the rules for it in steps 6 and 7). Any other
+    unanswered question becomes a documented assumption (step 2: "After this gate: zero
+    questions"). Write it in the report and in the next round's brief, so the next reviewer sees
+    your answer, and the review goes on.
 
-    The fourth reviewer gets the brief above, without the round-3 lines, plus "confirmation round:
-    start at the round-3 fix and what it touches". Only its APPROVE goes on, as any APPROVE does: to
-    the second pass below when it applies (never a second run), and the report's `**Proof:**` then
-    names the round-3 finding, its `Fix-made defects` line and the proof, so the maintainer can
-    check that the round was allowed. **Anything else in round 4 (REQUEST CHANGES, NEEDS DISCUSSION,
-    a stall that one nudge does not fix, which gets no replacement), or no APPROVE after three
-    rounds when a check above fails → stop:** push the branch and report without a PR (step 8).
-    There is never a fifth round. Why: the cap is there for a review that does not end, where fixes
-    make new defects and every round finds as much as the one before. A review that is ending (one
-    last finding, not made by an earlier fix, its fix proven) would otherwise stop one round short,
-    and a new session would have to run that round and open the PR.
+    **The review runs until the reviewer approves** (owner decision 2026-11-24, #1556). There is no
+    round count and no round limit: never stop the review because of the number of rounds, the size
+    of the context or the cost. It stops only where this step or step 8 names a stop: a business
+    rule or a design choice only the maintainer can make (above), a gate that cannot get green, a
+    rebase conflict you cannot settle, or a reviewer whose fallback fails too (above). A finding or
+    a plan that adds a limit on rounds, findings, time, context or cost is already decided (bucket 3
+    below).
   - **Trust a verdict only after you check its file:** it exists, it is newer than the commit it
     names, and that commit is `HEAD` or differs from it only by Minor fixes, the second pass's
     bucket-1 fixes (below) or a rebase with no conflict (step 8), with the gates green again (step
@@ -502,15 +490,19 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
     reviewer that reports "completed" with no file, or with a file that has no `VERDICT:` line, has
     stalled. In an interactive session, one
     message asking it to write the file now is the fix; its answer comes back as a notification,
-    which a headless session never gets (`/work-ticket` spawns the replacement at once). A stall
-    that one message does not fix gets the fallback above as its replacement, which counts as
-    a round. A file that names an older commit is stale: spawn a fresh `code-reviewer`, which counts
-    as a round. In round 3 or 4, a stall that one message does not fix and a stale file get no
-    replacement: stop, as the confirmation-round rule above says.
+    which a headless session never gets (`/work-ticket` spawns the replacement at once). A file
+    that names a commit other than the one its brief named is stale. A stall that one message does
+    not fix and a stale file are reviewer failures: the fallback above replaces that reviewer for
+    the same round.
   - **`/security-review`** on top for anything touching native interop, file protection, or auth.
 - **Second pass — after the `code-reviewer` APPROVE, on every diff: run
-  `/code-review xhigh origin/main...HEAD`.** It forks into a fresh context, so it has never seen your
-  plan, your ADR or the first reviewer's framing, and it reads the code around the diff instead of
+  `/code-review xhigh origin/main...HEAD`.** It runs once per review: after it has run, a later
+  APPROVE after a fix that went back to the `code-reviewer` rounds (bucket 1 below, step 8's
+  `GATES: RED` or a resolved rebase conflict) does not run it again. A redesign under step 8's
+  route, a follow-up PR's diff (step 8) and a later session for the same ticket are new reviews,
+  and each runs it. It forks into a fresh
+  context, so it has never seen your plan, your ADR or the first reviewer's framing, and it reads
+  the code around the diff instead of
   the diff's own story. That independence is the point: the `code-reviewer` rounds converge on what
   the author and the reviewer already talk about. It runs on this session's model, beside the Fable
   rounds (#1318).
@@ -527,10 +519,9 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
      reachable, and the claim holds when you read the code. Fix it. Another case of the class
      this ticket names belongs here too (for an older ticket that names one case: the class of
      that case). Finding those cases is this ticket's own task, so fix it in this diff with its
-     own test. In the second pass, a case with a cause the diff has not fixed yet gets one more
-     round from a fresh `code-reviewer`, which counts as a round (none left: stop as the round
-     rule above says), and the second pass does not run again. Any other fix there keeps
-     the APPROVE.
+     own test. In the second pass, a case with a cause the diff has not fixed yet goes back to the
+     `code-reviewer` rounds (a fresh `code-reviewer`, until APPROVE), and the second pass does not
+     run again. Any other fix there keeps the APPROVE.
   2. **Real, older than this diff, and no ticket.** The same code or behavior is on `main`, and
      `gh issue list --state all --search "<key words>"` finds no open ticket that names this case
      (a ticket closed as completed that names it means the bug came back: file a new ticket that
@@ -577,7 +568,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   review, `git rebase origin/main` and re-run the gates, or the PR opens in conflict and its checks
   never start. A rebase with no conflict keeps the verdict (it changes no line of this diff, as
   ADR-0060 has it for the owner's approval). One where you resolved a conflict changed reviewed
-  code: it needs a fresh `code-reviewer` round, which counts as a round.
+  code: it needs a fresh `code-reviewer` round.
 - **The pushed commit has a gate run of its own** (#1319). Before
   every push a PR carries (the push before `gh pr create`, and every push to an open PR; a push
   that only parks the branch with no PR needs none), unless the last `code-reviewer` or
@@ -591,9 +582,8 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
   fix). It is not a review round. Wait for it as step 7 says for a reviewer: no edits, commits or
   test runs in this worktree while it runs. Its file must exist, be newer than the commit and name `HEAD`; a
   run without such a file has stalled: spawn one fresh run, and a second stall is an unproven
-  gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code needs one more
-  review round as step 7 allows it (a fresh `code-reviewer` round, which counts), and none left
-  means stop as step 7's round rule says. A finding with no code
+  gate (no PR, below). `GATES: RED` → fix what it found. A fix that changes code goes back to step
+  7's `code-reviewer` rounds (a fresh `code-reviewer`, until APPROVE). A finding with no code
   to fix (a gate you had not run) needs your own run of that gate and one new `gate-runner` run; a
   second `GATES: RED` with no code to fix is an unproven gate. After `GATES: GREEN`, act on its
   Minor findings as step 7 says, then push without another rebase, even when `origin/main` moved
@@ -612,8 +602,7 @@ a non-trivial modeling decision emerges mid-flight. Honor every constraint the s
 - **Check the report's assumptions yourself.** The second-pass `/code-review` never sees them.
   Hold each one, and each reason for not taking an alternative the ticket or `/buddy` names, against
   `CLAUDE.md`, the wiki and the code. A false one that decided the design is a design question found after
-  the gate, and you may not ask now. When the right design needs nobody's decision and the review
-  rounds left allow it (the confirmation round never takes a redesign), change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
+  the gate, and you may not ask now. When the right design needs nobody's decision, change to it, run `/buddy` once on the new design (its `NEEDS OWNER: yes` or NOT SOUND → treat it as
   needing the maintainer; no report in a headless run → `BLOCKED`, review-unclean), then re-run the gates
   and the review; otherwise treat it as
   needing the maintainer. When it needs the maintainer, push the branch, put the choice in

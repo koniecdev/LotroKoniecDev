@@ -34,7 +34,9 @@ public class ProductionFrontendFactory : WebApplicationFactory<Program>
         builder.UseSetting("AuthSystem:ClientSecret", ClientSecret);
 
         // A test build has a build manifest, and with it MapStaticAssets adds a development fallback
-        // route that takes every path for GET and HEAD. A box runs a publish manifest without it (#1555).
+        // route for GET and HEAD on every address. Routing checks the method before the route's file
+        // name rule, so any other method gets 405 everywhere. A box runs a publish manifest without the
+        // route (#1555).
         builder.UseSetting("ReloadStaticAssetsAtRuntime", "false");
     }
 

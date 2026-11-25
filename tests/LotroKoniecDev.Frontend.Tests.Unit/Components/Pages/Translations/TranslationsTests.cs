@@ -893,7 +893,6 @@ public sealed class TranslationsTests : BunitContext
     private static TranslationListItemResponse Row(
         bool canEdit,
         bool canApprove = false,
-        TranslationId? id = null,
         string? translatedText = "Witaj w Śródziemiu!")
     {
         List<LinkDto> links = [];
@@ -908,7 +907,7 @@ public sealed class TranslationsTests : BunitContext
         }
 
         TranslationListItemResponse row = new(
-            id ?? TranslationId.Create(),
+            TranslationId.Create(),
             FileId: 620756992,
             GossipId: 1001,
             SourceText: "Welcome to Middle-earth!",

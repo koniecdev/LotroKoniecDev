@@ -356,7 +356,8 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     [Fact]
     public async Task Post_FromAnAddressThatStillHasTheNoteOfASave_ShowsNoOldConfirmation()
     {
-        // Arrange: a form posts to the address it was drawn on, so the note's fields come with it (#1122).
+        // Arrange: the list's own forms post to an address with no note, but a hand-made post can still send the
+        // note's fields (#1122).
         StubTranslationSystem translationSystem = new() { ListOffersBulkApprove = true };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);

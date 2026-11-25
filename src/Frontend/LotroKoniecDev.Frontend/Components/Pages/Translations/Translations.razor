@@ -548,7 +548,8 @@
         string? postedFormName = PostedForm.NameOf(HttpContext);
         _inlineSaveId = InlineSaveIdOf(postedFormName);
 
-        // A post keeps the note's fields only because the address still has them, so it shows none (#1122).
+        // The list's own forms post to an address with no note, but a hand-made post may still carry one, so a
+        // post shows none (#1122).
         if (postedFormName is null)
         {
             _savedRow = ParseRowId(SavedRow);

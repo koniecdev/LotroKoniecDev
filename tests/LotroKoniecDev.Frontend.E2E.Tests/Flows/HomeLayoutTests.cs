@@ -7,6 +7,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// <summary>
 /// Side by side, the player and translator boxes have the same height, and the big percentage is centred
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
+/// The gap between the boxes is never wider than the page's side padding (#1572).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
@@ -40,6 +41,34 @@ public sealed class HomeLayoutTests : E2ETestBase
 
         // Assert
         (number.Y + number.Height / 2).ShouldBe(text.Y + text.Height / 2, 1d);
+    }
+
+    [Fact]
+    public async Task Player_and_translator_boxes_side_by_side_are_24_px_apart()
+    {
+        // Arrange
+        await OpenHomeAsync(1920, 1080);
+
+        // Act
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult translators = await Page.Locator("#dla-tlumaczy").RequireBoundingBoxAsync();
+
+        // Assert
+        (translators.X - (players.X + players.Width)).ShouldBe(24, 1d);
+    }
+
+    [Fact]
+    public async Task Player_and_translator_boxes_stacked_on_a_phone_are_20_px_apart()
+    {
+        // Arrange
+        await OpenHomeAsync(390, 844);
+
+        // Act
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult translators = await Page.Locator("#dla-tlumaczy").RequireBoundingBoxAsync();
+
+        // Assert
+        (translators.Y - (players.Y + players.Height)).ShouldBe(20, 1d);
     }
 
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)

@@ -51,6 +51,8 @@
 
     --container-max: 1920px;
     --container-px: 32px;
+    /* Boxes that belong together sit no further apart than the page edge (#1572). */
+    --block-gap: min(24px, var(--container-px));
 }
 
 * {
@@ -775,7 +777,7 @@ code {
 .home-duo {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 22px;
+    gap: var(--block-gap);
     align-items: stretch;
 }
 
@@ -1423,7 +1425,7 @@ main:has(> .home-banner) {
 .editor-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 22px;
+    gap: var(--block-gap);
     align-items: start;
     padding-bottom: 8px;
 }
@@ -1820,7 +1822,7 @@ main:has(> .home-banner) {
     padding-bottom: 48px;
     display: flex;
     flex-direction: column;
-    gap: 22px;
+    gap: var(--block-gap);
 }
 
 /* ───────── Responsive ───────── */

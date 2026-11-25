@@ -84,7 +84,8 @@ One test class per flow, in `Flows/`:
 - `HomeDiscordBannerTests`: the home page's Discord band sits right on top of the footer on short and
   tall screens, and keeps its own width on a screen wider than the strip.
 - `HomeLayoutTests`: the home page's player and translator boxes have the same height side by side,
-  and the big percentage is centred against its text.
+  the big percentage is centred against its text, and the gap between the boxes is 24 px side by side
+  and 20 px stacked on a phone.
 - `PageWidthTests`: the page is as wide as the window up to 1920 px and centred on a wider one; the
   terms document and the home page's risk note keep the width they had under the old 1400 px limit
   (#1572).

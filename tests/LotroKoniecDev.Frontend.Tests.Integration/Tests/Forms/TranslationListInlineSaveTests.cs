@@ -39,6 +39,14 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     /// <summary>Every list field away from its default, in the order the list writes them (#1452).</summary>
     private const string ListState = "page=2&search=Frodo%20%26%20Sam&match=WholeText&status=Draft&conflictsOnly=true&mine=true&pageSize=25";
 
+    private const string AccessDeniedTitle = "<title>Brak dostępu — lotro-translator.pl</title>";
+
+    /// <summary>The ways a post comes with no live session, and the two places the Ajax mark can be.</summary>
+    private const string EndedSession = "ended session";
+    private const string NoCookie = "no cookie";
+    private const string AjaxMarkInTheHeader = "header";
+    private const string AjaxMarkInTheAddress = "address";
+
     /// <summary>The Polish text a 503 from an API turns into (ApiProblemCopy).</summary>
     private const string ServiceUnavailableMessage = "Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.";
 
@@ -175,7 +183,8 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
     public async Task Post_FromASessionThatHasEnded_SendsTheCallerToSignInAndBackToTheSameList(string formName)
     {
         // Arrange: the form was drawn for a signed-in user, and the session ended before it was sent, so its
-        // antiforgery token no longer fits. The list is open to anyone, so no sign-in check stops the post first.
+        // antiforgery token no longer fits. The list takes a post only from a signed-in user, and that check
+        // runs before the token check.
         StubTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
@@ -218,24 +227,63 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         QueryHelpers.ParseQuery(redirectedTo.Query)["returnUrl"].ToString().ShouldBe($"/translations?{ListState}");
     }
 
+    /// <summary>
+    /// The cookie sign-in answers a request marked as Ajax with a 401 instead of a redirect, and the error page
+    /// draws it as GET, so the post's form is never read (#1555).
+    /// </summary>
     [Theory]
-    [InlineData("/does-not-exist")]
-    [InlineData("/auth/login")]
-    public async Task Post_FromAnEndedSessionToAnAddressWithNoSuchPage_IsNotSentToSignIn(string path)
+    [InlineData(EndedSession, AjaxMarkInTheHeader)]
+    [InlineData(EndedSession, AjaxMarkInTheAddress)]
+    [InlineData(NoCookie, AjaxMarkInTheHeader)]
+    [InlineData(NoCookie, AjaxMarkInTheAddress)]
+    public async Task Post_MarkedAsAjaxWithNoLiveSession_ShowsTheAccessDeniedPageWithStatus401(string caller, string mark)
     {
-        // Arrange: the error page that answers this runs as a second, inner request. Its address is not where
-        // the form was sent, so a sign-in would only lead back to the error page.
+        // Arrange
         StubTranslationSystem translationSystem = new();
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
-        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
-        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
-        browser.SetCookie(SignedInSession.CookieName, "ended");
+        using CookieJarBrowser browser = caller == EndedSession ? SignedInSession.OpenBrowser(host) : new CookieJarBrowser(host);
+        string antiforgeryToken = string.Empty;
+        if (caller == EndedSession)
+        {
+            antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+            browser.SetCookie(SignedInSession.CookieName, "ended");
+        }
+
+        string address = mark == AjaxMarkInTheAddress
+            ? $"/translations?{ListState}&X-Requested-With=XMLHttpRequest"
+            : $"/translations?{ListState}";
+        using HttpRequestMessage request = FormPost(address, $"inline-save-{RowId}", antiforgeryToken, InlineFields("Witaj, wędrowcze."));
+        if (mark == AjaxMarkInTheHeader)
+        {
+            request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        }
 
         // Act
-        using HttpResponseMessage posted = await browser.SendAsync(FormPost(path, "inline-save-x", antiforgeryToken, []));
+        using HttpResponseMessage posted = await browser.SendAsync(request);
 
         // Assert
-        posted.Headers.Location.ShouldBeNull();
+        posted.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+        (await posted.Content.ReadAsStringAsync()).ShouldContain(AccessDeniedTitle);
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Get_TheListAsAVisitor_ShowsTheList()
+    {
+        // Arrange: the list is the public face of the catalog (#309).
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = new(host);
+
+        // Act
+        using HttpResponseMessage response = await browser.GetAsync($"/translations?{ListState}");
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        response.Headers.Location.ShouldBeNull();
+        string page = await response.Content.ReadAsStringAsync();
+        page.ShouldContain("<h1>Tłumaczenia</h1>");
+        page.ShouldNotContain("type=\"redirection\"");
     }
 
     [Fact]

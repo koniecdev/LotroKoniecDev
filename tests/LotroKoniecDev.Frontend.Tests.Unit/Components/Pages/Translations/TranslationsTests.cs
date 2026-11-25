@@ -2,6 +2,7 @@ using System.Reflection;
 using AngleSharp.Dom;
 using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.Translations;
+using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Hateoas.Abstractions;
@@ -39,10 +40,12 @@ public sealed class TranslationsTests : BunitContext
     }
 
     [Fact]
-    public void Translations_AreBrowsableAnonymously_ByContract()
+    public void Translations_AreReadableByVisitorsAndTakeAPostOnlyWhenSignedIn_ByContract()
     {
-        // The list is the public face of the catalog (#309).
-        typeof(TranslationsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldNotBeNull();
+        // The list is the public face of the catalog (#309); its forms are for a signed-in user (#1493).
+        typeof(TranslationsComponent).GetCustomAttribute<AllowAnonymousAttribute>().ShouldBeNull();
+        typeof(TranslationsComponent).GetCustomAttribute<AuthorizeAttribute>().ShouldNotBeNull()
+            .Policy.ShouldBe(ReadOnlyForVisitorsPolicy.Name);
     }
 
     [Fact]

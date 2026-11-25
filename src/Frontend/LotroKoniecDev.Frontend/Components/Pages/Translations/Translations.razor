@@ -1,10 +1,11 @@
 @page "/translations"
-@attribute [AllowAnonymous]
+@attribute [Authorize(Policy = ReadOnlyForVisitorsPolicy.Name)]
 @attribute [StreamRendering]
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Editor
+@using LotroKoniecDev.Frontend.Infrastructure.Auth
 @using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients

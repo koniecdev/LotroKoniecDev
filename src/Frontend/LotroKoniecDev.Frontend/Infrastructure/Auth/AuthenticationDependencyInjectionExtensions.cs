@@ -43,7 +43,8 @@ internal static partial class AuthenticationDependencyInjectionExtensions
         public IServiceCollection AddFrontendAuthentication()
         {
             services.AddCascadingAuthenticationState();
-            services.AddAuthorization();
+            services.AddAuthorizationBuilder()
+                .AddPolicy(ReadOnlyForVisitorsPolicy.Name, ReadOnlyForVisitorsPolicy.Policy);
             services.AddSingleton<SignInServerDiscovery>();
             services.AddSingleton<SignInAvailability>();
 

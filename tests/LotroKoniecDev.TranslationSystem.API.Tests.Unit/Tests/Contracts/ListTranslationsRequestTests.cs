@@ -146,4 +146,52 @@ public sealed class ListTranslationsRequestTests
             new KeyValuePair<string, string?>("pageSize", "100")
         ]);
     }
+
+    [Fact]
+    public void ToQueryParameters_WithAfter_WritesItAfterTheFiltersAndBeforeThePaging()
+    {
+        ListTranslationsRequest request = new(Search: "ring", Mine: true, After: "azoxOjI", PageSize: 25);
+
+        IReadOnlyList<KeyValuePair<string, string?>> parameters = request.ToQueryParameters();
+
+        parameters.ShouldBe(
+        [
+            new KeyValuePair<string, string?>("search", "ring"),
+            new KeyValuePair<string, string?>("mine", "true"),
+            new KeyValuePair<string, string?>("after", "azoxOjI"),
+            new KeyValuePair<string, string?>("page", "1"),
+            new KeyValuePair<string, string?>("pageSize", "25")
+        ]);
+    }
+
+    [Fact]
+    public void ToQueryParameters_ForAnotherPage_LeavesAfterOut()
+    {
+        // A numbered page starts at its own first row, so the paging links never carry a place (ADR-0077).
+        ListTranslationsRequest request = new(Search: "ring", After: "azoxOjI", PageSize: 25);
+
+        IReadOnlyList<KeyValuePair<string, string?>> parameters = request.ToQueryParameters(2);
+
+        parameters.ShouldBe(
+        [
+            new KeyValuePair<string, string?>("search", "ring"),
+            new KeyValuePair<string, string?>("page", "2"),
+            new KeyValuePair<string, string?>("pageSize", "25")
+        ]);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ToQueryParameters_WithABlankAfter_LeavesItOut(string blank)
+    {
+        IReadOnlyList<KeyValuePair<string, string?>> parameters =
+            new ListTranslationsRequest(After: blank).ToQueryParameters();
+
+        parameters.ShouldBe(
+        [
+            new KeyValuePair<string, string?>("page", "1"),
+            new KeyValuePair<string, string?>("pageSize", "50")
+        ]);
+    }
 }

@@ -285,6 +285,8 @@ slice's first default key, ascending (for game versions that is oldest first, th
 default order), instead of failing, and a unique key is always added at the end, so the
 order is total. Without `sort`, translations order by `(FileId, GossipId)` (with `mine=true`: newest
 `UpdatedAt` first, then `FileId`, then `GossipId`, #1491) and game versions by `DetectedAt` descending.
+Only these two default translation orders give each row a `place` and take `after` (ADR-0077); with a
+`sort`, `place` is `null` and `after` is refused.
 
 ---
 
@@ -436,11 +438,21 @@ unknown name, such as the old `lang`, is ignored.
 | `sort` | string? | — | multi-field sort, §6 (`fileId`, `gossipId`, `status`, `submittedAt`) |
 | `conflictsOnly` | bool | `false` | only rows with Polish whose **exactly identical** English text has two or more different Polish texts among the live rows (#1347). Untranslated rows never count as a difference and are not listed. Status and search narrow the listed rows; the conflict is judged on the whole live group. The pager links keep it |
 | `mine` | bool | `false` | only rows whose current Polish text the caller saved last: `SubmittedById` is the caller's translator profile, taken from the **token**, never from the address (#1491). Without `sort` the newest change (`UpdatedAt`) comes first, then `FileId`, then `GossipId`; an approve, an import or a restore moves `UpdatedAt` too. It combines with every other filter. A caller with no token, a refused (for example expired) token or no translator profile gets **200** with an empty page, never a 401. The pager links keep it |
+| `after` | string? | — | a row's `place` from an earlier answer of this list (ADR-0077, #1490): the answer holds at most `pageSize` rows that come **after** that place, with the same filters and the same default order, and `page` is ignored. A blank value counts as absent. A place the API cannot read (bad text, a number out of range), a place made for the other order (`mine` on or off), and `after` together with `sort` give **400** `Translations.UnreadablePlace` or `Translations.AfterWithSort`. A save never moves a row to a later place in either default order, so the first row after a saved row's old place is its next row. The pager links never carry it |
 
 Soft-removed rows are always left out. Default order `(FileId, GossipId)`, or newest change first with
 `mine=true`. Anonymous callers get the items without any links. A caller with no user (no token, a
 refused (for example expired) token, or a service token) gets every item with `submitter: null`
 (#1543).
+
+Every item has `place`, an opaque string for `after` (ADR-0077), visitors included; it is `null` when the
+request has a `sort`. Clients copy it and never read it. With `after`, the response's `page` is the page
+that holds the first returned row at that `pageSize` (counted from the rows that are not after the place),
+or the last page that exists (at least 1) when no row follows; `totalCount` is still the size of the whole
+filtered list. The `self` link is the request as sent, `after` included; the first, last, previous and next
+links are numbered pages without it. An `after` request runs three queries (the total, the rows after the
+place, the items), so under a concurrent write `page` can be one off; it is kept inside the pages that
+exist. A "Tylko moje" request with `after` from a caller with no translator profile gets an empty page 1.
 
 **`PUT /translations`** body `UpsertTranslationRequest`: `{ fileId, gossipId, translatedText }`.
 Creates or replaces the Polish text of the row keyed by `(fileId, gossipId)`; the row must already

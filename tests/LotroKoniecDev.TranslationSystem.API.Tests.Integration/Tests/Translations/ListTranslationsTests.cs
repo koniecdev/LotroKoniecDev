@@ -2,9 +2,11 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.TranslationSystem.Contracts.Common;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -1378,6 +1380,306 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         // Assert
         page.Items.ShouldBeEmpty();
         page.TotalCount.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(4)]
+    public async Task List_WithAfter_WalksTheWholeDefaultOrderAndNamesThePageOfTheFirstRow(int pageSize)
+    {
+        // Arrange: seeded out of order, across two file ids (ADR-0077).
+        await SeedAsync(
+            Row(2, "b", fileId: OtherFileId),
+            Row(1, "a"),
+            Row(3, "c"),
+            Row(1, "d", fileId: OtherFileId),
+            Row(2, "e"));
+        List<TranslationListItemResponse> whole = [.. (await ListAsync(new ListTranslationsRequest(PageSize: 100))).Items];
+        int lastPage = (whole.Count + pageSize - 1) / pageSize;
+
+        for (int index = 0; index < whole.Count; index++)
+        {
+            // Act
+            PaginationResponse<TranslationListItemResponse> after =
+                await ListAsync(new ListTranslationsRequest(PageSize: pageSize, After: whole[index].Place));
+
+            // Assert: the rows that follow, on the numbered page that holds the first of them.
+            after.Items.Select(item => item.Id).ShouldBe(whole.Skip(index + 1).Take(pageSize).Select(item => item.Id));
+            after.Page.ShouldBe(index + 1 < whole.Count ? (index + 1) / pageSize + 1 : lastPage);
+            after.TotalCount.ShouldBe(whole.Count);
+        }
+    }
+
+    [Fact]
+    public async Task List_WithMineAndAfter_WalksTheNewestChangeFirstWithTies()
+    {
+        // Arrange: three rows share one time, as the rows of one bulk approve do.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(1)),
+            Saved(3, "b", "b", callerId, Now.AddMinutes(5), fileId: OtherFileId),
+            Saved(2, "c", "c", callerId, Now.AddMinutes(5), fileId: OtherFileId),
+            Saved(9, "d", "d", callerId, Now.AddMinutes(5)),
+            Saved(4, "e", "e", callerId, Now.AddMinutes(9)));
+        List<TranslationListItemResponse> whole = [.. (await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, PageSize: 100))).Items];
+
+        for (int index = 0; index < whole.Count; index++)
+        {
+            // Act
+            PaginationResponse<TranslationListItemResponse> after = await ListAsAsync(
+                callerSubject,
+                AuthConstants.Roles.Translator,
+                new ListTranslationsRequest(Mine: true, PageSize: 2, After: whole[index].Place));
+
+            // Assert
+            after.Items.Select(item => item.Id).ShouldBe(whole.Skip(index + 1).Take(2).Select(item => item.Id));
+        }
+    }
+
+    [Fact]
+    public async Task List_WithAfter_WhenTheSaveTookTheRowOutOfTheFilter_ReturnsTheRowsThatFollowedIt()
+    {
+        // Arrange: a save makes the row a draft, so it leaves "Nieprzetłumaczone" (spec 0018).
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"), Row(4, "d"));
+        PaginationResponse<TranslationListItemResponse> before =
+            await ListAsync(new ListTranslationsRequest(Status: TranslationStatus.Untranslated));
+        string placeOfTheSavedRow = before.Items.Single(item => item.GossipId == 2).Place.ShouldNotBeNull();
+
+        // Act
+        HttpResponseMessage save = await TranslatorClient()
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 2, "Polski"));
+        PaginationResponse<TranslationListItemResponse> after = await ListAsync(
+            new ListTranslationsRequest(Status: TranslationStatus.Untranslated, PageSize: 2, After: placeOfTheSavedRow));
+
+        // Assert: row 1 is the only row before the place, so the next rows start on page 1.
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.Select(item => item.GossipId).ShouldBe([3L, 4L]);
+        after.Page.ShouldBe(1);
+        after.TotalCount.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task List_WithAfter_WhenTheRowStaysInTheFilter_ReturnsTheRowsThatFollowIt()
+    {
+        // Arrange: the default order never moves a row, so a saved draft stays where it was.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+        PaginationResponse<TranslationListItemResponse> before = await ListAsync(new ListTranslationsRequest());
+        string placeOfTheSavedRow = before.Items.Single(item => item.GossipId == 2).Place.ShouldNotBeNull();
+
+        // Act
+        HttpResponseMessage save = await TranslatorClient()
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 2, "Polski"));
+        PaginationResponse<TranslationListItemResponse> after =
+            await ListAsync(new ListTranslationsRequest(PageSize: 2, After: placeOfTheSavedRow));
+
+        // Assert
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.Select(item => item.GossipId).ShouldBe([3L]);
+        after.Page.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task List_WithMineAndAfter_AfterTheSameRowIsSavedTwice_ReturnsTheRowThatFollowedIt()
+    {
+        // Arrange: a save moves the row to the top of "Tylko moje", never after its old place.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(3)),
+            Saved(2, "b", "b", callerId, Now.AddMinutes(2)),
+            Saved(3, "c", "c", callerId, Now.AddMinutes(1)));
+        PaginationResponse<TranslationListItemResponse> before = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+        string placeOfTheSavedRow = before.Items.First().Place.ShouldNotBeNull();
+        HttpClient caller = ClientFor(callerSubject, AuthConstants.Roles.Translator);
+
+        // Act
+        HttpResponseMessage firstSave =
+            await caller.PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 1, "Pierwszy"));
+        HttpResponseMessage secondSave =
+            await caller.PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 1, "Drugi"));
+        PaginationResponse<TranslationListItemResponse> after = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, After: placeOfTheSavedRow));
+
+        // Assert
+        firstSave.StatusCode.ShouldBe(HttpStatusCode.OK);
+        secondSave.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.Select(item => item.GossipId).ShouldBe([2L, 3L]);
+        after.Page.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task List_WithConflictsOnlyAndAfter_WhenTheSaveEndedTheConflict_SkipsTheRestOfThatGroup()
+    {
+        // Arrange: two groups with the same English and different Polish. The owner accepted that a group
+        // one save made agree leaves the filter, so its later rows are not offered (spec 0018).
+        await SeedAsync(
+            Translated(1, "Axe", "Topór"),
+            Translated(2, "Axe", "Siekiera"),
+            Translated(3, "Bow", "Łuk"),
+            Translated(4, "Bow", "Kusza"));
+        PaginationResponse<TranslationListItemResponse> before =
+            await ListAsync(new ListTranslationsRequest(ConflictsOnly: true));
+        string placeOfTheSavedRow = before.Items.Single(item => item.GossipId == 1).Place.ShouldNotBeNull();
+
+        // Act
+        HttpResponseMessage save = await TranslatorClient()
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 1, "Siekiera"));
+        PaginationResponse<TranslationListItemResponse> after =
+            await ListAsync(new ListTranslationsRequest(ConflictsOnly: true, After: placeOfTheSavedRow));
+
+        // Assert
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.Select(item => item.GossipId).ShouldBe([3L, 4L]);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task List_WithAfter_WhenNoRowFollows_ReturnsNoRowsAndTheLastPageThatExists(int rowsLeftAfterTheSave)
+    {
+        // Arrange: the last row of page 2 leaves the filter, so the list shrinks to fewer pages.
+        Translation[] rows = [.. Enumerable.Range(1, rowsLeftAfterTheSave + 1).Select(gossipId => Row(gossipId, "a"))];
+        await SeedAsync(rows);
+        ListTranslationsRequest untranslated = new(Status: TranslationStatus.Untranslated, PageSize: 2);
+        PaginationResponse<TranslationListItemResponse> lastPage = await ListAsync(
+            new ListTranslationsRequest(Status: TranslationStatus.Untranslated, PageSize: 2, Page: (rows.Length + 1) / 2));
+        TranslationListItemResponse lastRow = lastPage.Items.Last();
+
+        // Act
+        HttpResponseMessage save = await TranslatorClient()
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, lastRow.GossipId, "Polski"));
+        PaginationResponse<TranslationListItemResponse> after = await ListAsync(
+            new ListTranslationsRequest(Status: untranslated.Status, PageSize: untranslated.PageSize, After: lastRow.Place));
+
+        // Assert
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.ShouldBeEmpty();
+        after.TotalCount.ShouldBe(rowsLeftAfterTheSave);
+        after.Page.ShouldBe((rowsLeftAfterTheSave + 1) / 2);
+    }
+
+    [Fact]
+    public async Task List_WithAfter_WhenTheListIsEmptyNow_ReturnsPageOne()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "a"));
+        PaginationResponse<TranslationListItemResponse> before =
+            await ListAsync(new ListTranslationsRequest(Status: TranslationStatus.Untranslated));
+        string placeOfTheOnlyRow = before.Items.Single().Place.ShouldNotBeNull();
+
+        // Act
+        HttpResponseMessage save = await TranslatorClient()
+            .PutAsJsonAsync("/api/v1/translations", new UpsertTranslationRequest(FileId, 1, "Polski"));
+        PaginationResponse<TranslationListItemResponse> after = await ListAsync(
+            new ListTranslationsRequest(Status: TranslationStatus.Untranslated, Page: 4, After: placeOfTheOnlyRow));
+
+        // Assert
+        save.StatusCode.ShouldBe(HttpStatusCode.OK);
+        after.Items.ShouldBeEmpty();
+        after.Page.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("after=not-a-place", "Translations.UnreadablePlace")]
+    [InlineData("after=%21%21%21", "Translations.UnreadablePlace")]
+    [InlineData("after=bTo5OTk5OTk5OTk5OTk5OTk5OTk5OToxOjI&mine=true", "Translations.UnreadablePlace")]
+    [InlineData("after=azo2MjA3NTY5OTI6MQ&mine=true", "Translations.UnreadablePlace")]
+    [InlineData("after=azo2MjA3NTY5OTI6MQ&sort=fileId", "Translations.AfterWithSort")]
+    public async Task List_WithAnAfterItCannotUse_ShouldReturn400WithItsCode(string options, string errorCode)
+    {
+        // Act: the caller has no translator profile, so "mine" would give an empty page; the place is checked first.
+        HttpResponseMessage response = await TranslatorClient().GetAsync($"/api/v1/translations?{options}");
+        using JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        problem.RootElement.GetProperty("errorCode").GetString().ShouldBe(errorCode);
+    }
+
+    [Fact]
+    public async Task List_WithMineAndAfter_ForACallerWithNoTranslatorProfile_ReturnsAnEmptyFirstPage()
+    {
+        // Arrange: a real "Tylko moje" place, from a caller who has rows.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(Saved(1, "a", "a", callerId, Now));
+        PaginationResponse<TranslationListItemResponse> callerPage = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true));
+        string place = callerPage.Items.Single().Place.ShouldNotBeNull();
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            Guid.NewGuid(), AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, Page: 3, After: place));
+
+        // Assert
+        page.Items.ShouldBeEmpty();
+        page.Page.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("%20")]
+    public async Task List_WithABlankAfter_ReturnsTheNumberedPage(string blank)
+    {
+        // Arrange
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsync($"?after={blank}&page=2&pageSize=1");
+
+        // Assert
+        page.Items.Single().GossipId.ShouldBe(2);
+        page.Page.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task List_WithAfter_LinksSelfToTheRequestAndTheOtherRelsToNumberedPages()
+    {
+        // Arrange: the rows after row 3 start on page 2 of 3, so every rel is there.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"), Row(4, "d"), Row(5, "e"));
+        PaginationResponse<TranslationListItemResponse> whole = await ListAsync(new ListTranslationsRequest());
+        string place = whole.Items.Single(item => item.GossipId == 3).Place.ShouldNotBeNull();
+        using HttpRequestMessage request = new(
+            HttpMethod.Get,
+            QueryHelpers.AddQueryString(
+                "/api/v1/translations", new ListTranslationsRequest(PageSize: 2, After: place).ToQueryParameters()));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().SendAsync(request);
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        page.Page.ShouldBe(2);
+        page.Links.Single(link => link.Rel == Rels.Self).Href.ShouldContain($"after={place}");
+        page.Links
+            .Where(link => link.Rel is Rels.FirstPage or Rels.LastPage or Rels.PreviousPage or Rels.NextPage)
+            .Select(link => link.Href)
+            .ShouldAllBe(href => !href.Contains("after=", StringComparison.Ordinal));
+        page.Links.Count(link => link.Rel is Rels.FirstPage or Rels.LastPage or Rels.PreviousPage or Rels.NextPage)
+            .ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task List_GivesEveryRowAPlace_ToAVisitorToo_AndNoneUnderASort()
+    {
+        // Arrange
+        await SeedAsync(Row(1, "a"), Row(2, "b"));
+
+        // Act
+        HttpResponseMessage visitorResponse = await _factory.CreateClient().GetAsync("/api/v1/translations");
+        PaginationResponse<TranslationListItemResponse> visitorPage =
+            (await visitorResponse.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+        PaginationResponse<TranslationListItemResponse> sortedPage = await ListAsync("?sort=gossipId:desc");
+
+        // Assert
+        visitorPage.Items.ShouldAllBe(item => !string.IsNullOrEmpty(item.Place));
+        sortedPage.Items.ShouldAllBe(item => item.Place == null);
     }
 
     public static TheoryData<ListTranslationsRequest, long[]> MineWithOtherFilterCases() => new()

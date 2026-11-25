@@ -12,6 +12,7 @@
         "displayName": "Seed Author"
       },
       "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6MQ",
       "links": [
         {
           "href": "http://localhost/api/v1/translations/Guid_1",
@@ -44,6 +45,7 @@
       "status": "Untranslated",
       "submitter": null,
       "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6Mg",
       "links": [
         {
           "href": "http://localhost/api/v1/translations/Guid_3",
@@ -71,6 +73,7 @@
       "status": "Untranslated",
       "submitter": null,
       "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6Mw",
       "links": [
         {
           "href": "http://localhost/api/v1/translations/Guid_4",

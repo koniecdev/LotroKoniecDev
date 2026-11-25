@@ -152,5 +152,37 @@ public sealed class PaginationLinkFactoryTests
         links.Single(l => l.Rel == Rels.NextPage).Href.ShouldBe("/list?at=4");
     }
 
+    [Fact]
+    public async Task CreatePaginationLinks_WithItsOwnSelfQuery_BuildsSelfFromItAndTheOtherRelsFromTheirPages()
+    {
+        // Arrange: a request that names no page, like the list's "after" (ADR-0077). The stub echoes the query.
+        _linkFactory
+            .CreateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<object?>())
+            .Returns(call => new LinkDto(
+                $"/list?at={new RouteValueDictionary(call.ArgAt<object?>(3))["at"]}",
+                call.ArgAt<string>(1),
+                call.ArgAt<string>(2)));
+
+        PaginationResponse<string> response = new()
+        {
+            Items = [],
+            Page = 3,
+            PageSize = 1,
+            TotalCount = 5
+        };
+
+        // Act
+        IReadOnlyList<LinkDto> links = await _sut.CreatePaginationLinksAsync(
+            EndpointName,
+            response,
+            page => [new KeyValuePair<string, string?>("at", page.ToString(CultureInfo.InvariantCulture))],
+            [new KeyValuePair<string, string?>("at", "a-place")]);
+
+        // Assert
+        links.Single(l => l.Rel == Rels.Self).Href.ShouldBe("/list?at=a-place");
+        links.Single(l => l.Rel == Rels.PreviousPage).Href.ShouldBe("/list?at=2");
+        links.Single(l => l.Rel == Rels.NextPage).Href.ShouldBe("/list?at=4");
+    }
+
     private static IEnumerable<KeyValuePair<string, string?>> NoFilters(int page) => [];
 }

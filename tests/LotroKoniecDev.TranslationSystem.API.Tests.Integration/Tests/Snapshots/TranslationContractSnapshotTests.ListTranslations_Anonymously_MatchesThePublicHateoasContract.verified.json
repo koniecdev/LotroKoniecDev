@@ -8,7 +8,8 @@
       "translatedText": "Witaj w Śródziemiu!",
       "status": "NeedsReview",
       "submitter": null,
-      "updatedAt": "{Timestamp}+00:00"
+      "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6MQ"
     },
     {
       "id": "Guid_2",
@@ -18,7 +19,8 @@
       "translatedText": null,
       "status": "Untranslated",
       "submitter": null,
-      "updatedAt": "{Timestamp}+00:00"
+      "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6Mg"
     },
     {
       "id": "Guid_3",
@@ -28,7 +30,8 @@
       "translatedText": null,
       "status": "Untranslated",
       "submitter": null,
-      "updatedAt": "{Timestamp}+00:00"
+      "updatedAt": "{Timestamp}+00:00",
+      "place": "azo2MjA3NTY5OTI6Mw"
     }
   ],
   "page": 1,

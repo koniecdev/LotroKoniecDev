@@ -34,7 +34,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// user gets no author either (#1543). <c>conflictsOnly</c> keeps the translated rows whose identical
 /// English has two or more different Polish texts (#1347). <c>match</c> picks how the search term must match (#1477).
 /// <c>mine</c> keeps the rows whose current Polish text the caller saved; the caller comes from the
-/// token, and a caller with no token or no translator profile gets an empty page (#1491).
+/// token, and a caller with no token or no translator profile gets an empty page (#1491). <c>after</c> is a
+/// row's place: the rows after it come back, with the page they start on (ADR-0077, #1490).
 /// </summary>
 internal sealed class ListTranslations : IEndpoint
 {
@@ -52,6 +53,7 @@ internal sealed class ListTranslations : IEndpoint
         bool ConflictsOnly,
         TranslationSearchMatch Match,
         bool Mine,
+        string? After,
         ValueMaybe<IdentityId> Caller)
         : IQuery<Result<PaginationResponse<TranslationListItemResponse>>>, IPaginationable, ISortable;
 
@@ -96,6 +98,30 @@ internal sealed class ListTranslations : IEndpoint
                     TypeOfError.Validation));
             }
 
+            TranslationListOrder? order = string.IsNullOrWhiteSpace(query.Sort)
+                ? TranslationListOrder.For(query.Mine)
+                : null;
+
+            Expression<Func<TranslationReadModel, bool>>? isAfterPlace = null;
+            if (!string.IsNullOrWhiteSpace(query.After))
+            {
+                if (order is null)
+                {
+                    return Result.Failure<PaginationResponse<TranslationListItemResponse>>(new Error(
+                        "Translations.AfterWithSort",
+                        "'after' works only with the list's default order; leave out 'sort'.",
+                        TypeOfError.Validation));
+                }
+
+                if (!order.TryReadPlace(query.After, out isAfterPlace))
+                {
+                    return Result.Failure<PaginationResponse<TranslationListItemResponse>>(new Error(
+                        "Translations.UnreadablePlace",
+                        "'after' is not a place this list wrote for this order.",
+                        TypeOfError.Validation));
+                }
+            }
+
             IQueryable<TranslationReadModel> filtered = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null);
 
@@ -105,7 +131,7 @@ internal sealed class ListTranslations : IEndpoint
                 TranslatorId? callerTranslatorId = await FindCallerTranslatorIdAsync(query.Caller, cancellationToken);
                 if (callerTranslatorId is not { } translatorId)
                 {
-                    return Result.Success(EmptyPage(query));
+                    return Result.Success(EmptyPage(query, startsAfterAPlace: isAfterPlace is not null));
                 }
 
                 // Today the row keeps only the author of its current text. When every save becomes a
@@ -130,52 +156,78 @@ internal sealed class ListTranslations : IEndpoint
 
             int totalCount = await filtered.CountAsync(cancellationToken);
 
-            List<TranslationListItemResponse> items = await Order(filtered, query)
-                .ApplyPagination(query.Page, query.PageSize)
-                .Select(query.Caller.HasNoValue
-                    ? TranslationProjections.ToVisitorListItem
-                    : TranslationProjections.ToListItem)
-                .ToListAsync(cancellationToken);
+            Expression<Func<TranslationReadModel, TranslationListItemResponse>> toListItem = query.Caller.HasNoValue
+                ? TranslationProjections.ToVisitorListItem
+                : TranslationProjections.ToListItem;
+
+            List<TranslationListItemResponse> items;
+            int page;
+            if (order is not null && isAfterPlace is not null)
+            {
+                IQueryable<TranslationReadModel> afterPlace = filtered.Where(isAfterPlace);
+                int afterCount = await afterPlace.CountAsync(cancellationToken);
+                items = await order.Sort(afterPlace)
+                    .Take(query.PageSize)
+                    .Select(toListItem)
+                    .ToListAsync(cancellationToken);
+                page = PageOfFirstRowAfterPlace(totalCount, afterCount, query.PageSize, items.Count > 0);
+            }
+            else
+            {
+                items = await Order(filtered, query.Sort, order)
+                    .ApplyPagination(query.Page, query.PageSize)
+                    .Select(toListItem)
+                    .ToListAsync(cancellationToken);
+                page = query.Page;
+            }
 
             return Result.Success(new PaginationResponse<TranslationListItemResponse>
             {
-                Items = items,
-                Page = query.Page,
+                Items = order is null
+                    ? items
+                    : [.. items.Select(item => item with { Place = order.PlaceOf(item.FileId, item.GossipId, item.UpdatedAt) })],
+                Page = page,
                 PageSize = query.PageSize,
                 TotalCount = totalCount
             });
         }
 
         /// <summary>
-        /// An explicit sort always wins. Without one, "mine" shows the newest change first (#1491). That is
-        /// <c>UpdatedAt</c>, which an approve, an import or a restore moves too: the row keeps no time of
-        /// the save itself.
+        /// An explicit sort always wins: <paramref name="order"/> is null exactly when one is set. Without
+        /// one, "mine" shows the newest change first (#1491). That is <c>UpdatedAt</c>, which an approve, an
+        /// import or a restore moves too: the row keeps no time of the save itself.
         /// </summary>
-        private static IQueryable<TranslationReadModel> Order(IQueryable<TranslationReadModel> filtered, Query query)
+        private static IQueryable<TranslationReadModel> Order(
+            IQueryable<TranslationReadModel> filtered,
+            string? sort,
+            TranslationListOrder? order) =>
+            order?.Sort(filtered)
+            ?? filtered.ApplyMultipleSorting(
+                sort ?? string.Empty,
+                GetSortProperty,
+                translation => translation.FileId,
+                translation => translation.GossipId);
+
+        /// <summary>
+        /// The rows that are not after the place come first, so they decide the page (ADR-0077). With no row
+        /// after the place it is the last page, or 1 for an empty list. The two counts can disagree by a row
+        /// under a concurrent write, so the page stays inside the pages that exist.
+        /// </summary>
+        private static int PageOfFirstRowAfterPlace(int totalCount, int afterCount, int pageSize, bool anyRowAfter)
         {
-            if (!string.IsNullOrWhiteSpace(query.Sort))
+            int lastPage = Math.Max((totalCount + pageSize - 1) / pageSize, ListTranslationsRequest.FirstPage);
+            if (!anyRowAfter)
             {
-                return filtered.ApplyMultipleSorting(
-                    query.Sort,
-                    GetSortProperty,
-                    translation => translation.FileId,
-                    translation => translation.GossipId);
+                return lastPage;
             }
 
-            return query.Mine
-                ? filtered
-                    .OrderByDescending(translation => translation.UpdatedAt)
-                    .ThenBy(translation => translation.FileId)
-                    .ThenBy(translation => translation.GossipId)
-                : filtered
-                    .OrderBy(translation => translation.FileId)
-                    .ThenBy(translation => translation.GossipId);
+            return Math.Clamp((totalCount - afterCount) / pageSize + 1, ListTranslationsRequest.FirstPage, lastPage);
         }
 
-        private static PaginationResponse<TranslationListItemResponse> EmptyPage(Query query) => new()
+        private static PaginationResponse<TranslationListItemResponse> EmptyPage(Query query, bool startsAfterAPlace) => new()
         {
             Items = [],
-            Page = query.Page,
+            Page = startsAfterAPlace ? ListTranslationsRequest.FirstPage : query.Page,
             PageSize = query.PageSize,
             TotalCount = 0
         };
@@ -330,6 +382,7 @@ internal sealed class ListTranslations : IEndpoint
                     request.ConflictsOnly,
                     request.Match,
                     request.Mine,
+                    request.After,
                     currentUserAccessor.MaybeIdentityId);
 
                 Result<PaginationResponse<TranslationListItemResponse>> result = await handler.Handle(query, cancellationToken);
@@ -356,7 +409,8 @@ internal sealed class ListTranslations : IEndpoint
                         .. await paginationLinkFactory.CreatePaginationLinksAsync(
                             nameof(ListTranslations),
                             paged,
-                            request.ToQueryParameters),
+                            request.ToQueryParameters,
+                            request.ToQueryParameters()),
                         .. await translationLinkFactory.CreateCollectionLinksAsync(callerIsAdmin)
                     ];
                 });

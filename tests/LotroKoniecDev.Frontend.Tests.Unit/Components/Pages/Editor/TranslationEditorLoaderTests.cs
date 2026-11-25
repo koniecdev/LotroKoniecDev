@@ -293,6 +293,35 @@ public sealed class TranslationEditorLoaderTests
             $"{ResolvedTranslationsUri}?search=axe&status=Untranslated&after=azoxOjI&page=2&pageSize=25");
     }
 
+    [Fact]
+    public async Task LoadRowsAfterAsync_WhenTheTranslationsRelIsNotAdvertised_FailsWithoutCallingTheApi()
+    {
+        // The editor then shows its "next row cannot be read" line instead of the error page (spec 0018).
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationEditorLoader loader = new(StubDiscoveryCache.AdvertisingGet(Rels.Progress), CreateClient(handler));
+
+        ApiResult<PaginationResponse<TranslationListItemResponse>> result = await loader.LoadRowsAfterAsync(
+            TranslationListQuery.From(search: null, status: null, page: 1), "azoxOjI");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(403);
+        handler.LastRequest.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadRowsAfterAsync_WhenDiscoveryIsUnavailable_PassesThatProblemThrough()
+    {
+        StubHttpMessageHandler handler = StubHttpMessageHandler.RespondWith(HttpStatusCode.OK, "{}");
+        TranslationEditorLoader loader = new(StubDiscoveryCache.Unavailable(), CreateClient(handler));
+
+        ApiResult<PaginationResponse<TranslationListItemResponse>> result = await loader.LoadRowsAfterAsync(
+            TranslationListQuery.From(search: null, status: null, page: 1), "azoxOjI");
+
+        result.IsFailure.ShouldBeTrue();
+        result.ProblemDetails!.Status.ShouldBe(503);
+        handler.LastRequest.ShouldBeNull();
+    }
+
     private static TranslationEditorLoader CreateLoader(
         HttpStatusCode statusCode,
         string jsonBody,

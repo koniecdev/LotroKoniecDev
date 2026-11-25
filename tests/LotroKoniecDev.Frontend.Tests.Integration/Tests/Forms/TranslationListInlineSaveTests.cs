@@ -377,6 +377,26 @@ public sealed partial class TranslationListInlineSaveTests : IClassFixture<Produ
         page.ShouldNotContain("row-note");
     }
 
+    [Fact]
+    public async Task Post_FromAnAddressThatStillHasTheLastRowNote_ShowsNoOldNote()
+    {
+        // Arrange: "Zapisz i następny" ends on the list with this note (#1490); a hand-made post can still send it.
+        StubTranslationSystem translationSystem = new() { ListOffersBulkApprove = true };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act: the admin sends the bulk approve with nothing ticked.
+        using HttpResponseMessage posted = await browser.SendAsync(
+            FormPost("/translations?lastRow=saved", "bulk-approve", antiforgeryToken, []));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("Zaznacz co najmniej jeden wiersz do zatwierdzenia.");
+        page.ShouldNotContain("To był ostatni wiersz tej listy.");
+    }
+
     [Theory]
     [InlineData("InlineFileId", "abc")]
     [InlineData("InlineGossipId", "1e3")]

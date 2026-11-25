@@ -1,4 +1,5 @@
 using System.Globalization;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 
 namespace LotroKoniecDev.Frontend.Components.Pages.Editor;
 
@@ -20,7 +21,6 @@ internal static class TranslationSlipChecker
     private const char Ellipsis = '…';
 
     private static readonly char[] Blanks = [' ', '\t'];
-    private static readonly char[] LineEnds = ['\r', '\n'];
 
     /// <summary>The slips in check order. A row with no Polish yet, or a blank one, has none.</summary>
     public static IReadOnlyList<TranslationSlip> Check(string sourceText, string? translatedText)
@@ -31,9 +31,7 @@ internal static class TranslationSlipChecker
         }
 
         // The save removes these too (#1476), so they never reach the stored text.
-        string polish = sourceText.EndsWith('\r') || sourceText.EndsWith('\n')
-            ? translatedText
-            : translatedText.TrimEnd(LineEnds);
+        string polish = TrailingLineBreaks.RemoveFrom(translatedText, sourceText);
         if (string.IsNullOrWhiteSpace(polish))
         {
             return [];

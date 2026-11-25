@@ -822,7 +822,7 @@ code {
 }
 
 /* The font and colours come from .home-tech, the block the note sits in. The note stops at the content
-   width of a 1400 px page, so a wide screen does not make it one very long line (#1572). */
+   width of a 1400 px page, so a wide screen keeps its two even lines (#1572). */
 .risk-note {
     margin: 14px auto 0;
     max-width: calc(1400px - 2 * 32px);

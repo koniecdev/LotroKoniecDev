@@ -13,8 +13,10 @@ public sealed class PageWidthTests : E2ETestBase
 {
     private const int MaxPageWidth = 1920;
     private const int SidePadding = 32;
-    private const int RiskNoteMaxWidth = 1400 - 2 * SidePadding;
+    private const int ContentWidthOn1400PxPage = 1400 - 2 * SidePadding;
     private const int TermsColumnGap = 20;
+    private const int TermsContentsListWidth = 260;
+    private const int TermsDocumentMaxWidth = ContentWidthOn1400PxPage - TermsColumnGap - TermsContentsListWidth;
 
     [Theory]
     [InlineData("/", 1366)]
@@ -71,7 +73,7 @@ public sealed class PageWidthTests : E2ETestBase
         LocatorBoundingBoxResult note = await Page.Locator(".risk-note").RequireBoundingBoxAsync();
 
         // Assert
-        note.Width.ShouldBe(Math.Min(contentWidth, RiskNoteMaxWidth), 1d);
+        note.Width.ShouldBe(Math.Min(contentWidth, ContentWidthOn1400PxPage), 1d);
         (note.X + note.Width / 2).ShouldBe(content.X + content.Width / 2, 1d);
     }
 
@@ -97,9 +99,7 @@ public sealed class PageWidthTests : E2ETestBase
     public async Task Terms_document_on_a_wide_screen_stays_as_wide_as_on_a_1400_px_page_and_the_contents_list_moves_to_the_right_edge()
     {
         // Arrange
-        await OpenAsync("/regulamin", 1400);
-        float documentWidthAt1400 = (await Page.Locator(".legal-doc").RequireBoundingBoxAsync()).Width;
-        await Page.SetViewportSizeAsync(1920, 1080);
+        await OpenAsync("/regulamin", 1920);
 
         // Act
         LocatorBoundingBoxResult content = await ContentSection().RequireBoundingBoxAsync();
@@ -107,7 +107,7 @@ public sealed class PageWidthTests : E2ETestBase
         LocatorBoundingBoxResult tableOfContents = await Page.Locator(".legal-side").RequireBoundingBoxAsync();
 
         // Assert
-        document.Width.ShouldBe(documentWidthAt1400, 1d);
+        document.Width.ShouldBe(TermsDocumentMaxWidth, 1d);
         (tableOfContents.X + tableOfContents.Width).ShouldBe(content.X + content.Width - SidePadding, 1d);
     }
 

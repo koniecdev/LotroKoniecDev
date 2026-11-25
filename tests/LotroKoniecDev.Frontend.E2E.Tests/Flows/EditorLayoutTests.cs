@@ -6,7 +6,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
 /// The editor's English and Polish boxes are never further apart than the page's side padding (#1572). The
-/// editor opens a seeded row (<see cref="TranslationRowsSeed"/>), so the flow signs in as the admin.
+/// layout is the same for every row, so the flow opens the first seeded row (<see cref="TranslationRowsSeed"/>).
 /// </summary>
 public sealed class EditorLayoutTests : E2ETestBase
 {
@@ -52,7 +52,7 @@ public sealed class EditorLayoutTests : E2ETestBase
         await Fixture.TranslationRows.EnsureSeededAsync(Page, Fixture.FrontendBaseUrl);
 
         await Page.SetViewportSizeAsync(width, height);
-        await Page.GotoAsync($"{Fixture.FrontendBaseUrl}/translations?search={Fixture.TranslationRows.WayBackToken}");
+        await Page.GotoAsync($"{Fixture.FrontendBaseUrl}/translations");
         await Page.GetByRole(AriaRole.Link, new() { Name = "Edytuj", Exact = true }).First.ClickAsync();
         await Page.GetByLabel("Tłumaczenie polskie", new() { Exact = true }).WaitForAsync(LongWait);
         await Page.WaitForFontsAsync();

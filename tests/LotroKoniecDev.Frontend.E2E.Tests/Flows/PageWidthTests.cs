@@ -6,14 +6,14 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
 /// Every page of the website is as wide as the window up to 1920 px, and centred on a wider one (#1572).
-/// The terms document and the home page's risk note keep the width they had under the old 1400 px limit,
-/// so a wide screen does not turn them into very long lines.
+/// The terms document and the home page's risk note stop at their width on a 1400 px page, so a wide
+/// screen does not turn them into very long lines.
 /// </summary>
 public sealed class PageWidthTests : E2ETestBase
 {
     private const int MaxPageWidth = 1920;
     private const int SidePadding = 32;
-    private const int OldContentWidth = 1400 - 2 * SidePadding;
+    private const int RiskNoteMaxWidth = 1400 - 2 * SidePadding;
     private const int TermsColumnGap = 20;
 
     [Theory]
@@ -60,7 +60,7 @@ public sealed class PageWidthTests : E2ETestBase
     [InlineData(1366)]
     [InlineData(1920)]
     [InlineData(2560)]
-    public async Task Home_risk_note_keeps_its_old_width_and_stays_centred(int width)
+    public async Task Home_risk_note_stops_at_the_content_width_of_a_1400_px_page_and_stays_centred(int width)
     {
         // Arrange
         await OpenAsync("/", width);
@@ -71,14 +71,14 @@ public sealed class PageWidthTests : E2ETestBase
         LocatorBoundingBoxResult note = await Page.Locator(".risk-note").RequireBoundingBoxAsync();
 
         // Assert
-        note.Width.ShouldBe(Math.Min(contentWidth, OldContentWidth), 1d);
+        note.Width.ShouldBe(Math.Min(contentWidth, RiskNoteMaxWidth), 1d);
         (note.X + note.Width / 2).ShouldBe(content.X + content.Width / 2, 1d);
     }
 
     [Theory]
     [InlineData(1366)]
     [InlineData(1400)]
-    public async Task Terms_document_fills_the_space_next_to_the_contents_list_up_to_the_old_width(int width)
+    public async Task Terms_document_fills_the_space_next_to_the_contents_list_up_to_a_1400_px_page(int width)
     {
         // Arrange
         await OpenAsync("/regulamin", width);
@@ -94,11 +94,11 @@ public sealed class PageWidthTests : E2ETestBase
     }
 
     [Fact]
-    public async Task Terms_document_on_a_wide_screen_keeps_its_old_width_and_the_contents_list_moves_to_the_right_edge()
+    public async Task Terms_document_on_a_wide_screen_stays_as_wide_as_on_a_1400_px_page_and_the_contents_list_moves_to_the_right_edge()
     {
         // Arrange
         await OpenAsync("/regulamin", 1400);
-        float oldDocumentWidth = (await Page.Locator(".legal-doc").RequireBoundingBoxAsync()).Width;
+        float documentWidthAt1400 = (await Page.Locator(".legal-doc").RequireBoundingBoxAsync()).Width;
         await Page.SetViewportSizeAsync(1920, 1080);
 
         // Act
@@ -107,7 +107,7 @@ public sealed class PageWidthTests : E2ETestBase
         LocatorBoundingBoxResult tableOfContents = await Page.Locator(".legal-side").RequireBoundingBoxAsync();
 
         // Assert
-        document.Width.ShouldBe(oldDocumentWidth, 1d);
+        document.Width.ShouldBe(documentWidthAt1400, 1d);
         (tableOfContents.X + tableOfContents.Width).ShouldBe(content.X + content.Width - SidePadding, 1d);
     }
 

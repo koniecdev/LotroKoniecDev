@@ -7,7 +7,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// <summary>
 /// Side by side, the player and translator boxes have the same height, and the big percentage is centred
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
-/// The gap between the boxes is never wider than the page's side padding (#1572).
+/// The gap between the boxes and between the sections is never wider than the page's side padding (#1572).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
@@ -69,6 +69,22 @@ public sealed class HomeLayoutTests : E2ETestBase
 
         // Assert
         (translators.Y - (players.Y + players.Height)).ShouldBe(20, 1d);
+    }
+
+    [Theory]
+    [InlineData(1920, 24)]
+    [InlineData(390, 20)]
+    public async Task Sections_are_as_far_apart_as_the_box_gap(int width, int expectedGap)
+    {
+        // Arrange
+        await OpenHomeAsync(width, 1080);
+
+        // Act
+        LocatorBoundingBoxResult progress = await Page.Locator("#postep").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
+
+        // Assert
+        (players.Y - (progress.Y + progress.Height)).ShouldBe(expectedGap, 1d);
     }
 
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)

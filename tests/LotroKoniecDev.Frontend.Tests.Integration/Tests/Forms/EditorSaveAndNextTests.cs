@@ -123,6 +123,31 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
     }
 
     [Fact]
+    public async Task Post_SaveAndNext_WithAnUnchangedTextThatHasSlips_MovesOnWithoutASave()
+    {
+        // Arrange: the first press saved this text and stayed to show its slips (a space at the end, no full
+        // stop). Some slips are right in Polish, so a second press with no change must move on (Q4).
+        StubTranslationSystem translationSystem = new() { StoredTranslatedText = "Cześć ", RowsAfter = NextRowOnPage(2) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(
+            antiforgeryToken,
+            typed: "Cześć ",
+            shown: "Cześć ",
+            saveAction: "next",
+            address: $"{EditorAddress}&saved=true"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith(
+            $"/editor/{NextRowId}?page=2&search=axe&status=Untranslated&pageSize=25&place={NextPlace}");
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Post_SaveAndNext_WhenSomeoneSavedANewerTextAfterThePageLoaded_LeavesTheNewerText()
     {
         // Arrange: the translator walks on without editing; the row now holds another person's text.

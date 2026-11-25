@@ -1600,6 +1600,29 @@ public sealed class ListTranslationsTests : IAsyncLifetime
         problem.RootElement.GetProperty("errorCode").GetString().ShouldBe(errorCode);
     }
 
+    [Theory]
+    [InlineData("bTowOjYyMDc1Njk5Mjox", new long[] { })]
+    [InlineData("bTozMTU1Mzc4OTc1OTk5OTk5OTk5OjYyMDc1Njk5Mjox", new long[] { 1, 2 })]
+    public async Task List_WithMineAndAfter_AtTheEdgesOfTheChangeTime_ReturnsTheRowsAfterIt(
+        string place,
+        long[] expectedGossipIds)
+    {
+        // Arrange: a "Tylko moje" place at the earliest and at the latest time .NET can hold, ticks 0 and
+        // DateTimeOffset.MaxValue. Both are valid in PostgreSQL, so the API reads them instead of failing.
+        Guid callerSubject = Guid.NewGuid();
+        TranslatorId callerId = await SeedTranslatorAsync(callerSubject, "Anna");
+        await SeedAsync(
+            Saved(1, "a", "a", callerId, Now.AddMinutes(2)),
+            Saved(2, "b", "b", callerId, Now.AddMinutes(1)));
+
+        // Act
+        PaginationResponse<TranslationListItemResponse> page = await ListAsAsync(
+            callerSubject, AuthConstants.Roles.Translator, new ListTranslationsRequest(Mine: true, After: place));
+
+        // Assert
+        page.Items.Select(item => item.GossipId).ShouldBe(expectedGossipIds);
+    }
+
     [Fact]
     public async Task List_WithMineAndAfter_ForACallerWithNoTranslatorProfile_ReturnsAnEmptyFirstPage()
     {

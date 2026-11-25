@@ -690,7 +690,8 @@ public sealed class TranslationsTests : BunitContext
     [Fact]
     public void Render_WhenRowLacksTheUpsertRel_OffersNoSaveForm()
     {
-        // The server gives `upsert` only to a caller who may save the row (ADR-0040): a visitor, or a removed row.
+        // The server gives `upsert` only to a caller who may save the row (ADR-0040), so a visitor's row and a
+        // removed row come without it.
         TranslationListItemResponse row = Row(canEdit: false);
         StubPage(SinglePageOf(row));
 

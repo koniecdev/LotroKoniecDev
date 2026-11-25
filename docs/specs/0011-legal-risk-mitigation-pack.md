@@ -57,7 +57,7 @@ plan therefore optimizes for step (1): reduce objectionable surface, respond ins
 |---|---|---|---|
 | E1 | `datexport.dll` (Turbine proprietary) + MSVC runtimes committed to the **public** repo | `src/Patcher/LotroKoniecDev.Infrastructure.Windows/*.dll` | highest-value takedown target; precedent says tolerated |
 | E2 | Verbatim **English** game text (one full quest dialog) + real PL quest translation | `translations/polish.txt`, `docs/knowledge-base/update-48.0/polish-pre-48.txt`, `…48.7/polish-pre-48.7.txt` | small volume, but literal copyrighted text in a public repo |
-| E3 | Full EN corpus **publicly browsable without login** | `ListTranslations` + `/translations` page are `AllowAnonymous` | "making available" of the full text corpus — the largest content exposure by volume |
+| E3 | Full EN corpus **publicly browsable without login** | `ListTranslations` is `AllowAnonymous`, and anyone may read the `/translations` page (`ReadOnlyForVisitorsPolicy` since #1493) | "making available" of the full text corpus — the largest content exposure by volume |
 | E4 | README says "Open-source" but repo has **no LICENSE file**; no third-party notices | `README.md` §"License & disclaimer" | inconsistency; unclear code/content boundaries |
 | E5 | No non-affiliation/trademark line in the web footer (only inside ToS §1.2) | `MainLayout.razor` footer | standard-practice gap, trivial fix |
 | E6 | No ToS clause on rightsholder IP / takedown compliance | `Terms.razor` | posture gap — the "cooperative stance" is undocumented |
@@ -195,7 +195,7 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
   Polish text only (format digest in `CLAUDE.md`; `GetTranslationFile` serves the pre-built
   PL artifact).
 - *Is the EN corpus public?* Yes — `ListTranslations.cs:193` `.AllowAnonymous()` +
-  `Translations.razor` `[AllowAnonymous]`.
+  `Translations.razor`, which anyone may read (`ReadOnlyForVisitorsPolicy` since #1493).
 - *Do peer projects redistribute `datexport.dll` publicly?* Yes — Endevir repos and DATUnpacker
   mirrors, for 9–15 years, no takedowns found.
 - *Documented bans for translation patches?* None found (searched 2026-07-12).

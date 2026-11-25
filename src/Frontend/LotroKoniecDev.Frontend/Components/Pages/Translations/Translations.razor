@@ -111,10 +111,9 @@
 </section>
 
 <section class="container content-wrap">
-    @* An inline save is sent before the list loads (#1493), and Blazor sends a post only to a form on the
-       page (#1122). So the form with the posted name is drawn here whenever its row does not draw it:
-       hidden while the save runs, and with the typed text when a refused save's row is not on the list.
-       A refused row that is on the list without its form gets the same form under it. *@
+    @* Blazor sends a post only to a form on the page (#1122), and the save runs before the list loads. So
+       the posted form is drawn here when its row does not draw it: hidden during the save, and with the
+       typed text after a refusal when the row left the list. *@
     @if (_inlineSaveId is { } postedRowId && !DrawsRowForm(postedRowId))
     {
         @if (!_inlineRefused)
@@ -231,10 +230,9 @@
             int columnCount = canBulkApprove ? 7 : 6;
             TranslationId? rowAbove = null;
 
-            @* The table sits outside this form, because each row holds its own save form (#1493) and the
-               HTML parser drops a form inside another form. The checkboxes join this form by its id. It
-               posts to the list's own address, so a sign-in after an ended session (#1493) never comes back
-               to an old "approved" or "saved" note. *@
+            @* The table sits outside this form: each row holds its own save form, and HTML drops a form
+               inside another form. The checkboxes join it by its id. It posts to a clean list address, so
+               no old note comes back with it. *@
             @if (canBulkApprove)
             {
                 <form id="@BulkApproveFormName" method="post" @formname="@BulkApproveFormName" @onsubmit="ApproveSelectedAsync"

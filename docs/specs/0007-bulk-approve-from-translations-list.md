@@ -152,3 +152,5 @@ conventions**, not a fresh business decision, so the worker resolved them inline
 - The list page stays `[AllowAnonymous]` + Static SSR: the whole bulk affordance is server-gated by
   the admin-only rels, so no page-level auth change is needed (the typed client carries the admin's
   bearer token server-side).
+  - *Amendment (#1493):* the page now carries `ReadOnlyForVisitorsPolicy` instead of
+    `[AllowAnonymous]`. Anyone may still read it, but only a signed-in user may post a form to it.

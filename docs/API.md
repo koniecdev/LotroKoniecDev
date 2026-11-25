@@ -218,7 +218,8 @@ Hypermedia links are **opt-in** (`Hateoas.Abstractions/MediaTypes.cs`, spec 0002
 A link appears only when the caller may follow it (ADR-0040): the link factory replays the target
 endpoint's own policy, and the slice adds the state rules (a soft-removed translation gets only
 `self`; `approve` only on a `Draft`/`NeedsReview` row). Pagination links appear only when they lead to
-another page, so a boundary rel is left out on the page it points at (#545). Treat the link set as
+another page, so a boundary rel is left out on the page it points at (#545); an `after` answer is on
+no numbered page, so it keeps `first-page`, and `last-page` while the list has rows (ADR-0077). Treat the link set as
 "what can I do next", and never hard-code a URL you can read from a rel (ADR-0041).
 
 ---
@@ -450,8 +451,8 @@ request has a `sort`. Clients copy it and never read it. With `after`, the respo
 that holds the first returned row at that `pageSize` (counted from the rows that are not after the place),
 or the last page that exists (at least 1) when no row follows; `totalCount` is still the size of the whole
 filtered list. The `self` link is the request as sent, `after` included; the first, last, previous and next
-links are numbered pages without it, and the first and last page links are always there, because the answer
-is on no numbered page. An `after` request runs three queries (the total, the rows after the
+links are numbered pages without it. The answer is on no numbered page, so it always has the first page
+link, and the last page link whenever the list has a row. An `after` request runs three queries (the total, the rows after the
 place, the items), so under a concurrent write `page` can be one off; it is kept inside the pages that
 exist. A "Tylko moje" request with `after` from a caller with no translator profile gets an empty page 1.
 
@@ -691,7 +692,7 @@ Rels on resources and collections:
 | `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |
 | `import` | POST | `/api/v1/game-versions/{id}/import` | caller is `Admin` **and** the version is not `Superseded` |
 | `previous-page` / `next-page` | GET | the list page | that neighbouring page exists |
-| `first-page` / `last-page` | GET | the list page | the target page exists **and is not the current one** (#545); both stay on an out-of-range page, so the caller can get back |
+| `first-page` / `last-page` | GET | the list page | the target page exists **and is not the current one** (#545); both stay on an out-of-range page, so the caller can get back, and on a translations answer to `after`, which is on no numbered page (ADR-0077) |
 
 ### 10.2 `auth-api` rels (`AuthSystem.Contracts/Hateoas/Rels.cs`)
 

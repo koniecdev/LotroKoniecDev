@@ -8,7 +8,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Hateoas.PaginationLinkFactories;
 /// the query of each page, so this factory holds no option name of its own (#1478). A request that does
 /// not name a page, such as the list's <c>after</c> (ADR-0077), passes its own query as
 /// <paramref name="selfQueryParameters"/>, so <c>self</c> names the items it holds and the first and last
-/// page links always stay.
+/// page links stay while there is a page.
 /// </summary>
 internal interface IPaginationLinkFactory
 {

@@ -64,8 +64,8 @@ or the website knows the order.
 The `self` link is the request as sent, `after` included, so it names the rows the response holds. The
 first, last, previous and next links stay numbered pages without `after`: `after` is written only by the
 parameterless `ListTranslationsRequest.ToQueryParameters()`, never by the page overload the paging links
-use. An `after` answer is on no numbered page, so it always has the first and the last page link,
-also when its `page` is 1 or the last page.
+use. An `after` answer is on no numbered page, so it always has the first page link, and the last
+page link whenever the list has a row, also when its `page` is 1 or the last page.
 
 ## Consequences
 

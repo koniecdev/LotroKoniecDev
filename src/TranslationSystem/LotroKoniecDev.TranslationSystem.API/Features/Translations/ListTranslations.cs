@@ -410,7 +410,7 @@ internal sealed class ListTranslations : IEndpoint
                             nameof(ListTranslations),
                             paged,
                             request.ToQueryParameters,
-                            request.ToQueryParameters()),
+                            string.IsNullOrWhiteSpace(request.After) ? null : request.ToQueryParameters()),
                         .. await translationLinkFactory.CreateCollectionLinksAsync(callerIsAdmin)
                     ];
                 });

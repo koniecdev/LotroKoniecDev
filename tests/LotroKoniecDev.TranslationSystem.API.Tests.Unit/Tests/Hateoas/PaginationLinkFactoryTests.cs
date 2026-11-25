@@ -184,5 +184,30 @@ public sealed class PaginationLinkFactoryTests
         links.Single(l => l.Rel == Rels.NextPage).Href.ShouldBe("/list?at=4");
     }
 
+    [Theory]
+    [InlineData(1, 3)]
+    [InlineData(3, 3)]
+    [InlineData(1, 1)]
+    public async Task CreatePaginationLinks_WithItsOwnSelfQuery_AlwaysLinksTheFirstAndTheLastPage(int page, int totalCount)
+    {
+        // An "after" answer holds rows from the middle of the list, so it is on no numbered page (ADR-0077).
+        PaginationResponse<string> response = new()
+        {
+            Items = [],
+            Page = page,
+            PageSize = 1,
+            TotalCount = totalCount
+        };
+
+        IReadOnlyList<LinkDto> links = await _sut.CreatePaginationLinksAsync(
+            EndpointName,
+            response,
+            NoFilters,
+            [new KeyValuePair<string, string?>("after", "a-place")]);
+
+        links.Any(l => l.Rel == Rels.FirstPage).ShouldBeTrue();
+        links.Any(l => l.Rel == Rels.LastPage).ShouldBeTrue();
+    }
+
     private static IEnumerable<KeyValuePair<string, string?>> NoFilters(int page) => [];
 }

@@ -1689,6 +1689,47 @@ public sealed class ListTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task List_WithAfterOnPageOne_StillLinksTheFirstAndTheLastPage()
+    {
+        // Arrange: the rows after row 1 start on page 1 but are not page 1, so the pager needs both links.
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"), Row(4, "d"), Row(5, "e"));
+        PaginationResponse<TranslationListItemResponse> whole = await ListAsync(new ListTranslationsRequest());
+        string place = whole.Items.Single(item => item.GossipId == 1).Place.ShouldNotBeNull();
+        using HttpRequestMessage request = new(
+            HttpMethod.Get,
+            QueryHelpers.AddQueryString(
+                "/api/v1/translations", new ListTranslationsRequest(PageSize: 2, After: place).ToQueryParameters()));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().SendAsync(request);
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        // Assert
+        page.Page.ShouldBe(1);
+        page.Items.Select(item => item.GossipId).ShouldBe([2L, 3L]);
+        page.Links.Single(link => link.Rel == Rels.FirstPage).Href.ShouldNotContain("after=");
+        page.Links.Single(link => link.Rel == Rels.LastPage).Href.ShouldNotContain("after=");
+    }
+
+    [Fact]
+    public async Task List_WithoutAfterOnPageOne_StillLeavesOutTheFirstPageLink()
+    {
+        // The pager draws no dead button for the page the caller is on (#545).
+        await SeedAsync(Row(1, "a"), Row(2, "b"), Row(3, "c"));
+        using HttpRequestMessage request = new(HttpMethod.Get, "/api/v1/translations?page=1&pageSize=2");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
+
+        HttpResponseMessage response = await TranslatorClient().SendAsync(request);
+        PaginationResponse<TranslationListItemResponse> page =
+            (await response.Content.ReadFromJsonAsync<PaginationResponse<TranslationListItemResponse>>(JsonOptions))!;
+
+        page.Links.Any(link => link.Rel == Rels.FirstPage).ShouldBeFalse();
+        page.Links.Any(link => link.Rel == Rels.LastPage).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task List_GivesEveryRowAPlace_ToAVisitorToo_AndNoneUnderASort()
     {
         // Arrange

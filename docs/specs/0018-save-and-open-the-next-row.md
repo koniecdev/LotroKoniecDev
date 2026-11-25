@@ -159,6 +159,10 @@ When every save becomes a proposal (#1384), "Tylko moje" moves to the newest pro
 3. A reject or withdraw (#1345, #1385) moves a row's "Tylko moje" time back to an older proposal, so the
    row moves later in the list and can be offered again as "next". Name it as a third kind of row in this
    spec, or keep it out of the order.
+4. A new "Tylko moje" place gets a new tag, so a place written before the deploy gets a 400. An editor tab
+   that was open across the deploy then shows „Nie udało się otworzyć następnego wiersza…” on each press,
+   and its way out is „Wróć do listy”, which writes fresh places. Either accept that, or keep reading the
+   old tag for one release.
 
 ## Duties for #1571
 

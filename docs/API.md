@@ -450,7 +450,8 @@ request has a `sort`. Clients copy it and never read it. With `after`, the respo
 that holds the first returned row at that `pageSize` (counted from the rows that are not after the place),
 or the last page that exists (at least 1) when no row follows; `totalCount` is still the size of the whole
 filtered list. The `self` link is the request as sent, `after` included; the first, last, previous and next
-links are numbered pages without it. An `after` request runs three queries (the total, the rows after the
+links are numbered pages without it, and the first and last page links are always there, because the answer
+is on no numbered page. An `after` request runs three queries (the total, the rows after the
 place, the items), so under a concurrent write `page` can be one off; it is kept inside the pages that
 exist. A "Tylko moje" request with `after` from a caller with no translator profile gets an empty page 1.
 

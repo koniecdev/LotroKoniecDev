@@ -464,6 +464,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   puts `<PostedFormTarget>` in its load-failure branch (#1122). A page whose row forms change after
   a post (the admin's account list, #1488) also redirects after a success, and puts it in its
   loaded branch for its own forms the fresh list no longer draws, so a second click shows the list.
+  A page anyone may read that draws forms for a signed-in user carries
+  `[Authorize(Policy = ReadOnlyForVisitorsPolicy.Name)]`, not `[AllowAnonymous]`: the sign-in check
+  then runs before the form's token check, so a post from an ended session goes to sign-in and back
+  instead of a blank 400 (#1493).
 - **Never touch the request inside a `HybridCache` factory (#825).** For a token that can be
   cancelled, `HybridCache` runs the factory on the thread pool without the request's context, so
   `IHttpContextAccessor.HttpContext` is `null` there: a typed client sends no bearer and no caller

@@ -3,6 +3,7 @@ using LotroKoniecDev.Frontend.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 
 namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 
@@ -19,6 +20,11 @@ internal static class AuthEndpointsExtensions
             endpoints.MapGet(
                 AuthenticationDependencyInjectionExtensions.LoginPath,
                 LoginAsync)
+                .AllowAnonymous();
+
+            endpoints.MapGet(
+                AuthenticationDependencyInjectionExtensions.RegisterPath,
+                RegisterAsync)
                 .AllowAnonymous();
 
             endpoints.MapPost(
@@ -39,22 +45,21 @@ internal static class AuthEndpointsExtensions
     /// the status-code pages show "login temporarily unavailable" (#311). With a copy, the visitor is
     /// still sent on (#1208).
     /// </summary>
-    internal static async Task<IResult> LoginAsync(
+    internal static Task<IResult> LoginAsync(
         HttpContext context,
         string? returnUrl,
-        SignInAvailability signInAvailability)
-    {
-        string redirectUri = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
+        SignInAvailability signInAvailability) =>
+        ChallengeAsync(context, returnUrl, signInAvailability, prompt: null);
 
-        if (!await signInAvailability.CanRedirectToSignInAsync(context.RequestAborted))
-        {
-            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-        }
-
-        return Results.Challenge(
-            new AuthenticationProperties { RedirectUri = redirectUri },
-            [OpenIdConnectDefaults.AuthenticationScheme]);
-    }
+    /// <summary>
+    /// The login with the standard <c>prompt=create</c>, so the sign-in server opens its sign-up form
+    /// (#1575). After sign-up the visitor comes back through the same sign-in.
+    /// </summary>
+    internal static Task<IResult> RegisterAsync(
+        HttpContext context,
+        string? returnUrl,
+        SignInAvailability signInAvailability) =>
+        ChallengeAsync(context, returnUrl, signInAvailability, OpenIdConnectPrompt.Create);
 
     /// <summary>
     /// A sign-out with no end-session round trip, for when the session at the auth server is already gone,
@@ -98,5 +103,23 @@ internal static class AuthEndpointsExtensions
             refreshToken,
             postLogoutRedirectUri: $"{context.Request.Scheme}://{context.Request.Host}");
         return Results.Redirect(redirect);
+    }
+
+    private static async Task<IResult> ChallengeAsync(
+        HttpContext context,
+        string? returnUrl,
+        SignInAvailability signInAvailability,
+        string? prompt)
+    {
+        string redirectUri = LocalReturnUrl.Sanitize(returnUrl) ?? "/";
+
+        if (!await signInAvailability.CanRedirectToSignInAsync(context.RequestAborted))
+        {
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
+
+        return Results.Challenge(
+            new OpenIdConnectChallengeProperties { RedirectUri = redirectUri, Prompt = prompt },
+            [OpenIdConnectDefaults.AuthenticationScheme]);
     }
 }

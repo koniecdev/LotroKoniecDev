@@ -20,6 +20,7 @@ namespace LotroKoniecDev.Frontend.Infrastructure.Auth;
 internal static partial class AuthenticationDependencyInjectionExtensions
 {
     internal const string LoginPath = "/auth/login";
+    internal const string RegisterPath = "/auth/register";
     internal const string LogoutPath = "/auth/logout";
     internal const string LocalSignOutPath = "/auth/local-signout";
     internal const string AccessDeniedPath = "/auth/access-denied";

@@ -9,9 +9,9 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Layout;
 
 /// <summary>
-/// The footer's links. Every page must reach the terms and the privacy policy the auth server hosts, or
-/// the app quietly stops meeting Art. 13 (LEGAL-05). The Discord link is how visitors find the community
-/// (#1340).
+/// The footer on every page. It must reach the terms and the privacy policy the auth server hosts, or the
+/// app quietly stops meeting Art. 13 (LEGAL-05). The Discord link is how visitors find the community
+/// (#1340). The risk note sits here, so every page carries it (LEGAL-12, #1575).
 /// </summary>
 public sealed class MainLayoutTests : BunitContext
 {
@@ -88,6 +88,64 @@ public sealed class MainLayoutTests : BunitContext
         IRenderedComponent<MainLayout> component = RenderMainLayout();
 
         component.Find("footer .foot-credit").TextContent.ShouldBe("Logo i grafiki: MoFin");
+    }
+
+    [Fact]
+    public void Render_Footer_ShowsTheRiskNoteWithItsTermsLink()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement riskNote = component.Find("footer .risk-note");
+        riskNote.TextContent.ShouldBe(
+            "Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje takich " +
+            "modyfikacji, choć przez ponad dekadę działania analogicznych projektów (rosyjskiego i " +
+            "hiszpańskiego) nie odnotowano za nie banów. Korzystasz na własną odpowiedzialność. " +
+            "Szczegóły w regulaminie.");
+        riskNote.QuerySelector("a[href='/regulamin']").ShouldNotBeNull().TextContent.ShouldBe("regulaminie");
+    }
+
+    [Fact]
+    public void Render_Footer_PutsTheRiskNoteAfterTheTrademarkLine()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        component.Find("footer .risk-note").PreviousElementSibling.ShouldNotBeNull()
+            .ClassList.ShouldContain("foot-legal");
+    }
+
+    [Fact]
+    public void Render_Footer_LinksTheRepositoryInANewTab()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement repositoryLink = component.Find(
+            "footer .foot-links a[href='https://github.com/koniecdev/LotroKoniecDev']");
+        repositoryLink.TextContent.ShouldBe("GitHub");
+        repositoryLink.GetAttribute("target").ShouldBe("_blank");
+        repositoryLink.GetAttribute("rel").ShouldBe("noopener");
+    }
+
+    [Theory]
+    [InlineData(0, "Projekt", new[] { "GitHub", "Discord" })]
+    [InlineData(1, "Informacje", new[] { "Regulamin", "Polityka prywatności" })]
+    public void Render_Footer_GroupsTheLinksUnderTheirColumnHeading(int column, string heading, string[] links)
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement footerColumn = component.FindAll("footer .foot-column")[column];
+        footerColumn.QuerySelector(".foot-heading").ShouldNotBeNull().TextContent.ShouldBe(heading);
+        footerColumn.QuerySelectorAll(".foot-links a").Select(link => link.TextContent).ToArray().ShouldBe(links);
+    }
+
+    [Fact]
+    public void Render_Footer_PutsTheCopyrightLeftAndTheArtistRightInTheBottomRow()
+    {
+        IRenderedComponent<MainLayout> component = RenderMainLayout();
+
+        IElement bottomRow = component.Find("footer .foot-bottom");
+        bottomRow.Children.Length.ShouldBe(2);
+        bottomRow.Children[0].TextContent.ShouldMatch(@"^© \d{4} lotro-translator\.pl$");
+        bottomRow.Children[1].ClassList.ShouldContain("foot-credit");
     }
 
     [Fact]

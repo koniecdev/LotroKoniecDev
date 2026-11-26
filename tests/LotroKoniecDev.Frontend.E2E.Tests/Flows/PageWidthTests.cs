@@ -6,8 +6,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
 /// Every page of the website is as wide as the window up to 1920 px, and centred on a wider one (#1572).
-/// The terms document and the home page's risk note stop at their width on a 1400 px page, so a wide
-/// screen does not turn them into very long lines.
+/// The terms document stops at its width on a 1400 px page, so a wide screen does not turn it into very
+/// long lines. The footer's risk note has its own limit (<see cref="FooterLayoutTests"/>).
 /// </summary>
 public sealed class PageWidthTests : E2ETestBase
 {
@@ -56,25 +56,6 @@ public sealed class PageWidthTests : E2ETestBase
         // Assert
         panel.X.ShouldBe(content.X + SidePadding, 1d);
         panel.Width.ShouldBe(content.Width - 2 * SidePadding, 1d);
-    }
-
-    [Theory]
-    [InlineData(1366)]
-    [InlineData(1920)]
-    [InlineData(2560)]
-    public async Task Home_risk_note_stops_at_the_content_width_of_a_1400_px_page_and_stays_centred(int width)
-    {
-        // Arrange
-        await OpenAsync("/", width);
-        LocatorBoundingBoxResult content = await ContentSection().RequireBoundingBoxAsync();
-        float contentWidth = content.Width - 2 * SidePadding;
-
-        // Act
-        LocatorBoundingBoxResult note = await Page.Locator(".risk-note").RequireBoundingBoxAsync();
-
-        // Assert
-        note.Width.ShouldBe(Math.Min(contentWidth, ContentWidthOn1400PxPage), 1d);
-        (note.X + note.Width / 2).ShouldBe(content.X + content.Width / 2, 1d);
     }
 
     [Theory]

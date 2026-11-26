@@ -11,7 +11,7 @@
         </p>
         <div class="hero-actions"><a class="btn btn-primary" href="/translations">Przeglądaj tłumaczenia</a>
             <a class="btn btn-ghost" href="#dla-graczy">Pobierz spolszczenie</a>
-            <a class="btn btn-ghost" href="/auth/login">
+            <a class="btn btn-ghost" href="/auth/register">
                         Dołącz jako tłumacz
                     </a></div></div></section>
 
@@ -33,15 +33,13 @@
             <div class="panel-body"><ol class="steps"><li><strong>Pobierz patcher</strong> — narzędzie z GitHuba, które wgrywa polskie
                         teksty prosto do plików.
                     </li>
-                    <li><strong>Pobierz plik spolszczenia</strong> — aktualny
-                        <code class="mono">polish.txt</code> ze wszystkimi zatwierdzonymi tłumaczeniami.
+                    <li><strong>Uruchom grę przez patcher</strong> — przy każdym starcie sam pobiera
+                        najnowsze spolszczenie i podmienia teksty.
                     </li>
-                    <li><strong>Nałóż łatkę i graj</strong> — patcher podmienia teksty i uruchamia grę;
-                        spolszczenie przeżywa aktualizacje LOTRO.
+                    <li><strong>Graj po polsku</strong> — spolszczenie przeżywa aktualizacje LOTRO.
                     </li></ol>
-                <div class="editor-actions"><a class="btn btn-primary" href="/download/polish.txt" download="polish.txt">
-                        Pobierz polish.txt</a>
-                    <a class="btn btn-ghost" href="https://github.com/koniecdev/LotroKoniecDev" rel="noopener">Patcher na GitHubie</a></div></div></section>
+                <div class="editor-actions"><a class="btn btn-primary" href="https://github.com/koniecdev/LotroKoniecDev#the-patcher-game-side-cli" rel="noopener">Patcher CLI</a>
+                    <span class="btn btn-ghost is-disabled" role="link" aria-disabled="true">Aplikacja Windows (wkrótce)</span></div></div></section>
 
         <section class="panel" id="dla-tlumaczy"><header class="panel-head"><h2>Dla tłumaczy</h2>
                 <span class="panel-aside">Dołącz</span></header>
@@ -54,22 +52,10 @@
                     <li><strong>Zatwierdzone trafia do gry</strong> — po akceptacji tłumaczenie ląduje
                         w pliku spolszczenia dla wszystkich graczy.
                     </li></ol>
-                <div class="editor-actions"><a class="btn btn-primary" href="/auth/login">
-                                Zaloguj się lub załóż konto
+                <div class="editor-actions"><a class="btn btn-primary" href="/auth/register">
+                                Zarejestruj się
                             </a>
-                    <a class="btn btn-ghost" href="/translations">Zobacz listę tekstów</a></div></div></section></div>
-
-    <section class="home-tech"><p class="risk-note">
-            Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje
-            takich modyfikacji, choć przez ponad dekadę działania analogicznych projektów
-            (rosyjskiego i hiszpańskiego) nie odnotowano za nie banów. Korzystasz na własną
-            odpowiedzialność. Szczegóły w <a href="/regulamin">regulaminie</a>.
-        </p>
-        <p>
-            Projekt open source — .NET 10 · Blazor SSR · PostgreSQL.
-            Kod, patcher i historia zmian: <a href="https://github.com/koniecdev/LotroKoniecDev" rel="noopener">github.com/koniecdev/LotroKoniecDev</a></p>
-        <p>
-            Pomoc, rozmowy i zgłaszanie błędów w tłumaczeniu: <a href="https://discord.gg/sncXwa64Ex" rel="noopener">Discord „LOTRO po polsku”</a></p></section></section>
+                    <a class="btn btn-ghost" href="/translations">Zobacz listę tekstów</a></div></div></section></div></section>
 
 <a class="home-banner" href="https://discord.gg/sncXwa64Ex" target="_blank" rel="noopener"><picture><source media="(min-width: 641px)" srcset="discord-strip.webp" width="2172" height="158" />
         <img src="discord-banner.webp" alt="Tłumacz LOTRO razem z nami. Dołącz do Discorda!" width="1200" height="600" loading="lazy" decoding="async" /></picture></a>

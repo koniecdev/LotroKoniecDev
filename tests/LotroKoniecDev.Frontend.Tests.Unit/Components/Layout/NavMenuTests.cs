@@ -81,12 +81,36 @@ public sealed class NavMenuTests : BunitContext
             .Select(anchor => anchor.GetAttribute("href")!)
             .ToArray();
 
-        // Pages that need a login stay hidden from guests (#523); the login link comes last.
+        // Pages that need a login stay hidden from guests (#523); the login and sign-up links come last.
         navTargets.ShouldBe(
         [
             "/", "/translations",
-            AuthenticationDependencyInjectionExtensions.LoginPath
+            AuthenticationDependencyInjectionExtensions.LoginPath,
+            AuthenticationDependencyInjectionExtensions.RegisterPath
         ]);
+    }
+
+    [Fact]
+    public void Render_WhenAnonymous_ShowsTheSignUpAsTheAccentButton()
+    {
+        AddAuthorization().SetNotAuthorized();
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        IElement signUpLink = component.Find($"a[href='{AuthenticationDependencyInjectionExtensions.RegisterPath}']");
+        signUpLink.TextContent.ShouldBe("Zarejestruj");
+        signUpLink.ClassList.ShouldContain("nav-cta");
+    }
+
+    [Fact]
+    public void Render_WhenAuthenticated_ShowsNoSignUpButton()
+    {
+        AddAuthorization().SetAuthorized("Frodo");
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.RegisterPath}']").ShouldBeEmpty();
+        component.FindAll(".nav-cta").ShouldBeEmpty();
     }
 
     [Fact]

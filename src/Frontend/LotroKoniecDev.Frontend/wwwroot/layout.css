@@ -64,9 +64,9 @@ html, body {
     padding: 0;
 }
 
-/* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493). One rule on the page,
-   because a scroll margin on a table row is not honoured in every browser. The value is above the
-   navbar's height when its links wrap on a narrow window (about 110px). */
+/* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493), or any other jump
+   target. One rule on the page, because a scroll margin on a table row is not honoured in every browser.
+   On a narrow window the links sit under the logo and the navbar is about 110px tall. */
 html {
     scroll-padding-top: 128px;
 }
@@ -208,6 +208,17 @@ code {
     height: 2px;
     background: var(--accent);
     border-radius: 2px;
+}
+
+.nav-link.nav-cta {
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+}
+
+.nav-link.nav-cta:hover {
+    background: var(--accent-hi);
+    color: var(--accent-ink);
 }
 
 .nav-user {
@@ -791,10 +802,14 @@ code {
     gap: 14px;
 }
 
+/* A one-line step is as tall as its badge, with the line centred on it. Not a flex box: that would split
+   the text and its <strong> into separate items. */
 .steps li {
     counter-increment: step;
     position: relative;
+    min-height: 28px;
     padding-left: 42px;
+    padding-block: calc((28px - 1lh) / 2);
     font-size: 14px;
     color: var(--text-mute);
     line-height: 1.6;
@@ -808,7 +823,7 @@ code {
     content: counter(step);
     position: absolute;
     left: 0;
-    top: 1px;
+    top: 0;
     width: 28px;
     height: 28px;
     border-radius: 9px;
@@ -819,18 +834,6 @@ code {
     border: 1px solid var(--accent-dim);
     font-family: var(--font-mono);
     font-size: 12.5px;
-}
-
-/* The font and colours come from .home-tech, the block the note sits in. The note stops at the content
-   width of a 1400 px page, so a wide screen keeps its two even lines (#1572). */
-.risk-note {
-    margin: 14px auto 0;
-    max-width: calc(1400px - 2 * 32px);
-    line-height: 1.6;
-}
-
-.risk-note a {
-    text-decoration: underline;
 }
 
 /* On a screen taller than the page, the band stays on top of the footer instead of above a gap. */
@@ -851,30 +854,6 @@ main:has(> .home-banner) {
 .home-banner img {
     height: auto;
     margin: 0 auto;
-}
-
-.home-tech {
-    text-align: center;
-    padding: 6px 0 2px;
-}
-
-.home-tech p {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--text-dim);
-}
-
-.home-tech p + p {
-    margin-top: 6px;
-}
-
-.home-tech a {
-    color: var(--accent-hi);
-}
-
-.home-tech a:hover {
-    text-decoration: underline;
 }
 
 /* ───────── Badges ───────── */
@@ -1661,50 +1640,86 @@ main:has(> .home-banner) {
 }
 
 /* ───────── Footer ───────── */
+/* Left-aligned columns. A paragraph stops at about 70 characters, so a long line stays readable (#1575). */
 .foot {
     margin-top: auto;
-    padding-top: 28px;
-    padding-bottom: 40px;
+    padding-top: 32px;
+    padding-bottom: 32px;
     border-top: 1px solid var(--border);
-    text-align: center;
-}
-
-.foot p {
-    margin: 0;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.08em;
     color: var(--text-mute);
 }
 
-.foot-links {
-    margin-top: 10px !important;
-    display: flex;
-    justify-content: center;
-    gap: 16px;
-    flex-wrap: wrap;
+.foot p {
+    margin: 0;
+    max-width: 70ch;
+    line-height: 1.6;
 }
 
-.foot-links a {
+.foot a {
     color: var(--text-dim);
     transition: color .15s;
 }
 
-.foot-links a:hover {
+.foot a:hover {
     color: var(--accent-hi);
 }
 
-/* .foot p wins on specificity (margin: 0), hence !important — same idiom as .foot-links */
-.foot-legal {
-    margin-top: 14px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    max-width: 720px;
-    line-height: 1.6;
+.foot-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px 32px;
 }
 
-.foot-credit {
-    margin-top: 10px !important;
+.foot-about,
+.foot-column {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.foot-brand,
+.foot-heading {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.foot-links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.foot-notes {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.risk-note a {
+    text-decoration: underline;
+}
+
+.foot-bottom {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px 24px;
+}
+
+@media (max-width: 640px) {
+    .foot-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* ───────── Cookie consent bar ───────── */
@@ -1853,6 +1868,17 @@ main:has(> .home-banner) {
 
     .nav-link {
         flex: 0 0 auto;
+    }
+
+    /* A visitor who is not signed in gets a second row instead of a hidden sideways scroll, so both sign-in
+       buttons fit on a 360 px phone. The navbar then grows to about 150px (#1575). */
+    .nav-links:has(.nav-cta) {
+        flex-wrap: wrap;
+        overflow-x: visible;
+    }
+
+    html:has(.nav-cta) {
+        scroll-padding-top: 168px;
     }
 
     .hero {

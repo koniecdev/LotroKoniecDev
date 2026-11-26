@@ -17,7 +17,8 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
     public async ValueTask<IReadOnlyList<LinkDto>> CreatePaginationLinksAsync<T>(
         string endpointName,
         PaginationResponse<T> paginationResponse,
-        Func<int, IEnumerable<KeyValuePair<string, string?>>> queryParametersForPage)
+        Func<int, IEnumerable<KeyValuePair<string, string?>>> queryParametersForPage,
+        IEnumerable<KeyValuePair<string, string?>>? selfQueryParameters = null)
     {
         List<LinkDto> links = [];
 
@@ -25,11 +26,13 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
             endpoint: endpointName,
             rel: Rels.Self,
             method: HttpMethods.Get,
-            values: new RouteValueDictionary(queryParametersForPage(paginationResponse.Page))));
+            values: new RouteValueDictionary(selfQueryParameters ?? queryParametersForPage(paginationResponse.Page))));
 
         // Not on the page you are on, or the pager draws a dead button (#545). They stay when the page is
-        // out of range (?page=99 of 3): the only way back for a caller who went too far.
-        if (paginationResponse.Page != 1)
+        // out of range (?page=99 of 3): the only way back for a caller who went too far. A request with its
+        // own self query is on no numbered page (ADR-0077), so both stay for it while there is a page.
+        bool isOnANumberedPage = selfQueryParameters is null;
+        if (!isOnANumberedPage || paginationResponse.Page != 1)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,
@@ -38,7 +41,8 @@ internal sealed class PaginationLinkFactory : IPaginationLinkFactory
                 values: new RouteValueDictionary(queryParametersForPage(1))));
         }
 
-        if (paginationResponse.Page != paginationResponse.TotalPages && paginationResponse.TotalPages > 0)
+        if ((!isOnANumberedPage || paginationResponse.Page != paginationResponse.TotalPages)
+            && paginationResponse.TotalPages > 0)
         {
             links.AddIfPresent(await _linkFactory.CreateAsync(
                 endpoint: endpointName,

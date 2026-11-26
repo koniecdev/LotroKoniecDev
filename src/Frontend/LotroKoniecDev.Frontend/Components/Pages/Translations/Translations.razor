@@ -143,6 +143,7 @@
                 <p>Tłumaczenie zapisano.</p>
             </div>
         }
+        @LastRowNote()
         <div class="error-message" role="alert">
             <span class="em-ico" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -205,6 +206,8 @@
                 </div>
             }
         }
+
+        @LastRowNote()
 
         @if (pageData.Items.Count == 0)
         {
@@ -453,6 +456,9 @@
     private TranslationId? _savedAfter;
     private bool _savedSlips;
 
+    /// <summary>The note after "Zapisz i następny" passed the last row (#1490), read only on a GET.</summary>
+    private string? _lastRowNote;
+
     [SupplyParameterFromQuery]
     private string? Search { get; set; }
 
@@ -511,6 +517,9 @@
     [SupplyParameterFromQuery(Name = TranslationListQuery.SavedSlipsName)]
     private string? SavedSlips { get; set; }
 
+    [SupplyParameterFromQuery(Name = TranslationListQuery.LastRowName)]
+    private string? LastRow { get; set; }
+
     [CascadingParameter]
     private HttpContext? HttpContext { get; set; }
 
@@ -558,6 +567,12 @@
             _savedRow = ParseRowId(SavedRow);
             _savedAfter = ParseRowId(SavedAfter);
             _savedSlips = bool.TryParse(SavedSlips, out bool hasSlips) && hasSlips;
+            _lastRowNote = LastRow switch
+            {
+                TranslationListQuery.LastRowSavedValue => "Tłumaczenie zapisano. To był ostatni wiersz tej listy.",
+                TranslationListQuery.LastRowUnchangedValue => "To był ostatni wiersz tej listy.",
+                _ => null
+            };
         }
 
         // The save does not need the list, so a good save costs no list read. A refused one loads it.
@@ -643,10 +658,11 @@
     }
 
     /// <summary>
-    /// The editor gets the list state, so its way back shows this list again (#1452).
+    /// The editor gets the list state, so its way back shows this list again (#1452), and the row's place, so
+    /// "Zapisz i następny" can go on in this list (#1490).
     /// </summary>
     private string EditorHref(TranslationListItemResponse item) =>
-        _query.ToEditorRelativeUri(item.Id);
+        _query.ToEditorRelativeUri(item.Id, item.Place);
 
     /// <summary>The server decides: only a row it lets the caller save carries <c>upsert</c> (ADR-0040).</summary>
     private static bool DrawsInlineForm(TranslationListItemResponse item) =>
@@ -694,6 +710,19 @@
                         Edytor pokazuje uwagi do tego tekstu.
                         <a href="@_query.ToEditorRelativeUri(savedRow)">Otwórz w edytorze</a>
                     </p>
+                </div>
+            }
+        </text>;
+
+    /// <summary>
+    /// Shown in every branch, an empty page and a failed load included, so a save is never left without a sign.
+    /// </summary>
+    private RenderFragment LastRowNote() =>
+        @<text>
+            @if (_lastRowNote is not null)
+            {
+                <div class="status-message status-success last-row-note" role="status">
+                    <p>@_lastRowNote</p>
                 </div>
             }
         </text>;

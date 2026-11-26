@@ -106,7 +106,11 @@ One test class per flow, in `Flows/`:
 - `TranslationListInlineSaveTests`: "Edytuj tutaj" on a row below the fold → save → the same list,
   scrolled to the saved row below the navbar; a refused save stays in its open row; a row the save
   took out of the status filter leaves a note in its place; bulk approve still works (#1493).
-- Both list flows and `EditorLayoutTests` get their rows from `TranslationRowsSeed`
+- `EditorSaveAndNextTests`: "Zapisz i następny" three times through an untranslated search opens the next
+  row each time; on the last row of a page it opens the first row of the next page, and "Wróć do listy"
+  shows that page; an approved row that starts with a line break, passed with no edit, stays approved
+  and the press ends on the list after the last row (#1490).
+- Both list flows, `EditorLayoutTests` and `EditorSaveAndNextTests` get their rows from `TranslationRowsSeed`
   (`PlaywrightStackFixture.TranslationRows`):
   the first flow that needs them signs in as the admin the auth host seeds
   (`PlaywrightStackFixture.Admin`), registers a game version and uploads one `exported.txt` built in

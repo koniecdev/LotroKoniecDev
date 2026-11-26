@@ -736,4 +736,83 @@ public sealed class TranslationListQueryTests
         query.ToInlineSaveActionUri(RowId).ShouldEndWith($"#{id}");
         query.ToPageRelativeUriWithSavedRow(RowId, savedAfter: null, hasSlips: false).ShouldEndWith($"#{id}");
     }
+
+    [Fact]
+    public void ToEditorRelativeUri_WithAPlace_AddsItAfterTheListState()
+    {
+        // The place is the row's, not the list's, so the list's own addresses never carry it (#1490).
+        string uri = EveryFieldSet.ToEditorRelativeUri(RowId, "azoxOjI");
+
+        uri.ShouldEndWith("&place=azoxOjI");
+        TranslationListQuery.FromPageQuery(uri).ShouldBe(EveryFieldSet);
+        TranslationListQuery.FromPageQuery(uri).ToListRelativeUri().ShouldNotContain("place=");
+    }
+
+    [Fact]
+    public void ToEditorRelativeUri_WithAPlaceOnTheDefaultList_HasOnlyThePlace()
+    {
+        // Page 1 of the unfiltered list gets "Zapisz i następny" too.
+        TranslationListQuery.From(search: null, status: null, page: 1)
+            .ToEditorRelativeUri(RowId, "azoxOjI")
+            .ShouldBe($"/editor/{RowId.Value}?place=azoxOjI");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void ToEditorRelativeUri_WithNoPlace_LeavesItOut(string? place)
+    {
+        TranslationListQuery.From(search: "axe", status: null, page: 1)
+            .ToEditorRelativeUri(RowId, place)
+            .ShouldBe($"/editor/{RowId.Value}?search=axe");
+    }
+
+    [Theory]
+    [InlineData(true, "saved")]
+    [InlineData(false, "unchanged")]
+    public void ToListRelativeUriWithLastRowNote_KeepsEveryListFieldAndAddsTheNote(bool saved, string note)
+    {
+        string uri = EveryFieldSet.ToListRelativeUriWithLastRowNote(saved);
+
+        uri.ShouldStartWith("/translations?");
+        uri.ShouldEndWith($"&lastRow={note}");
+        TranslationListQuery.FromPageQuery(uri).ShouldBe(EveryFieldSet);
+    }
+
+    [Fact]
+    public void ToApiUri_WithAfter_AsksForTheRowsAfterThePlaceWithTheListsFiltersAndPageSize()
+    {
+        string uri = EveryFieldSet.ToApiUri(CollectionHref, "azoxOjI");
+
+        uri.ShouldBe(
+            $"{CollectionHref}?search=Frodo%20%26%20Sam%20%2B%20%231%20100%25%20%C5%9Ar%C3%B3dziemie&match=WholeWord"
+            + "&status=NeedsReview&conflictsOnly=true&mine=true&after=azoxOjI&page=3&pageSize=25");
+    }
+
+    [Fact]
+    public void AtPage_KeepsEveryOtherListField()
+    {
+        TranslationListQuery moved = EveryFieldSet.AtPage(7);
+
+        moved.Page.ShouldBe(7);
+        moved.ShouldBe(TranslationListQuery.From(
+            search: EveryFieldSet.Search,
+            status: EveryFieldSet.Status.ToString(),
+            page: 7,
+            pageSize: EveryFieldSet.PageSize,
+            conflictsOnly: EveryFieldSet.ConflictsOnly,
+            match: EveryFieldSet.Match,
+            mine: EveryFieldSet.Mine));
+    }
+
+    [Fact]
+    public void FromPageQuery_IgnoresThePlaceAndTheLastRowNote()
+    {
+        TranslationListQuery query = TranslationListQuery.FromPageQuery(
+            "/translations?search=axe&place=azoxOjI&lastRow=saved");
+
+        query.ToListRelativeUri().ShouldBe("/translations?search=axe");
+        query.ToEditorRelativeUri(RowId).ShouldBe($"/editor/{RowId.Value}?search=axe");
+    }
 }

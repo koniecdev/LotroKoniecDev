@@ -38,7 +38,8 @@ public sealed class QueryOptionContractTests
             Sort: "gossipId:desc",
             ConflictsOnly: true,
             Match: TranslationSearchMatch.WholeWord,
-            Mine: true),
+            Mine: true,
+            After: "azo2MjA3NTY5OTI6MQ"),
         new ImportExportedTextsRequest(AllowMassRemoval: true)
     ];
 

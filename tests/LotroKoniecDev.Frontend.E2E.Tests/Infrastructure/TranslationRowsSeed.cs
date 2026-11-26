@@ -14,6 +14,7 @@ internal sealed class TranslationRowsSeed
 {
     internal const int WayBackFileId = 620_756_992;
     internal const int InlineSaveFileId = 620_756_993;
+    internal const int SaveAndNextFileId = 620_756_994;
 
     /// <summary>
     /// Two pages of 25 per flow, and the second page still has rows after a save moves one row out of a
@@ -34,6 +35,8 @@ internal sealed class TranslationRowsSeed
     public string WayBackToken { get; } = NewToken("waybk");
 
     public string InlineSaveToken { get; } = NewToken("inlsv");
+
+    public string SaveAndNextToken { get; } = NewToken("svnxt");
 
     /// <summary>The page must already be signed in as the admin.</summary>
     public async Task EnsureSeededAsync(IPage page, string frontendBaseUrl)
@@ -72,7 +75,9 @@ internal sealed class TranslationRowsSeed
             gossipId == InlineSavePlaceholderGossipId
                 ? string.Create(CultureInfo.InvariantCulture, $"{InlineSaveFileId}||{gossipId}||Row {gossipId:00} of {InlineSaveToken} keeps <--DO_NOT_TOUCH!--> here||1||1||1")
                 : string.Create(CultureInfo.InvariantCulture, $"{InlineSaveFileId}||{gossipId}||Row {gossipId:00} of {InlineSaveToken}||NULL||NULL||1"));
-        string exported = string.Join('\n', wayBackLines.Concat(inlineSaveLines));
+        IEnumerable<string> saveAndNextLines = Enumerable.Range(1, RowsPerFlow).Select(gossipId =>
+            string.Create(CultureInfo.InvariantCulture, $"{SaveAndNextFileId}||{gossipId}||Row {gossipId:00} of {SaveAndNextToken}||NULL||NULL||1"));
+        string exported = string.Join('\n', wayBackLines.Concat(inlineSaveLines).Concat(saveAndNextLines));
 
         await page.GotoAsync($"{frontendBaseUrl}/import-export");
         await page.GetByLabel("Plik exported.txt", new() { Exact = true }).SetInputFilesAsync(new FilePayload

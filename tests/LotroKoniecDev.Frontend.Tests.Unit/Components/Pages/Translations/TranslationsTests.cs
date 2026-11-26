@@ -880,6 +880,77 @@ public sealed class TranslationsTests : BunitContext
         component.FindAll(".error-message").Count.ShouldBe(1);
     }
 
+    [Fact]
+    public void Render_EditLink_CarriesTheRowsPlaceForSaveAndNext()
+    {
+        // "Zapisz i następny" goes on from this place in the same list (#1490, ADR-0077).
+        TranslationListItemResponse row = Row(canEdit: true) with { Place = "azoxOjI" };
+        StubPage(SinglePageOf(row));
+        Navigation().NavigateTo("/translations?search=axe");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("td.col-actions a").Single(link => link.TextContent.Contains("Edytuj"))
+            .GetAttribute("href").ShouldBe($"/editor/{row.Id.Value}?search=axe&place=azoxOjI");
+    }
+
+    [Theory]
+    [InlineData("saved", "Tłumaczenie zapisano. To był ostatni wiersz tej listy.")]
+    [InlineData("unchanged", "To był ostatni wiersz tej listy.")]
+    public void Render_AfterTheLastRow_ShowsTheLastRowNoteAboveTheRows(string lastRow, string note)
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?lastRow={lastRow}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find(".last-row-note").TextContent.Trim().ShouldBe(note);
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_AfterTheLastRowOnAnEmptyPage_ShowsTheLastRowNote()
+    {
+        StubPage(PageOf());
+        Navigation().NavigateTo("/translations?lastRow=saved");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find(".last-row-note").TextContent.Trim().ShouldBe("Tłumaczenie zapisano. To był ostatni wiersz tej listy.");
+        component.FindAll(".empty").Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public void Render_AfterTheLastRowWhenTheListFailsToLoad_StillShowsTheLastRowNote()
+    {
+        // The save happened, even when the list cannot load after the redirect (#1122, spec 0018).
+        _client
+            .GetApiResultAsync<PaginationResponse<TranslationListItemResponse>>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<PaginationResponse<TranslationListItemResponse>>(
+                new ProblemDetails { Status = StatusCodes.Status503ServiceUnavailable }));
+        Navigation().NavigateTo("/translations?lastRow=saved");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.Find(".last-row-note").TextContent.Trim().ShouldBe("Tłumaczenie zapisano. To był ostatni wiersz tej listy.");
+        component.FindAll(".error-message").Count.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData("lastRow=")]
+    [InlineData("lastRow=true")]
+    [InlineData("lastRow=SAVED")]
+    public void Render_WithALastRowValueItDoesNotKnow_ShowsTheListWithNoNote(string query)
+    {
+        StubPage(SinglePageOf(Row(canEdit: true)));
+        Navigation().NavigateTo($"/translations?{query}");
+
+        IRenderedComponent<TranslationsComponent> component = RenderPage();
+
+        component.FindAll("table.data-table tbody tr").Count.ShouldBe(1);
+        component.FindAll(".last-row-note").ShouldBeEmpty();
+    }
+
     private IRenderedComponent<TranslationsComponent> RenderPage() =>
         Render<TranslationsComponent>();
 

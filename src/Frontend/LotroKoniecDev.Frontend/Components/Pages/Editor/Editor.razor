@@ -7,6 +7,7 @@
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.Hateoas.Abstractions
+@using LotroKoniecDev.TranslationSystem.Contracts.Common
 @using LotroKoniecDev.TranslationSystem.Contracts.Hateoas
 @using LotroKoniecDev.TranslationSystem.Contracts.Translations
 @using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate
@@ -90,6 +91,7 @@
                     <p>Tłumaczenie zatwierdzono i dołączono do dystrybucji.</p>
                 </div>
             }
+            @NextRowLines()
             <div class="error-message" role="alert">
                 <span class="em-ico" aria-hidden="true">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -155,6 +157,8 @@
             </div>
         }
 
+        @NextRowLines()
+
         @if (!comparison.IsMatch)
         {
             <div class="status-message status-warning" role="alert">
@@ -214,9 +218,19 @@
                             <label class="visually-hidden" for="translated">Tłumaczenie polskie</label>
                             <textarea id="translated" name="DraftField" class="editor-textarea mono" rows="8"
                                       maxlength="@DatFormatConstants.MaxTranslatedTextLength"
-                                      placeholder="Wpisz tłumaczenie…">@(_draftText ?? detail.TranslatedText)</textarea>
+                                      placeholder="Wpisz tłumaczenie…">@TextareaContent(_draftText ?? detail.TranslatedText)</textarea>
+                            @if (_place is not null)
+                            {
+                                @* What the field showed before any typing, so "Zapisz i następny" can tell an
+                                   unchanged text (owner decision of 2026-11-25 on #1490). *@
+                                <input type="hidden" name="ShownTextField" value="@(_postedShownText ?? detail.TranslatedText)"/>
+                            }
                             <div class="editor-actions" style="margin-top: 12px;">
                                 <button type="submit" class="btn btn-primary">Zapisz</button>
+                                @if (_place is not null)
+                                {
+                                    <button type="submit" class="btn btn-primary" name="SaveAction" value="@NextSaveAction">Zapisz i następny</button>
+                                }
                             </div>
                         </form>
                     }
@@ -328,6 +342,14 @@
     private const string SaveFormName = "save-translation";
     private const string ApproveFormName = "approve-translation";
 
+    /// <summary>The value of the "Zapisz i następny" button; "Zapisz" sends none (spec 0018).</summary>
+    private const string NextSaveAction = "next";
+
+    private const string SavedFlag = "saved";
+    private const string ApprovedFlag = "approved";
+    private const string PreviousSavedFlag = "previousSaved";
+    private const string NextFailedFlag = "nextFailed";
+
     /// <summary>
     /// The capped panel's list links search for the English only up to this length, so the URL stays short.
     /// </summary>
@@ -341,6 +363,13 @@
     private ProblemDetails? _approveProblem;
     private string? _draftText;
     private string? _postedFormName;
+
+    /// <summary>This row's place in the list it came from (#1490). Null when it did not come from the list.</summary>
+    private string? _place;
+
+    private string? _postedShownText;
+    private bool _previousSaved;
+    private bool _nextFailed;
 
     /// <summary>
     /// The list state the editor's address carries, for every way back to the list (#1452). It has a value
@@ -363,6 +392,12 @@
     [SupplyParameterFromForm(FormName = SaveFormName)]
     private long GossipIdField { get; set; }
 
+    [SupplyParameterFromForm(FormName = SaveFormName)]
+    private string? ShownTextField { get; set; }
+
+    [SupplyParameterFromForm(FormName = SaveFormName)]
+    private string? SaveAction { get; set; }
+
     /// <summary>
     /// Set by the redirect, so the confirmation needs no per-user state on the server (#321). A manual
     /// reload shows it again, which is harmless.
@@ -373,10 +408,28 @@
     [SupplyParameterFromQuery]
     private bool Approved { get; set; }
 
+    [SupplyParameterFromQuery(Name = TranslationListQuery.PlaceName)]
+    private string? Place { get; set; }
+
+    /// <summary>
+    /// Strings, so a value that is not a bool shows the page without the line instead of the error page.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = PreviousSavedFlag)]
+    private string? PreviousSaved { get; set; }
+
+    [SupplyParameterFromQuery(Name = NextFailedFlag)]
+    private string? NextFailed { get; set; }
+
     protected override async Task OnParametersSetAsync()
     {
         _listQuery = TranslationListQuery.FromPageQuery(Navigation.Uri);
         _postedFormName = PostedForm.NameOf(HttpContext);
+        _place = string.IsNullOrWhiteSpace(Place) ? null : Place;
+        _postedShownText = _postedFormName == SaveFormName ? ShownTextField : null;
+
+        // A post keeps the address and so its flags, so only a GET shows them (#1122).
+        _previousSaved = _postedFormName is null && IsOn(PreviousSaved);
+        _nextFailed = _postedFormName is null && IsOn(NextFailed);
 
         ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
         if (result.IsSuccess)
@@ -426,11 +479,19 @@
         await LoadSameSourceTextAsync(_detail);
     }
 
-    /// <returns><c>true</c> when the save went through and the page redirects.</returns>
+    /// <returns><c>true</c> when the page redirects: after a good save, or when "Zapisz i następny" moves on.</returns>
     private async Task<bool> SaveOrRedirectAsync()
     {
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
+
+        // Without a place there is no list to go on in, so the press is a plain save.
+        string? nextRowPlace = SaveAction == NextSaveAction ? _place : null;
+        if (nextRowPlace is not null && IsUnchanged(_draftText))
+        {
+            await OpenNextRowAsync(nextRowPlace, saved: false);
+            return true;
+        }
 
         // Never an href that came with the post: a changed post could send the request, and its token, to
         // another host. The upsert rel always points at the collection PUT, so when the row cannot give it,
@@ -453,8 +514,16 @@
 
         if (result.IsSuccess)
         {
+            // Warnings keep the translator on the row to fix the slip; a second press with no change moves on.
+            if (nextRowPlace is not null
+                && TranslationSlipChecker.Check(result.Value.SourceText, result.Value.TranslatedText).Count == 0)
+            {
+                await OpenNextRowAsync(nextRowPlace, saved: true);
+                return true;
+            }
+
             // A failure does not redirect, so the typed draft and the error stay on screen.
-            Navigation.NavigateTo(EditorUriWithFlag("saved"));
+            Navigation.NavigateTo(EditorUriWithFlags(SavedFlag));
             return true;
         }
 
@@ -478,7 +547,7 @@
         ApiResult result = await Loader.ApproveAsync(approveLink.Href, CancellationToken.None);
         if (result.IsSuccess)
         {
-            Navigation.NavigateTo(EditorUriWithFlag("approved"));
+            Navigation.NavigateTo(EditorUriWithFlags(ApprovedFlag));
             return true;
         }
 
@@ -488,10 +557,70 @@
 
     /// <summary>
     /// Redirect after post (#321): a reload is a plain GET, and the fresh load shows the server's new
-    /// links, such as the approve button after a save. It keeps the list state and only its own flag.
+    /// links, such as the approve button after a save. It keeps the list state, the place and only its own
+    /// flags.
     /// </summary>
-    private string EditorUriWithFlag(string successFlag) =>
-        QueryHelpers.AddQueryString(_listQuery.ToEditorRelativeUri(TranslationId.FromValue(Id)), successFlag, "true");
+    private string EditorUriWithFlags(params ReadOnlySpan<string> flags)
+    {
+        string uri = _listQuery.ToEditorRelativeUri(TranslationId.FromValue(Id), _place);
+        foreach (string flag in flags)
+        {
+            uri = QueryHelpers.AddQueryString(uri, flag, "true");
+        }
+
+        return uri;
+    }
+
+    /// <summary>
+    /// "Unchanged" compares the field with the text the form showed, not with the stored text, so a double
+    /// click or someone else's newer save never turns a pass into a save (owner decision of 2026-11-25 on
+    /// #1490). Both sides get the save's trimming for this English; without the row the English is unknown,
+    /// so they must match exactly. A blank shown text is an untranslated row, whose empty field still goes to
+    /// the save and its refusal.
+    /// </summary>
+    private bool IsUnchanged(string typedText)
+    {
+        string? shownText = ShownTextField;
+        if (string.IsNullOrWhiteSpace(shownText))
+        {
+            return false;
+        }
+
+        return _detail is null
+            ? string.Equals(typedText, shownText, StringComparison.Ordinal)
+            : string.Equals(
+                TrailingLineBreaks.RemoveFrom(typedText, _detail.SourceText),
+                TrailingLineBreaks.RemoveFrom(shownText, _detail.SourceText),
+                StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Opens the first row after this row's place, or the list after the last row (spec 0018). The API names
+    /// the page, so "Wróć do listy" on the next row opens the right one. When the rows cannot be read, the
+    /// translator stays here and can press again.
+    /// </summary>
+    private async Task OpenNextRowAsync(string place, bool saved)
+    {
+        ApiResult<PaginationResponse<TranslationListItemResponse>> rowsAfter =
+            await Loader.LoadRowsAfterAsync(_listQuery, place, CancellationToken.None);
+        if (rowsAfter.IsFailure)
+        {
+            Navigation.NavigateTo(saved
+                ? EditorUriWithFlags(SavedFlag, NextFailedFlag)
+                : EditorUriWithFlags(NextFailedFlag));
+            return;
+        }
+
+        TranslationListQuery nextRowList = _listQuery.AtPage(rowsAfter.Value.Page);
+        if (rowsAfter.Value.Items.FirstOrDefault() is { } nextRow)
+        {
+            string nextRowUri = nextRowList.ToEditorRelativeUri(nextRow.Id, nextRow.Place);
+            Navigation.NavigateTo(saved ? QueryHelpers.AddQueryString(nextRowUri, PreviousSavedFlag, "true") : nextRowUri);
+            return;
+        }
+
+        Navigation.NavigateTo(nextRowList.ToListRelativeUriWithLastRowNote(saved));
+    }
 
     /// <summary>
     /// Its own state, so a failed panel never hides the row (#1347).
@@ -558,6 +687,31 @@
         && sourceText.IndexOfAny(['\r', '\n']) < 0
             ? sourceText
             : null;
+
+    private static bool IsOn(string? flag) => bool.TryParse(flag, out bool isOn) && isOn;
+
+    /// <summary>
+    /// The browser drops one line break right after the <c>&lt;textarea&gt;</c> start tag. This one goes, so
+    /// a text that starts with a line break keeps it and an untouched field equals the stored text (spec 0018).
+    /// </summary>
+    private static string TextareaContent(string? text) => "\n" + text;
+
+    /// <summary>The lines after "Zapisz i następny" (spec 0018). Their flags are read only on a GET.</summary>
+    private RenderFragment NextRowLines() =>
+        @<text>
+            @if (_previousSaved)
+            {
+                <div class="status-message status-success" role="status">
+                    <p>Poprzednie tłumaczenie zapisano.</p>
+                </div>
+            }
+            @if (_nextFailed)
+            {
+                <div class="status-message status-warning" role="status">
+                    <p>Nie udało się otworzyć następnego wiersza. Spróbuj jeszcze raz albo wróć do listy.</p>
+                </div>
+            }
+        </text>;
 
     private static RenderFragment RenderHighlighted(string text) => builder =>
     {

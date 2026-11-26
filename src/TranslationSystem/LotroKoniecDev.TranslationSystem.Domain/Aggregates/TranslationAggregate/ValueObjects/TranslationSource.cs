@@ -1,6 +1,7 @@
 using LotroKoniecDev.SharedKernel.BuildingBlocks;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
+using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 
 namespace LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.ValueObjects;
@@ -17,19 +18,11 @@ public sealed class TranslationSource : ValueObject
     public string? ArgsId { get; }
 
     /// <summary>
-    /// Removes the line breaks a translator adds by pressing Enter at the end of the Polish, unless this
-    /// English ends with one (#1476, ADR-0039 §6). Spaces, tabs, the typed two characters <c>\n</c> and
-    /// breaks inside the text stay. A text of only line breaks comes back empty, so the caller refuses a
-    /// blank text first.
+    /// <see cref="TrailingLineBreaks.RemoveFrom"/> for this English. A text of only line breaks comes back
+    /// empty, so the caller refuses a blank text first.
     /// </summary>
-    public string RemoveTrailingLineBreaksFrom(string translatedText)
-    {
-        ArgumentNullException.ThrowIfNull(translatedText);
-
-        return Text.EndsWith('\r') || Text.EndsWith('\n')
-            ? translatedText
-            : translatedText.TrimEnd('\r', '\n');
-    }
+    public string RemoveTrailingLineBreaksFrom(string translatedText) =>
+        TrailingLineBreaks.RemoveFrom(translatedText, Text);
 
     /// <summary>
     /// Refuses Polish with a different number of <see cref="DatFormatConstants.Placeholder"/> markers

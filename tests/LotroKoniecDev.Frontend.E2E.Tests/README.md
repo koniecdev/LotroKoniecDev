@@ -85,9 +85,17 @@ One test class per flow, in `Flows/`:
   tall screens, and keeps its own width on a screen wider than the strip.
 - `HomeLayoutTests`: the home page's player and translator boxes have the same height side by side,
   the big percentage is centred against its text, and the gap between the boxes and between the
-  sections is 24 px on a wide screen and 20 px on a phone (#1572).
+  sections is 24 px on a wide screen and 20 px on a phone (#1572); a one-line step is as tall as its
+  badge with its text centred on it, a wrapped step keeps its first line there, and on a 360 px phone
+  a visitor's top bar wraps instead of scrolling sideways and the hero jump lands below it (#1575).
 - `PageWidthTests`: the page is as wide as the window up to 1920 px and centred on a wider one; the
-  terms document and the home page's risk note stop at their width on a 1400 px page (#1572).
+  terms document stops at its width on a 1400 px page (#1572).
+- `FooterLayoutTests`: the footer's columns sit side by side and stack on a phone, the risk note
+  starts at the left edge with a readable line on every page, and the bottom row is split to both
+  sides (#1575).
+- `SignUpFromTheTopBarTests`: the top bar's "Zarejestruj" → the sign-up form (`prompt=create`) →
+  confirm the e-mail in a second tab → "Przejdź do logowania" → log in → back on the website, signed
+  in (#1575).
 - `EditorLayoutTests`: the editor's English and Polish boxes are 24 px apart side by side and 20 px
   apart stacked on a phone (#1572).
 - `TranslationsFilterLayoutTests`: the translation list's filter row keeps every control inside the

@@ -164,6 +164,24 @@ public sealed class SignInServerDownTests : IClassFixture<ProductionFrontendFact
         state.ShouldNotBeNull().RedirectUri.ShouldBe("/game-versions?page=2");
     }
 
+    /// <summary>The sign-up form lives on the same server, so the "login unavailable" page is true for it too (#1575).</summary>
+    [Fact]
+    public async Task Get_TheSignUpWhileTheSignInServerIsDown_ShowsTheLoginUnavailablePage()
+    {
+        // Arrange
+        using WebApplicationFactory<Program> host = CreateHost(new StandInSignInServer(), new DashboardTranslationSystem());
+        using CookieJarBrowser browser = new(host);
+
+        // Act
+        using HttpResponseMessage page = await browser.GetAsync("/auth/register");
+
+        // Assert
+        page.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        string markup = await page.Content.ReadAsStringAsync();
+        markup.ShouldContain(LoginUnavailableTitle);
+        markup.ShouldNotContain(ErrorTitle);
+    }
+
     [Fact]
     public async Task Get_APageThatNeedsALoginWhileTheSignInServerAnswers_SendsTheVisitorOnToTheSignInServer()
     {

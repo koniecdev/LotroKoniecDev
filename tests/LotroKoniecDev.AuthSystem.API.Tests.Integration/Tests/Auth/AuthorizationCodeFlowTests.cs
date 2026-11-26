@@ -252,6 +252,29 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         location.ShouldContain("error=login_required");
     }
 
+    /// <summary>
+    /// A client that may not show a screen never gets the sign-up form, whatever else the prompt asks for.
+    /// </summary>
+    [Theory]
+    [InlineData("none create")]
+    [InlineData("create none")]
+    public async Task Authorize_WithPromptNoneAndCreate_ShouldReturnLoginRequired_WhenNotAuthenticated(string prompt)
+    {
+        // Arrange
+        (_, string codeChallenge) = GeneratePkce();
+        string authorizeUrl = BuildAuthorizeUrl(codeChallenge) + $"&prompt={Uri.EscapeDataString(prompt)}";
+
+        // Act
+        using HttpResponseMessage response = await _noRedirectClient.GetAsync(
+            new Uri(authorizeUrl, UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri callback = response.Headers.Location.ShouldNotBeNull();
+        callback.GetLeftPart(UriPartial.Path).ShouldBe(RedirectUri);
+        HttpUtility.ParseQueryString(callback.Query)["error"].ShouldBe("login_required");
+    }
+
     [Fact]
     public async Task Authorize_WithPromptCreate_ShouldShowTheRegisterPageAndKeepTheAuthorizeAddress_WhenNotAuthenticated()
     {

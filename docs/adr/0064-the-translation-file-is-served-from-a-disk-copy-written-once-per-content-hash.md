@@ -119,7 +119,8 @@ one rebuild plus one load, about 500 MB at full size. That is bounded and does n
 ### 7. The frontend's public download streams the file too
 
 Players can also download `polish.txt` from the landing page. That route, `/download/polish.txt` in the
-frontend, is public. It fetched the whole file from the TMS API, decoded it into a string and encoded
+frontend, is public. *(2026-11-25, #1575: the landing page no longer links it; the Import / Eksport
+page does, and the route stays public.)* It fetched the whole file from the TMS API, decoded it into a string and encoded
 it into a byte array again, so it held about three copies of the file for every request, in a
 container on the same box. That is the same fault in a second place, so it is fixed here as well.
 

@@ -918,8 +918,8 @@ ETag**, or the download is rejected and the cached file is used. The CLI's defau
 the production root `https://tms.lotro-translator.pl/`, so a plain `launch` syncs; `--tms-url`
 points it at staging or a local server, and `--skip-sync` turns the sync off.
 
-The frontend also serves the same file at `/download/polish.txt` for people who want it from the
-website.
+The frontend also serves the same file at `/download/polish.txt`, a public route that the
+Import / Eksport page links. The home page sends players to the patcher instead (#1575).
 
 ### 5.8 HATEOAS — the API tells the UI what is allowed
 

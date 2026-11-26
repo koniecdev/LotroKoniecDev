@@ -10,7 +10,10 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// </summary>
 public sealed class FooterLayoutTests : E2ETestBase
 {
-    /// <summary>70 characters of the footer's 11 px monospace font, 7 px each.</summary>
+    /// <summary>
+    /// The paragraphs' 70ch limit: 70 times the width of a "0" of the footer's 11 px monospace font, 7 px each.
+    /// The letter spacing is extra, so a line holds about 62 characters.
+    /// </summary>
     private const int ReadableLineWidth = 490;
 
     [Theory]

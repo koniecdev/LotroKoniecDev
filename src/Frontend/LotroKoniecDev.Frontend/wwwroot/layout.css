@@ -1640,7 +1640,8 @@ main:has(> .home-banner) {
 }
 
 /* ───────── Footer ───────── */
-/* Left-aligned columns. A paragraph stops at about 70 characters, so a long line stays readable (#1575). */
+/* Left-aligned columns. A paragraph stops at 70ch, about 62 characters with the letter spacing, so a long
+   line stays readable (#1575). */
 .foot {
     margin-top: auto;
     padding-top: 32px;

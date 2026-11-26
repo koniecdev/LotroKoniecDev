@@ -13,6 +13,8 @@ namespace LotroKoniecDev.AuthSystem.API.Features.Auth;
 
 internal sealed class AuthorizeEndpoint : IEndpoint
 {
+    private const string RegisterPagePath = "/Account/Register";
+
     private static async Task<IResult> HandleAsync(
         HttpContext httpContext,
         UserManager<ApplicationUser> userManager)
@@ -42,6 +44,14 @@ internal sealed class AuthorizeEndpoint : IEndpoint
                     httpContext.Request.HasFormContentType
                         ? httpContext.Request.Form.Select(kvp => new KeyValuePair<string, string?>(kvp.Key, kvp.Value))
                         : httpContext.Request.Query.Select(kvp => new KeyValuePair<string, string?>(kvp.Key, kvp.Value)));
+
+            // OpenIddict checks prompt=create but leaves the screen to us (#1575). The form's way to the login
+            // keeps this address, and with a session the same request skips this branch and issues the code.
+            if (request.HasPromptValue(PromptValues.Create))
+            {
+                return Results.LocalRedirect(
+                    httpContext.Request.PathBase + RegisterPagePath + QueryString.Create("returnUrl", returnUrl));
+            }
 
             return Results.Challenge(
                 new AuthenticationProperties { RedirectUri = returnUrl },

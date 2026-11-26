@@ -59,6 +59,10 @@ internal static class OpenIddictExtensions
                     AuthConstants.Scopes.Api,
                     AuthConstants.Scopes.Service);
 
+                // The website's sign-up button asks for the sign-up form with prompt=create (#1575). OpenIddict
+                // refuses a prompt value it does not know, and AuthorizeEndpoint shows the form.
+                options.RegisterPromptValues(OpenIddict.Abstractions.OpenIddictConstants.PromptValues.Create);
+
                 // Not encrypted, so standard JWT Bearer validation can read them. They are still signed.
                 options.DisableAccessTokenEncryption();
 

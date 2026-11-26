@@ -17,7 +17,12 @@ internal static class AuthActions
     public static async Task RegisterAsync(IPage page, PlaywrightStackFixture fixture, TestUser user)
     {
         await page.GotoAsync($"{fixture.AuthBaseUrl}/Account/Register");
+        await SubmitRegisterFormAsync(page, user);
+    }
 
+    /// <summary>The caller must be on the sign-up form.</summary>
+    public static async Task SubmitRegisterFormAsync(IPage page, TestUser user)
+    {
         await page.GetByLabel(FieldLabels.Username).FillAsync(user.Username);
         await page.GetByLabel(FieldLabels.Email).FillAsync(user.Email);
         await page.GetByLabel(FieldLabels.Password, new() { Exact = true }).FillAsync(user.Password);

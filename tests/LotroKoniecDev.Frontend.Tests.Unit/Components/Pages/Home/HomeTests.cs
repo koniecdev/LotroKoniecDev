@@ -4,6 +4,7 @@ using Bunit.Rendering;
 using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Pages.Home;
 using LotroKoniecDev.Frontend.Components.Pages.ImportExport;
+using LotroKoniecDev.Frontend.Components.Shared;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
@@ -20,7 +21,8 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Components.Pages.Home;
 
 /// <summary>
 /// The landing page (#309): the progress band from the public counters, a calm message on an API outage,
-/// and the buttons that follow whether the visitor is signed in.
+/// and the buttons that follow whether the visitor is signed in. Players get the patcher, never the file
+/// it downloads itself (#1575).
 /// </summary>
 public sealed class HomeTests : BunitContext
 {
@@ -87,20 +89,24 @@ public sealed class HomeTests : BunitContext
     }
 
     [Fact]
-    public void Render_WhenAnonymous_OffersTheJoinCtasInsteadOfThePanel()
+    public void Render_WhenAnonymous_SendsBothJoinButtonsToTheSignUpInsteadOfThePanel()
     {
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.LoginPath}']")
-            .ShouldNotBeEmpty();
+        string[] joinButtons = component
+            .FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.RegisterPath}']")
+            .Select(link => link.TextContent.Trim())
+            .ToArray();
+        joinButtons.ShouldBe(["Dołącz jako tłumacz", "Zarejestruj się"]);
+        component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.LoginPath}']").ShouldBeEmpty();
         component.FindAll("a[href='/dashboard']").ShouldBeEmpty();
     }
 
     [Fact]
-    public void Render_WhenAuthenticated_OffersThePanelCtasInsteadOfLogin()
+    public void Render_WhenAuthenticated_OffersThePanelCtasInsteadOfTheSignUp()
     {
         AddAuthorization().SetAuthorized("Frodo");
         StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
@@ -108,50 +114,69 @@ public sealed class HomeTests : BunitContext
         IRenderedComponent<HomeComponent> component = RenderHome();
 
         component.FindAll("a[href='/dashboard']").ShouldNotBeEmpty();
+        component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.RegisterPath}']")
+            .ShouldBeEmpty();
         component.FindAll($"a[href='{AuthenticationDependencyInjectionExtensions.LoginPath}']")
             .ShouldBeEmpty();
     }
 
     [Fact]
-    public void Render_Always_OffersThePublicDownloadAndTheTranslationsList()
+    public void Render_Always_OffersThePatcherInsteadOfTheTranslationFile()
     {
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        IElement download = component.Find("a[download]");
-        download.GetAttribute("href").ShouldBe(ImportExportEndpointsExtensions.DownloadPath);
-        download.GetAttribute("download").ShouldBe(ImportExportLoader.DownloadFileName);
+        IElement patcher = component.Find("#dla-graczy a.btn-primary");
+        patcher.GetAttribute("href").ShouldBe(ExternalLinks.PatcherReadme);
+        patcher.TextContent.ShouldBe("Patcher CLI");
+        component.FindAll("a[download]").ShouldBeEmpty();
+        component.FindAll($"a[href='{ImportExportEndpointsExtensions.DownloadPath}']").ShouldBeEmpty();
         component.FindAll("a[href='/translations']").ShouldNotBeEmpty();
     }
 
     [Fact]
-    public void Render_Always_OpensTheBottomBlockWithTheRiskNoteAndItsTermsLink()
+    public void Render_Always_ShowsTheWindowsAppAsADisabledButtonWithNoAddress()
     {
         AddAuthorization().SetNotAuthorized();
         StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        IElement riskNote = component.FindAll(".risk-note").ShouldHaveSingleItem();
-        riskNote.ParentElement.ShouldNotBeNull().ClassList.ShouldContain("home-tech");
-        riskNote.PreviousElementSibling.ShouldBeNull();
-        riskNote.QuerySelector("a[href='/regulamin']").ShouldNotBeNull();
+        IElement app = component.FindAll("#dla-graczy .editor-actions > *")
+            .Single(button => button.TextContent == "Aplikacja Windows (wkrótce)");
+        app.TagName.ShouldBe("SPAN");
+        app.HasAttribute("href").ShouldBeFalse();
+        app.GetAttribute("aria-disabled").ShouldBe("true");
+        app.GetAttribute("role").ShouldBe("link");
+        app.ClassList.ShouldContain("is-disabled");
     }
 
     [Fact]
-    public void Render_WhenProgressUnavailable_StillLinksTheDiscordServer()
+    public void Render_Always_ListsWhatThePatcherDoesInThePlayerSteps()
     {
         AddAuthorization().SetNotAuthorized();
-        StubProgress(ApiResult.Failure<PublicProgressResponse>(
-            new ProblemDetails { Title = "API nieosiągalne", Status = 503 }));
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
 
         IRenderedComponent<HomeComponent> component = RenderHome();
 
-        IElement discordLink = component.Find(".home-tech a[href='https://discord.gg/sncXwa64Ex']");
-        discordLink.GetAttribute("rel").ShouldBe("noopener");
-        discordLink.TextContent.ShouldBe("Discord „LOTRO po polsku”");
+        string[] steps = component.FindAll("#dla-graczy .steps li strong")
+            .Select(step => step.TextContent)
+            .ToArray();
+        steps.ShouldBe(["Pobierz patcher", "Uruchom grę przez patcher", "Graj po polsku"]);
+    }
+
+    [Fact]
+    public void Render_Page_EndsTheContentWithTheTwoBoxesAndKeepsTheRiskNoteForTheFooter()
+    {
+        AddAuthorization().SetNotAuthorized();
+        StubProgress(ApiResult.Success(new PublicProgressResponse(0, 0, 0, null)));
+
+        IRenderedComponent<HomeComponent> component = RenderHome();
+
+        component.Find(".content-wrap").LastElementChild.ShouldNotBeNull().ClassList.ShouldContain("home-duo");
+        component.FindAll(".risk-note").ShouldBeEmpty();
     }
 
     [Fact]

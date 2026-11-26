@@ -35,14 +35,36 @@
 
     <footer class="foot">
         <div class="container">
-            <p>© @DateTimeOffset.UtcNow.ToPolandTime().Year lotro-translator.pl — polskie tłumaczenie The Lord of the Rings Online</p>
-            <p class="foot-links">
-                <a href="/regulamin">Regulamin</a>
-                <a href="@PrivacyPolicyUrl" target="_blank" rel="noopener">Polityka prywatności</a>
-                <a href="@ExternalLinks.Discord" target="_blank" rel="noopener">Discord</a>
-            </p>
-            <p class="foot-legal">Nieoficjalny, niekomercyjny projekt fanowski — niepowiązany ze Standing Stone Games ani Middle-earth Enterprises. The Lord of the Rings Online™ oraz nazwy postaci, przedmiotów, wydarzeń i miejsc są znakami towarowymi Middle-earth Enterprises, LLC.</p>
-            <p class="foot-credit">Logo i grafiki: MoFin</p>
+            <div class="foot-grid">
+                <div class="foot-about">
+                    <p class="foot-brand">lotro-translator.pl</p>
+                    <p>Polskie tłumaczenie The Lord of the Rings Online.</p>
+                    <p>Projekt open source — .NET 10 · Blazor SSR · PostgreSQL</p>
+                </div>
+                <div class="foot-column">
+                    <p class="foot-heading">Projekt</p>
+                    <ul class="foot-links">
+                        <li><a href="@ExternalLinks.Repository" target="_blank" rel="noopener">GitHub</a></li>
+                        <li><a href="@ExternalLinks.Discord" target="_blank" rel="noopener">Discord</a></li>
+                    </ul>
+                </div>
+                <div class="foot-column">
+                    <p class="foot-heading">Informacje</p>
+                    <ul class="foot-links">
+                        <li><a href="/regulamin">Regulamin</a></li>
+                        <li><a href="@PrivacyPolicyUrl" target="_blank" rel="noopener">Polityka prywatności</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="foot-notes">
+                <p class="foot-legal">Nieoficjalny, niekomercyjny projekt fanowski — niepowiązany ze Standing Stone Games ani Middle-earth Enterprises. The Lord of the Rings Online™ oraz nazwy postaci, przedmiotów, wydarzeń i miejsc są znakami towarowymi Middle-earth Enterprises, LLC.</p>
+                @* LEGAL-12 (a): the footer carries the note on every page (spec 0011, #1575). *@
+                <p class="risk-note">Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje takich modyfikacji, choć przez ponad dekadę działania analogicznych projektów (rosyjskiego i hiszpańskiego) nie odnotowano za nie banów. Korzystasz na własną odpowiedzialność. Szczegóły w <a href="/regulamin">regulaminie</a>.</p>
+            </div>
+            <div class="foot-bottom">
+                <p>© @DateTimeOffset.UtcNow.ToPolandTime().Year lotro-translator.pl</p>
+                <p class="foot-credit">Logo i grafiki: MoFin</p>
+            </div>
         </div>
     </footer>
 

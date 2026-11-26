@@ -8,12 +8,15 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// Side by side, the player and translator boxes have the same height, and the big percentage is centred
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
 /// The gap between the boxes and between the sections is never wider than the page's side padding (#1572).
+/// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
+    private const int StepBadgeSize = 28;
+
     [Theory]
     [InlineData(1920)]
-    // At 960 px the sign-in button wraps, so the translator box is the taller one.
+    // At 960 px the boxes are narrow, so their texts and buttons wrap to different heights.
     [InlineData(960)]
     public async Task Player_and_translator_boxes_side_by_side_have_the_same_height(int width)
     {
@@ -85,6 +88,72 @@ public sealed class HomeLayoutTests : E2ETestBase
 
         // Assert
         (players.Y - (progress.Y + progress.Height)).ShouldBe(expectedGap, 1d);
+    }
+
+    [Fact]
+    public async Task One_line_step_is_as_tall_as_its_badge_with_its_text_centred_on_it()
+    {
+        // Arrange: the third player step fits on one line on a wide screen
+        await OpenHomeAsync(1920, 1080);
+        ILocator step = Page.Locator("#dla-graczy .steps li").Nth(2);
+
+        // Act
+        LocatorBoundingBoxResult stepBox = await step.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult firstWords = await step.Locator("strong").RequireBoundingBoxAsync();
+
+        // Assert: the badge is pinned to the top of the step, 28 px tall
+        stepBox.Height.ShouldBe(StepBadgeSize, 0.5d);
+        (firstWords.Y + firstWords.Height / 2).ShouldBe(stepBox.Y + StepBadgeSize / 2f, 1d);
+    }
+
+    [Fact]
+    public async Task Wrapped_step_keeps_its_first_line_centred_on_the_badge()
+    {
+        // Arrange
+        await OpenHomeAsync(390, 844);
+        ILocator step = Page.Locator("#dla-graczy .steps li").Nth(1);
+
+        // Act
+        LocatorBoundingBoxResult stepBox = await step.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult firstWords = await step.Locator("strong").RequireBoundingBoxAsync();
+
+        // Assert
+        stepBox.Height.ShouldBeGreaterThan(StepBadgeSize);
+        (firstWords.Y + firstWords.Height / 2).ShouldBe(stepBox.Y + StepBadgeSize / 2f, 1d);
+    }
+
+    [Fact]
+    public async Task Visitors_top_bar_on_a_360_px_phone_wraps_instead_of_scrolling_sideways()
+    {
+        // Arrange
+        await OpenHomeAsync(360, 800);
+
+        // Act
+        bool scrollsSideways = await Page.Locator(".nav-links")
+            .EvaluateAsync<bool>("links => links.scrollWidth > links.clientWidth");
+        LocatorBoundingBoxResult signUp = await Page
+            .GetByRole(AriaRole.Link, new() { Name = Links.SignUp, Exact = true })
+            .RequireBoundingBoxAsync();
+
+        // Assert
+        scrollsSideways.ShouldBeFalse();
+        (signUp.X + signUp.Width).ShouldBeLessThanOrEqualTo(360);
+    }
+
+    [Fact]
+    public async Task Hero_jump_on_a_phone_lands_the_players_box_below_the_visitors_taller_top_bar()
+    {
+        // Arrange
+        await OpenHomeAsync(360, 800);
+
+        // Act
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();
+        await Page.WaitForFunctionAsync("() => window.scrollY > 0");
+        LocatorBoundingBoxResult heading = await Page.Locator("#dla-graczy h2").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
+
+        // Assert
+        heading.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
     }
 
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)

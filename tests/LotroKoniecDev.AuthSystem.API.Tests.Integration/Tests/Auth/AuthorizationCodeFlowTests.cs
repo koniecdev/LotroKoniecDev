@@ -252,6 +252,85 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         location.ShouldContain("error=login_required");
     }
 
+    /// <summary>
+    /// A client that may not show a screen never gets the sign-up form, whatever else the prompt asks for.
+    /// </summary>
+    [Theory]
+    [InlineData("none create")]
+    [InlineData("create none")]
+    public async Task Authorize_WithPromptNoneAndCreate_ShouldReturnLoginRequired_WhenNotAuthenticated(string prompt)
+    {
+        // Arrange
+        (_, string codeChallenge) = GeneratePkce();
+        string authorizeUrl = BuildAuthorizeUrl(codeChallenge) + $"&prompt={Uri.EscapeDataString(prompt)}";
+
+        // Act
+        using HttpResponseMessage response = await _noRedirectClient.GetAsync(
+            new Uri(authorizeUrl, UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri callback = response.Headers.Location.ShouldNotBeNull();
+        callback.GetLeftPart(UriPartial.Path).ShouldBe(RedirectUri);
+        HttpUtility.ParseQueryString(callback.Query)["error"].ShouldBe("login_required");
+    }
+
+    [Fact]
+    public async Task Authorize_WithPromptCreate_ShouldShowTheRegisterPageAndKeepTheAuthorizeAddress_WhenNotAuthenticated()
+    {
+        // Arrange
+        (_, string codeChallenge) = GeneratePkce();
+        string authorizeUrl = BuildAuthorizeUrl(codeChallenge) + "&state=the-state&prompt=create";
+
+        // Act
+        using HttpResponseMessage response = await _noRedirectClient.GetAsync(
+            new Uri(authorizeUrl, UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri registerAddress = new(new Uri("https://localhost"), response.Headers.Location.ShouldNotBeNull());
+        registerAddress.AbsolutePath.ShouldBe("/Account/Register");
+        Uri returnAddress = new(
+            new Uri("https://localhost"),
+            HttpUtility.ParseQueryString(registerAddress.Query)["returnUrl"].ShouldNotBeNull());
+        returnAddress.AbsolutePath.ShouldBe("/connect/authorize");
+        NameValueCollection returnQuery = HttpUtility.ParseQueryString(returnAddress.Query);
+        returnQuery["client_id"].ShouldBe(WebsiteClientId);
+        returnQuery["redirect_uri"].ShouldBe(RedirectUri);
+        returnQuery["code_challenge"].ShouldBe(codeChallenge);
+        returnQuery["state"].ShouldBe("the-state");
+        returnQuery["prompt"].ShouldBe("create");
+    }
+
+    [Fact]
+    public async Task Authorize_WithPromptCreate_ShouldIssueTheCode_WhenAuthenticated()
+    {
+        // Arrange: the sign-in that follows a sign-up comes back here with the same prompt
+        WebsiteSession session = await SignInThroughTheWebsiteAsync();
+        (_, string codeChallenge) = GeneratePkce();
+        using HttpClient browser = Factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false,
+            HandleCookies = false
+        });
+        using HttpRequestMessage request = new(
+            HttpMethod.Get,
+            new Uri(BuildAuthorizeUrl(codeChallenge) + "&prompt=create", UriKind.Relative));
+        foreach (string cookie in session.AuthCookies)
+        {
+            request.Headers.Add("Cookie", cookie.Split(';')[0]);
+        }
+
+        // Act
+        using HttpResponseMessage response = await browser.SendAsync(request);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        Uri callback = response.Headers.Location.ShouldNotBeNull();
+        callback.GetLeftPart(UriPartial.Path).ShouldBe(RedirectUri);
+        HttpUtility.ParseQueryString(callback.Query)["code"].ShouldNotBeNullOrEmpty();
+    }
+
     [Fact]
     public async Task LoginPage_ShouldReturnOk_WhenAccessed()
     {
@@ -800,6 +879,23 @@ public sealed partial class AuthorizationCodeFlowTests : AsyncLifetimeTestBase
         using JsonDocument discovery = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         Uri revocationEndpoint = new(discovery.RootElement.GetProperty("revocation_endpoint").GetString()!);
         revocationEndpoint.AbsolutePath.ShouldBe("/connect/revoke");
+    }
+
+    [Fact]
+    public async Task Discovery_ShouldAdvertisePromptCreate_WhenAnyClientAsks()
+    {
+        // Act
+        using HttpResponseMessage response = await ApiClient.Http.GetAsync(
+            new Uri(".well-known/openid-configuration", UriKind.Relative));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using JsonDocument discovery = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        string?[] promptValues = discovery.RootElement.GetProperty("prompt_values_supported")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .ToArray();
+        promptValues.ShouldContain("create");
     }
 
     [Fact]

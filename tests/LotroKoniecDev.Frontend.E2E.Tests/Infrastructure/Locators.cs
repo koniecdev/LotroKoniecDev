@@ -29,8 +29,10 @@ internal static class Buttons
     public const string Logout = "Wyloguj";
 }
 
-/// <summary>Accessible names of the nav links, for <c>GetByRole(AriaRole.Link)</c>.</summary>
+/// <summary>Accessible names of the links, for <c>GetByRole(AriaRole.Link)</c>.</summary>
 internal static class Links
 {
     public const string Login = "Zaloguj";
+    public const string SignUp = "Zarejestruj";
+    public const string GoToLogin = "Przejdź do logowania";
 }

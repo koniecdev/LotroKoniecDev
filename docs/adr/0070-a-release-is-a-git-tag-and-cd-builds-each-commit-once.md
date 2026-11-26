@@ -1,6 +1,7 @@
 # ADR-0070: A release is a git tag, and CD builds each commit once
 
-**Status:** Accepted (amended 2026-11-16 for desktop releases, #45: see the amendment below)
+**Status:** Accepted (amended 2026-11-16 for desktop releases, #45, and 2026-11-25 for the website,
+#1575: see the amendments below)
 **Date:** 2026-11-12
 **Decision-makers:** Solo maintainer (owner decisions recorded in #1344, 2026-11-12)
 **Amends:** [ADR-0012](0012-continuous-deployment-pipeline.md) §1 and Alternative D (semver images
@@ -280,10 +281,20 @@ no workflow listens to tags or releases anyway. The desktop workflow builds no i
   commits and cancels older runs, so the tip of `main` often has no run of its own and the check
   would block good releases. The runbook asks the owner to look at `main`'s CI before the dispatch.
 
+## Amendment (2026-11-25): no release version on the website
+
+**Ticket:** #1575. **Owner decision:** the "Owner decisions (2026-11-25)" section of #1575.
+
+The website shows no release version and no commit hash, in its footer or anywhere else. §2 builds
+each commit's image once, before any tag exists, so the image cannot know the release number it
+later ships as. A commit hash in its place gives players nothing. A ticket that asks for a version
+line on the website needs a new owner decision first.
+
 ## References
 
 - #1344 (the bug and both owner decisions), epic #1346, wiki page `Wersje-systemu`
 - #45 and spec 0016 (desktop releases, the 2026-11-16 amendment)
+- #1575 (no release version on the website, the 2026-11-25 amendment)
 - ADR-0012 §1, ADR-0008 §6, ADR-0024 Decision 1, ADR-0023, ADR-0071 (the backup)
 - #1336 (which refs may deploy, and the rollout's provenance check), #1424 (a hand run with
   `image_tag` still builds first)

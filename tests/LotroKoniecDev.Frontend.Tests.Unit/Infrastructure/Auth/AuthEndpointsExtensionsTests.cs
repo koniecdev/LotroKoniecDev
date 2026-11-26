@@ -28,8 +28,8 @@ using NSubstitute;
 namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.Auth;
 
 /// <summary>
-/// Calls the route handlers directly, with no web host. Login answers 503 when the discovery fetch fails,
-/// so the "login unavailable" page shows instead of a raw 500 (#311). Both sign-outs revoke the refresh
+/// Calls the route handlers directly, with no web host. Login and sign-up answer 503 when the discovery
+/// fetch fails, so the "login unavailable" page shows instead of a raw 500 (#311). Both sign-outs revoke the refresh
 /// token themselves and never let that revoke stop the sign-out (#964).
 /// </summary>
 public sealed class AuthEndpointsExtensionsTests
@@ -111,6 +111,82 @@ public sealed class AuthEndpointsExtensionsTests
     {
         // A missing manager must never turn a login into a false 503.
         IResult result = await AuthEndpointsExtensions.LoginAsync(
+            new DefaultHttpContext(),
+            "/dashboard",
+            CreateSignInAvailability(configurationManager: null));
+
+        result.ShouldBeOfType<ChallengeHttpResult>();
+    }
+
+    [Fact]
+    public async Task LoginAsync_WhenAuthorityReachable_AsksForNoPrompt()
+    {
+        IResult result = await AuthEndpointsExtensions.LoginAsync(
+            new DefaultHttpContext(),
+            "/dashboard",
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
+
+        ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
+        challenge.Properties.ShouldNotBeNull().GetParameter<string>(OpenIdConnectParameterNames.Prompt).ShouldBeNull();
+    }
+
+    [Theory]
+    [MemberData(nameof(AuthorityUnreachableFailures))]
+    public async Task RegisterAsync_WhenDiscoveryFetchFails_ReturnsServiceUnavailableInsteadOfRaw500(
+        Exception discoveryFailure)
+    {
+        IConfigurationManager<OpenIdConnectConfiguration> configurationManager =
+            Substitute.For<IConfigurationManager<OpenIdConnectConfiguration>>();
+        configurationManager.GetConfigurationAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<OpenIdConnectConfiguration>(discoveryFailure));
+
+        IResult result = await AuthEndpointsExtensions.RegisterAsync(
+            new DefaultHttpContext(),
+            "/dashboard",
+            CreateSignInAvailability(configurationManager));
+
+        StatusCodeHttpResult statusResult = result.ShouldBeOfType<StatusCodeHttpResult>();
+        statusResult.StatusCode.ShouldBe(StatusCodes.Status503ServiceUnavailable);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenAuthorityReachable_ReturnsTheOidcChallengeWithPromptCreate()
+    {
+        IResult result = await AuthEndpointsExtensions.RegisterAsync(
+            new DefaultHttpContext(),
+            "/dashboard",
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
+
+        ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
+        challenge.AuthenticationSchemes.ShouldHaveSingleItem()
+            .ShouldBe(OpenIdConnectDefaults.AuthenticationScheme);
+        challenge.Properties.ShouldNotBeNull().GetParameter<string>(OpenIdConnectParameterNames.Prompt)
+            .ShouldBe("create");
+    }
+
+    [Theory]
+    [InlineData("/dashboard", "/dashboard")]
+    [InlineData("https://evil.example.com/harvest", "/")]
+    [InlineData("//evil.example.com", "/")]
+    [InlineData("/\t/evil.example.com", "/")]
+    [InlineData("", "/")]
+    [InlineData(null, "/")]
+    public async Task RegisterAsync_WhenAuthorityReachable_SanitizesReturnUrlToALocalRedirect(
+        string? returnUrl, string expectedRedirectUri)
+    {
+        IResult result = await AuthEndpointsExtensions.RegisterAsync(
+            new DefaultHttpContext(),
+            returnUrl,
+            CreateSignInAvailability(CreateReachableConfigurationManager()));
+
+        ChallengeHttpResult challenge = result.ShouldBeOfType<ChallengeHttpResult>();
+        challenge.Properties.ShouldNotBeNull().RedirectUri.ShouldBe(expectedRedirectUri);
+    }
+
+    [Fact]
+    public async Task RegisterAsync_WhenNoConfigurationManager_StillReturnsTheOidcChallenge()
+    {
+        IResult result = await AuthEndpointsExtensions.RegisterAsync(
             new DefaultHttpContext(),
             "/dashboard",
             CreateSignInAvailability(configurationManager: null));

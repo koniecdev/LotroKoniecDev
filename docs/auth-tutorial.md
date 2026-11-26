@@ -206,6 +206,8 @@ Tokeny potwierdzenia e-maila i resetu hasła żyją 24 h (`DataProtectionTokenPr
 - `RequireProofKeyForCodeExchange()` — PKCE wymagane;
 - `UseReferenceRefreshTokens()` — refresh tokeny **w bazie** (można je unieważnić, rolling — §10.2);
 - `RegisterScopes(openid, email, profile, roles, offline_access, api, service)`;
+- `RegisterPromptValues(create)` — standardowe `prompt=create` z przycisku „Zarejestruj" (#1575);
+  bez tego OpenIddict odrzuca tę wartość, a sam formularz pokazuje `AuthorizeEndpoint` (§6.4);
 - `DisableAccessTokenEncryption()` — access token podpisany, nieszyfrowany.
 
 ### 6.3 Klucze kryptograficzne
@@ -222,7 +224,7 @@ Tokeny potwierdzenia e-maila i resetu hasła żyją 24 h (`DataProtectionTokenPr
 ### 6.4 Endpointy OpenIddict
 | Endpoint | Plik | Co robi |
 |---|---|---|
-| `connect/authorize` | `AuthorizeEndpoint.cs` | wejście auth code; challenge cookie Identity, buduje `ClaimsIdentity` z `sub`/`email`/`name`/`role`, `SignIn` |
+| `connect/authorize` | `AuthorizeEndpoint.cs` | wejście auth code; challenge cookie Identity (bez sesji i z `prompt=create` zamiast logowania przekierowuje na `/Account/Register` z tym samym `returnUrl`, #1575), buduje `ClaimsIdentity` z `sub`/`email`/`name`/`role`, `SignIn` |
 | `connect/token` | `TokenEndpoint.cs` | wydaje tokeny; rozdziela grant (auth code / refresh / client credentials / password) |
 | `connect/userinfo` | `UserInfoEndpoint.cs` | claimy użytkownika według przyznanych scope'ów (`email`/`profile`/`roles`) |
 | `connect/logout` | `LogoutEndpoint.cs` | RP-initiated end-session: kończy **sesję tego urządzenia** — unieważnia autoryzację z `id_token_hint` i jej tokeny (§10.3), czyści cookie tej przeglądarki |
@@ -375,6 +377,9 @@ zaszyfrowanym cookie sesji (`SaveTokens = true`).
   mówi „Logowanie chwilowo niedostępne" (#311). Z kopią w pamięci użytkownik idzie dalej do
   `auth-api` (#1208). Tędy przechodzi każda strona wymagająca logowania (#1153) i nieudany powrót
   z logowania (`OnRemoteFailure`).
+- **Rejestracja**: `GET /auth/register` to ten sam challenge z `prompt=create` i tym samym 503, więc
+  `auth-api` otwiera formularz rejestracji. Po potwierdzeniu e-maila link „Przejdź do logowania"
+  wraca przez ten sam `connect/authorize` i kończy się na stronie, zalogowany (#1575).
 - **Logout**: `POST /auth/logout` → `SignOutAsync(cookie)`, potem `SignInServerSignOut` czyta
   discovery document (limit 5 s na całość), Frontend sam unieważnia swój refresh token w
   `revocation_endpoint` (serwer–serwer, `RefreshTokenRevoker`, #964), a na koniec przekierowuje na

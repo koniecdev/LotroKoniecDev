@@ -3,7 +3,6 @@
 @attribute [StreamRendering]
 @using System.Globalization
 @using Microsoft.AspNetCore.Authorization
-@using LotroKoniecDev.Frontend.Components.Pages.ImportExport
 @using LotroKoniecDev.Frontend.Infrastructure.Auth
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
 @using LotroKoniecDev.TranslationSystem.Contracts.Progress
@@ -30,7 +29,7 @@
                     <a class="btn btn-ghost" href="/dashboard">Przejdź do panelu</a>
                 </Authorized>
                 <NotAuthorized>
-                    <a class="btn btn-ghost" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
+                    <a class="btn btn-ghost" href="@AuthenticationDependencyInjectionExtensions.RegisterPath">
                         Dołącz jako tłumacz
                     </a>
                 </NotAuthorized>
@@ -123,20 +122,17 @@
                         teksty prosto do plików.
                     </li>
                     <li>
-                        <strong>Pobierz plik spolszczenia</strong> — aktualny
-                        <code class="mono">polish.txt</code> ze wszystkimi zatwierdzonymi tłumaczeniami.
+                        <strong>Uruchom grę przez patcher</strong> — przy każdym starcie sam pobiera
+                        najnowsze spolszczenie i podmienia teksty.
                     </li>
                     <li>
-                        <strong>Nałóż łatkę i graj</strong> — patcher podmienia teksty i uruchamia grę;
-                        spolszczenie przeżywa aktualizacje LOTRO.
+                        <strong>Graj po polsku</strong> — spolszczenie przeżywa aktualizacje LOTRO.
                     </li>
                 </ol>
                 <div class="editor-actions">
-                    <a class="btn btn-primary" href="@ImportExportEndpointsExtensions.DownloadPath"
-                       download="@ImportExportLoader.DownloadFileName">
-                        Pobierz @ImportExportLoader.DownloadFileName
-                    </a>
-                    <a class="btn btn-ghost" href="@ExternalLinks.Repository" rel="noopener">Patcher na GitHubie</a>
+                    <a class="btn btn-primary" href="@ExternalLinks.PatcherReadme" rel="noopener">Patcher CLI</a>
+                    @* Becomes the installer download once the first desktop release exists (epic #472). *@
+                    <span class="btn btn-ghost is-disabled" role="link" aria-disabled="true">Aplikacja Windows (wkrótce)</span>
                 </div>
             </div>
         </section>
@@ -167,8 +163,8 @@
                             <a class="btn btn-primary" href="/dashboard">Otwórz panel tłumacza</a>
                         </Authorized>
                         <NotAuthorized>
-                            <a class="btn btn-primary" href="@AuthenticationDependencyInjectionExtensions.LoginPath">
-                                Zaloguj się lub załóż konto
+                            <a class="btn btn-primary" href="@AuthenticationDependencyInjectionExtensions.RegisterPath">
+                                Zarejestruj się
                             </a>
                         </NotAuthorized>
                     </AuthorizeView>
@@ -177,22 +173,6 @@
             </div>
         </section>
     </div>
-
-    <section class="home-tech">
-        <p class="risk-note">
-            Spolszczenie modyfikuje pliki gry — formalnie regulamin LOTRO nie przewiduje
-            takich modyfikacji, choć przez ponad dekadę działania analogicznych projektów
-            (rosyjskiego i hiszpańskiego) nie odnotowano za nie banów. Korzystasz na własną
-            odpowiedzialność. Szczegóły w <a href="/regulamin">regulaminie</a>.
-        </p>
-        <p>
-            Projekt open source — .NET 10 · Blazor SSR · PostgreSQL.
-            Kod, patcher i historia zmian: <a href="@ExternalLinks.Repository" rel="noopener">github.com/koniecdev/LotroKoniecDev</a>
-        </p>
-        <p>
-            Pomoc, rozmowy i zgłaszanie błędów w tłumaczeniu: <a href="@ExternalLinks.Discord" rel="noopener">Discord „LOTRO po polsku”</a>
-        </p>
-    </section>
 </section>
 
 @* The wide strip is too thin to read on a phone, so a phone gets the 2:1 banner in its place. *@

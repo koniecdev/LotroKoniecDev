@@ -1703,6 +1703,7 @@ main:has(> .home-banner) {
 }
 
 .risk-note a {
+    color: var(--accent-hi);
     text-decoration: underline;
 }
 

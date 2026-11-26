@@ -116,7 +116,8 @@ the public repo or platform hands a rightsholder an easy, high-value grievance.
   of the download section and is now the first paragraph of the small text block at the bottom
   of the home page.)* *(Amendment 2026-11-25, #1575: by the owner's decision the note moved into
   the site footer (`MainLayout.razor`), so every page of the website carries it, with the same
-  text and the ToS link. The home page has no download button any more.)* (b) CLI: same message as a one-line dimmed notice printed by `patch` and
+  text and the ToS link. The home page has no download button any more.)*
+  (b) CLI: same message as a one-line dimmed notice printed by `patch` and
   `launch` (Spectre.Console, no confirmation prompt — do not annoy), plus a `NOTICE` file in
   release artifacts. (c) A note in the M4 epic that the Avalonia app ships the same text in its
   About/first-run.

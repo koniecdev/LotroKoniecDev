@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using Bunit.Rendering;
 using Bunit.TestDoubles;
 using LotroKoniecDev.Frontend.Components.Layout;
+using LotroKoniecDev.Frontend.Components.Shared;
 using LotroKoniecDev.Frontend.Infrastructure.Auth;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -143,6 +144,32 @@ public sealed class NavMenuTests : BunitContext
         logo.GetAttribute("src").ShouldBe("logo.png");
         logo.GetAttribute("alt").ShouldBe(string.Empty);
         component.FindAll("a.brand svg").ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Render_DiscordPill_SitsRightAfterTheLogoAndOpensTheInviteInANewTab(bool signedIn)
+    {
+        // Outside nav.nav-links, so on a phone it stays in the logo's row (#1590).
+        if (signedIn)
+        {
+            AddAuthorization().SetAuthorized("Frodo");
+        }
+        else
+        {
+            AddAuthorization().SetNotAuthorized();
+        }
+
+        IRenderedComponent<NavMenu> component = RenderNavMenu();
+
+        IElement pill = component.Find("a.brand").NextElementSibling.ShouldNotBeNull();
+        pill.ClassList.ShouldContain("nav-discord");
+        pill.GetAttribute("href").ShouldBe(ExternalLinks.Discord);
+        pill.GetAttribute("target").ShouldBe("_blank");
+        pill.GetAttribute("rel").ShouldBe("noopener");
+        pill.TextContent.Trim().ShouldBe("Discord");
+        pill.QuerySelector("svg").ShouldNotBeNull().GetAttribute("aria-hidden").ShouldBe("true");
     }
 
     /// <summary>

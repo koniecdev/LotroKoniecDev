@@ -8,7 +8,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// Side by side, the player and translator boxes have the same height, and the big percentage is centred
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
 /// The gap between the boxes and between the sections is never wider than the page's side padding (#1572).
-/// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575).
+/// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575). The hero jump lands
+/// below the top bar on a phone, also where the Discord pill takes a row of its own (#1590).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
@@ -140,11 +141,20 @@ public sealed class HomeLayoutTests : E2ETestBase
         (signUp.X + signUp.Width).ShouldBeLessThanOrEqualTo(360);
     }
 
-    [Fact]
-    public async Task Hero_jump_on_a_phone_lands_the_players_box_below_the_visitors_taller_top_bar()
+    [Theory]
+    [InlineData(360, false)]
+    // Below about 340 px the Discord pill takes a row of its own, so the top bar is taller still (#1590).
+    [InlineData(320, false)]
+    [InlineData(320, true)]
+    public async Task Hero_jump_on_a_phone_lands_the_players_box_below_the_top_bar(int width, bool signedIn)
     {
         // Arrange
-        await OpenHomeAsync(360, 800);
+        if (signedIn)
+        {
+            await AuthActions.LoginAsync(Page, Fixture, Fixture.Admin);
+        }
+
+        await OpenHomeAsync(width, 800);
 
         // Act
         await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();

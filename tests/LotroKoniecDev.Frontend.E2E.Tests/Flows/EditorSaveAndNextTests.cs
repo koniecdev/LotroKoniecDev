@@ -7,8 +7,8 @@ using Shouldly;
 namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 
 /// <summary>
-/// #1490: "Zapisz i następny" in a real browser, which alone posts the pressed button's value and the
-/// textarea's text the way the page tests assume. The rows come from the shared seed
+/// #1490: "Zapisz i następny", and #1585: "Następny", in a real browser, which alone posts the pressed button's
+/// value and the textarea's text the way the page tests assume. The rows come from the shared seed
 /// (<see cref="TranslationRowsSeed"/>); the flows touch different rows, so their order does not matter.
 /// The seeded English ends with no full stop, so the typed Polish has none either: a slip would keep the
 /// translator on the row (#1489).
@@ -17,6 +17,7 @@ public sealed class EditorSaveAndNextTests : E2ETestBase
 {
     private const string PageSize = "25";
     private const string SaveAndNext = "Zapisz i następny";
+    private const string Next = "Następny";
     private static readonly LocatorWaitForOptions LongWait = new() { Timeout = 30_000 };
 
     [Fact]
@@ -87,12 +88,35 @@ public sealed class EditorSaveAndNextTests : E2ETestBase
         (await Page.Locator("table.data-table tbody tr").First.InnerTextAsync()).ShouldContain("Zatwierdzone");
     }
 
+    [Fact]
+    public async Task Next_on_an_empty_untranslated_row_opens_the_next_row_and_saves_nothing()
+    {
+        // Arrange: no status filter, so the rows keep their order whatever the other flows saved.
+        await OpenListAsync(Fixture.TranslationRows.SaveAndNextToken, status: null);
+        await ListRow(10).GetByRole(AriaRole.Link, new() { Name = "Edytuj", Exact = true }).ClickAsync();
+        await WaitForTheEnglishOfRowAsync(10);
+
+        // Act
+        await Page.GetByRole(AriaRole.Button, new() { Name = Next, Exact = true }).ClickAsync();
+        await WaitForTheEnglishOfRowAsync(11);
+
+        // Assert
+        (await Page.GetByText("Poprzednie tłumaczenie zapisano.", new() { Exact = true }).IsVisibleAsync()).ShouldBeFalse();
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Wróć do listy" }).ClickAsync();
+        await Page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/translations");
+        await ListRow(10).WaitForAsync(LongWait);
+        (await ListRow(10).InnerTextAsync()).ShouldContain("Nieprzetłumaczone");
+    }
+
     public EditorSaveAndNextTests(PlaywrightStackFixture fixture) : base(fixture)
     {
     }
 
     private static NameValueCollection QueryOf(string url) =>
         HttpUtility.ParseQueryString(new Uri(url).Query);
+
+    private ILocator ListRow(int row) =>
+        Page.Locator("table.data-table tbody tr", new() { HasTextString = $"Row {row:00} of {Fixture.TranslationRows.SaveAndNextToken}" });
 
     private async Task OpenListAsync(string search, string? status)
     {

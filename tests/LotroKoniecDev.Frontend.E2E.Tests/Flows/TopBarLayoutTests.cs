@@ -13,6 +13,8 @@ public sealed class TopBarLayoutTests : E2ETestBase
 {
     private const int PhoneSidePadding = 20;
 
+    private const int MinimumWordWidth = 40;
+
     private ILocator Brand => Page.Locator("header.nav a.brand");
 
     private ILocator Pill => Page.Locator("header.nav a.nav-discord");
@@ -54,19 +56,17 @@ public sealed class TopBarLayoutTests : E2ETestBase
         // Assert
         pill.Y.ShouldBeGreaterThanOrEqualTo(brand.Y + brand.Height);
         pill.X.ShouldBe(brand.X, 1d);
-        word.Width.ShouldBeGreaterThan(0);
+        // The word is about 51 px wide; a word hidden for screen readers only would be 1 px.
+        word.Width.ShouldBeGreaterThan(MinimumWordWidth);
         (word.X + word.Width).ShouldBeLessThanOrEqualTo(pill.X + pill.Width);
         links.Y.ShouldBeGreaterThanOrEqualTo(pill.Y + pill.Height);
         scrollsSideways.ShouldBeFalse();
     }
 
     [Theory]
-    [InlineData(900, false, false)]
-    // The signed-in links need about 1177 px next to the logo and the pill with the test admin's name.
-    [InlineData(1024, true, true)]
-    [InlineData(1920, true, false)]
-    public async Task Links_take_a_second_row_only_when_they_do_not_fit_and_keep_one_height(
-        int width, bool signedIn, bool linksWrap)
+    [InlineData(900, false)]
+    [InlineData(1920, true)]
+    public async Task Links_that_fit_stay_in_the_logo_row_right_of_the_pill(int width, bool signedIn)
     {
         // Arrange
         await OpenHomeAsync(width, 900, signedIn);
@@ -81,17 +81,29 @@ public sealed class TopBarLayoutTests : E2ETestBase
         links.Count.ShouldBeGreaterThan(1);
         links.ShouldAllBe(link => Math.Abs(link.Y - links[0].Y) <= 0.5 && Math.Abs(link.Height - links[0].Height) <= 0.5);
         (pill.Y + pill.Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
-        if (linksWrap)
-        {
-            links[0].Y.ShouldBeGreaterThanOrEqualTo(brand.Y + brand.Height);
-            links[0].X.ShouldBe(brand.X, 1d);
-        }
-        else
-        {
-            (links[0].Y + links[0].Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
-            links[0].X.ShouldBeGreaterThan(pill.X + pill.Width);
-        }
+        (links[0].Y + links[0].Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
+        links[0].X.ShouldBeGreaterThan(pill.X + pill.Width);
+        scrollsSideways.ShouldBeFalse();
+    }
 
+    [Fact]
+    public async Task Signed_in_links_that_do_not_fit_take_a_second_row_at_its_start()
+    {
+        // Arrange: with the test admin's name the links need about 1177 px next to the logo and the pill
+        await OpenHomeAsync(1024, 900, signedIn: true);
+        LocatorBoundingBoxResult brand = await Brand.RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult pill = await Pill.RequireBoundingBoxAsync();
+
+        // Act
+        IReadOnlyList<LocatorBoundingBoxResult> links = await LinkBoxesAsync();
+        bool scrollsSideways = await TopBarScrollsSidewaysAsync();
+
+        // Assert: every link, "Wyloguj" included, sits on one line with one height
+        links.Count.ShouldBeGreaterThan(1);
+        links.ShouldAllBe(link => Math.Abs(link.Y - links[0].Y) <= 0.5 && Math.Abs(link.Height - links[0].Height) <= 0.5);
+        (pill.Y + pill.Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
+        links[0].Y.ShouldBeGreaterThanOrEqualTo(brand.Y + brand.Height);
+        links[0].X.ShouldBe(brand.X, 1d);
         scrollsSideways.ShouldBeFalse();
     }
 

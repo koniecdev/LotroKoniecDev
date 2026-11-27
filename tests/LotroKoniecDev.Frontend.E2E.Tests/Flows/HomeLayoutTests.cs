@@ -9,7 +9,7 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
 /// The gap between the boxes and between the sections is never wider than the page's side padding (#1572).
 /// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575). The hero jump lands
-/// below the top bar on a phone, also where the Discord pill takes a row of its own (#1590).
+/// below the top bar, also where the Discord pill or the signed-in links take a row of their own (#1590).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
@@ -146,7 +146,9 @@ public sealed class HomeLayoutTests : E2ETestBase
     // Below about 340 px the Discord pill takes a row of its own, so the top bar is taller still (#1590).
     [InlineData(320, false)]
     [InlineData(320, true)]
-    public async Task Hero_jump_on_a_phone_lands_the_players_box_below_the_top_bar(int width, bool signedIn)
+    // The signed-in links take a second row next to the logo and the pill, so the bar is about 113 px (#1590).
+    [InlineData(1024, true)]
+    public async Task Hero_jump_lands_the_players_box_below_the_top_bar(int width, bool signedIn)
     {
         // Arrange
         if (signedIn)
@@ -159,11 +161,12 @@ public sealed class HomeLayoutTests : E2ETestBase
         // Act
         await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();
         await Page.WaitForFunctionAsync("() => window.scrollY > 0");
-        LocatorBoundingBoxResult heading = await Page.Locator("#dla-graczy h2").RequireBoundingBoxAsync();
+        // The box itself, not its heading: the box's top padding would hide a bar up to about 28 px too tall.
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
         LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
 
         // Assert
-        heading.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
+        players.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
     }
 
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)

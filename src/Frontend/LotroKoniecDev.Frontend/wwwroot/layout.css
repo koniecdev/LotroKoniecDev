@@ -1487,13 +1487,14 @@ main:has(> .home-banner) {
     flex-wrap: wrap;
 }
 
-/* The fill button's label ends with a count of up to five digits (#1587). On a phone it gets less padding
-   and a smaller font, so the label stays on one line (spec 0018's 390 px rule). */
+/* The fill button's label ends with a count of up to five digits (#1587). At 390 px the save row is 304 px
+   wide, and the label with "(14000)" needs 311 px at 13 px, so on a phone it gets 12 px and less padding
+   (spec 0018's 390 px rule). */
 @media (max-width: 480px) {
     .editor-fill {
         padding-left: 12px;
         padding-right: 12px;
-        font-size: 13px;
+        font-size: 12px;
     }
 }
 

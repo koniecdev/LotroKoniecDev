@@ -95,7 +95,8 @@ From the gate comment (2026-11-27):
   approved. A rebuild starts only when this row was approved and its text changed.
 - **Log.** One Information line per fill: the account, the row and the number of filled rows. Its
   text starts with neither alert prefix (`Translation save budget:`, `Translation overwritten:`). The
-  overwrite line is written for this row only, when it replaced Polish.
+  overwrite line is written for this row only, when it replaced Polish. A fill refused before it spent
+  anything writes an Information line too (`Identical rows fill refused:`), not the budget Warning.
 
 ### Editor
 
@@ -135,7 +136,8 @@ From the gate comment (2026-11-27):
   „Kopia do 1 wiersza…”). Every other refusal (the overwrite budget, a 409, a 400) shows its usual
   text. A server error or a timeout can come after the commit, so it adds „Nie wiadomo, czy tekst
   zapisano.” and reads the panel again; „Panel niżej pokazuje wiersze po tej próbie.” follows only when
-  that read works. A failure the website made before the request left (an open circuit breaker, a
+  that read works. While the outcome is unknown, the fill may still be running, so that page offers no
+  fill button. A failure the website made before the request left (an open circuit breaker, a
   connection that was never made) adds no such line.
 - **Requests.** The website never retries a fill and never counts it toward the circuit breaker: each
   attempt would spend N + 1 permits, and a retry after a committed fill would report "no empty row

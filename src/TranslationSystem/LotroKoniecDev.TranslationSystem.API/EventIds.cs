@@ -52,4 +52,5 @@ internal static class EventIds
     public const int TranslationSaveBudgetWarning = 1801;
     public const int IdenticalRowsFilled = 1802;
     public const int TranslationSavePermitsNotHandedBack = 1803;
+    public const int IdenticalRowsFillRefused = 1804;
 }

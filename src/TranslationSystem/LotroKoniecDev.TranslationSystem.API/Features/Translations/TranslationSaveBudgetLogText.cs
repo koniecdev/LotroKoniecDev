@@ -20,6 +20,13 @@ internal static class TranslationSaveBudgetLogText
     public const string FilledTemplate =
         "Identical rows filled: translator {TranslatorId} copied the Polish of ({FileId}, {GossipId}) into {FilledCount} empty rows with the same English, row saved {TranslationSaved}";
 
+    /// <summary>
+    /// A copy refused before it spent anything is the normal result of pressing the offered button, so it is
+    /// Information and starts with neither prefix above (#977, ADR-0072 amendment of 2026-11-27).
+    /// </summary>
+    public const string FillRefusedTemplate =
+        "Identical rows fill refused: translator {TranslatorId} needs {Needed} saves, {Saves} made in the last {WindowHours} h, budget {Budget}, limit {Limit}";
+
     public const string BudgetTemplate =
         BudgetPrefix
         + " translator {TranslatorId}, budget {Budget}, outcome {Outcome}, {Count} with this save, limit {Limit} per {WindowHours} h";

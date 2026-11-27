@@ -270,7 +270,8 @@
                                     <button type="submit" class="btn btn-primary" name="SaveAction" value="@NextSaveAction">Zapisz i następny</button>
                                     <button type="submit" class="btn btn-ghost" name="SaveAction" value="@SkipSaveAction">Następny</button>
                                 }
-                                @if (FillLink is not null && _sameSourceText is { } fillPanel)
+                                @* While a fill's outcome is unknown, it may still be running; a second press would race it. *@
+                                @if (FillLink is not null && !_fillOutcomeUnknown && _sameSourceText is { } fillPanel)
                                 {
                                     <button type="submit" class="btn btn-primary editor-fill" name="SaveAction" value="@FillSaveAction">Zapisz we wszystkich identycznych (@fillPanel.EmptyIdenticalCount.ToString(CultureInfo.InvariantCulture))</button>
                                     @if (_fillStop is FillStop.Slips)
@@ -400,8 +401,6 @@
 
     /// <summary>The fill after a slip stop: it fills the text as it stands.</summary>
     private const string FillAnywaySaveAction = "fill-anyway";
-
-    private const string SaveBudgetExhaustedCode = "Translations.SaveBudgetExhausted";
 
     private const string SavedFlag = "saved";
     private const string ApprovedFlag = "approved";
@@ -900,7 +899,7 @@
 
     /// <summary>The limit answer names the copy, so the translator knows the row alone may still fit (spec 0019).</summary>
     private static ProblemDetails? FillProblem(ProblemDetails? problem, int emptyRows) =>
-        problem is not null && ApiProblemCopy.ReadErrorCode(problem) == SaveBudgetExhaustedCode
+        problem is not null && ApiProblemCopy.ReadErrorCode(problem) == ApiProblemCopy.SaveBudgetExhaustedCode
             ? ApiProblemCopy.FrontendAuthored(
                 $"Kopia do {RowsGenitive(emptyRows)} nie mieści się w dziennym limicie zapisów. Sam ten wiersz możesz zapisać przyciskiem „Zapisz”.",
                 status: StatusCodes.Status429TooManyRequests)

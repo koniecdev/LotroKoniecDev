@@ -265,7 +265,10 @@ as a whole. A fill saves this row (only when its text changes) and N empty rows 
   rows and the account's saves in the window, and refuses at once when the copy cannot fit. A refused
   fill then costs two counts however large its group, so a client that sends it again and again cannot
   make the server load thousands of rows each time. Parallel fills can all pass this check; the permits
-  below still decide.
+  below still decide. Nothing was spent, so this refusal writes an Information line
+  `Identical rows fill refused: …`, not the budget Warning (§6): a group larger than the limit is the
+  normal result of pressing the offered button (#977). A refusal by the permits themselves, after a
+  parallel race, is still the Warning.
 - **One permit per saved row, in one statement (§4).** The fill then loads its rows and takes N permits,
   plus one when this row changes, in one `INSERT … SELECT … FROM unnest(…)` through the execution
   strategy, before any text changes. It counts once, and `TranslationSaveBudget.Judge` needs no change,

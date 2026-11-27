@@ -53,6 +53,12 @@ internal static partial class ApiProblemCopy
     internal const string PasswordConfirmationThrottledCode = "Auth.PasswordConfirmationThrottled";
 
     /// <summary>
+    /// The editor gives a refused copy into identical rows its own sentence (#1587). Named once, so the editor
+    /// and the map below cannot drift.
+    /// </summary>
+    internal const string SaveBudgetExhaustedCode = "Translations.SaveBudgetExhausted";
+
+    /// <summary>
     /// The last resort, for a code with no text here and a status with none either. Reaching it means
     /// <see cref="PolishByErrorCode"/> is missing an entry; <see cref="ReportUnmappedErrorCode"/> logs it.
     /// </summary>
@@ -117,7 +123,7 @@ internal static partial class ApiProblemCopy
                 + "Popraw liczbę znaczników i zapisz ponownie.",
             ["Translations.Validation"] =
                 "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.",
-            ["Translations.SaveBudgetExhausted"] =
+            [SaveBudgetExhaustedCode] =
                 "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.",
             ["Translations.OverwriteBudgetExhausted"] =
                 "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. "

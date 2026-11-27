@@ -497,6 +497,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
         page.Contains(UnknownLine, StringComparison.Ordinal).ShouldBe(unknown);
+        FillButton().IsMatch(page).ShouldBe(!unknown);
         translationSystem.PanelReads.ShouldBe(unknown ? 2 : 1);
         translationSystem.Fills.Count.ShouldBe(1);
     }
@@ -543,6 +544,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
         page.ShouldContain(UnknownLine);
+        FillButton().IsMatch(page).ShouldBeFalse();
         translationSystem.FillAttempts.ShouldBe(1);
         translationSystem.PanelReads.ShouldBe(2);
     }

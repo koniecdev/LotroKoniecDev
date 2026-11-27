@@ -286,7 +286,6 @@ public sealed class FillIdenticalTranslationsHandlerTests
         _saveLedger.RecordCalls.ShouldBe(0);
         _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(1, 0));
         new[] { row }.Concat(twins).ShouldAllBe(translation => translation.TranslatedText == null);
-        BudgetEntries().Count.ShouldBe(1);
     }
 
     [Fact]
@@ -307,7 +306,28 @@ public sealed class FillIdenticalTranslationsHandlerTests
         _saveLedger.RecordCalls.ShouldBe(0);
         await _translationRepository.DidNotReceive().GetEmptyRowsWithSourceAsync(
             Arg.Any<TranslationSource>(), Arg.Any<TranslationId>(), Arg.Any<CancellationToken>());
-        BudgetEntries().Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenTheCopyCannotFit_ShouldLogAnInformationLineAndNoBudgetWarning()
+    {
+        // Arrange: nothing was spent, and a group larger than the limit is the normal result of pressing the
+        // offered button, so the owner's alert must not count it (#977).
+        _budgetSettings = SmallBudget(saveLimit: 3);
+        Translation row = Row(1);
+        GivenRows(row, Row(2), Row(3), Row(4));
+
+        // Act
+        await Fill(row, Polish);
+
+        // Assert
+        BudgetEntries().ShouldBeEmpty();
+        CapturingLoggerFactory.LogEntry refused = _loggerFactory.Entries
+            .Where(entry => entry.EventId.Id == EventIds.IdenticalRowsFillRefused)
+            .ShouldHaveSingleItem();
+        refused.Level.ShouldBe(LogLevel.Information);
+        refused.Message.ShouldContain("needs 4 saves, 0 made in the last 24 h");
+        refused.Message.ShouldNotStartWith(TranslationSaveBudgetLogText.BudgetPrefix);
     }
 
     [Fact]
@@ -323,10 +343,11 @@ public sealed class FillIdenticalTranslationsHandlerTests
         // Act
         Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
 
-        // Assert
+        // Assert: the permits were spent for a moment, so this refusal is the budget Warning (ADR-0072 §6).
         result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
         _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(2, 0));
         twins.ShouldAllBe(translation => translation.TranslatedText == null);
+        BudgetEntries().Count.ShouldBe(1);
     }
 
     [Fact]

@@ -1144,9 +1144,9 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public void Render_WithAPlace_ShowsSaveAndNextBesideSaveAndCarriesTheShownText()
+    public void Render_WithAPlace_ShowsSaveAndNextAndNextBesideSaveAndCarriesTheShownText()
     {
-        // A row opened from the list carries its place (#1490, spec 0018).
+        // A row opened from the list carries its place (#1490, #1585, spec 0018).
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
         Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
@@ -1154,10 +1154,12 @@ public sealed class EditorTests : BunitContext
         IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
         IReadOnlyList<IElement> buttons = component.FindAll(".editor-actions button[type=submit]");
-        buttons.Select(button => button.TextContent).ShouldBe(["Zapisz", "Zapisz i następny"]);
+        buttons.Select(button => button.TextContent).ShouldBe(["Zapisz", "Zapisz i następny", "Następny"]);
         buttons[0].HasAttribute("name").ShouldBeFalse();
         buttons[1].GetAttribute("name").ShouldBe("SaveAction");
         buttons[1].GetAttribute("value").ShouldBe("next");
+        buttons[2].GetAttribute("name").ShouldBe("SaveAction");
+        buttons[2].GetAttribute("value").ShouldBe("skip");
         component.Find("input[name=ShownTextField]").GetAttribute("value").ShouldBe("Cześć.");
     }
 

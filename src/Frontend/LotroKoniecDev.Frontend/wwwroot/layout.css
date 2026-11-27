@@ -1482,6 +1482,11 @@ main:has(> .home-banner) {
     gap: 10px;
 }
 
+/* Three buttons do not fit one line on a phone; without the wrap a label breaks inside its button (#1585). */
+.editor-save-actions {
+    flex-wrap: wrap;
+}
+
 .editor-approve {
     margin: 0;
     padding-top: 14px;

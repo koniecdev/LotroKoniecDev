@@ -225,11 +225,12 @@
                                    unchanged text (owner decision of 2026-11-25 on #1490). *@
                                 <input type="hidden" name="ShownTextField" value="@(_postedShownText ?? detail.TranslatedText)"/>
                             }
-                            <div class="editor-actions" style="margin-top: 12px;">
+                            <div class="editor-actions editor-save-actions" style="margin-top: 12px;">
                                 <button type="submit" class="btn btn-primary">Zapisz</button>
                                 @if (_place is not null)
                                 {
                                     <button type="submit" class="btn btn-primary" name="SaveAction" value="@NextSaveAction">Zapisz i następny</button>
+                                    <button type="submit" class="btn btn-ghost" name="SaveAction" value="@SkipSaveAction">Następny</button>
                                 }
                             </div>
                         </form>
@@ -344,6 +345,9 @@
 
     /// <summary>The value of the "Zapisz i następny" button; "Zapisz" sends none (spec 0018).</summary>
     private const string NextSaveAction = "next";
+
+    /// <summary>The value of the "Następny" button, which opens the next row and never saves (#1585).</summary>
+    private const string SkipSaveAction = "skip";
 
     private const string SavedFlag = "saved";
     private const string ApprovedFlag = "approved";
@@ -479,13 +483,32 @@
         await LoadSameSourceTextAsync(_detail);
     }
 
-    /// <returns><c>true</c> when the page redirects: after a good save, or when "Zapisz i następny" moves on.</returns>
+    /// <returns>
+    /// <c>true</c> when the page redirects: after a good save, when "Zapisz i następny" moves on, and always
+    /// after "Następny".
+    /// </returns>
     private async Task<bool> SaveOrRedirectAsync()
     {
+        // First, so "Następny" never reaches the save or any check before it (#1585). The typed text is
+        // dropped, as "Wróć do listy" drops it. Without a place there is no next row, so the row shows again.
+        if (SaveAction == SkipSaveAction)
+        {
+            if (_place is { } place)
+            {
+                await OpenNextRowAsync(place, saved: false);
+            }
+            else
+            {
+                Navigation.NavigateTo(EditorUriWithFlags());
+            }
+
+            return true;
+        }
+
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
-        // Without a place there is no list to go on in, so the press is a plain save.
+        // Without a place there is no list to go on in, so "Zapisz i następny" is a plain save.
         string? nextRowPlace = SaveAction == NextSaveAction ? _place : null;
         if (nextRowPlace is not null && IsUnchanged(_draftText))
         {
@@ -696,7 +719,7 @@
     /// </summary>
     private static string TextareaContent(string? text) => "\n" + text;
 
-    /// <summary>The lines after "Zapisz i następny" (spec 0018). Their flags are read only on a GET.</summary>
+    /// <summary>The lines after "Zapisz i następny" and "Następny" (spec 0018). Their flags are read only on a GET.</summary>
     private RenderFragment NextRowLines() =>
         @<text>
             @if (_previousSaved)

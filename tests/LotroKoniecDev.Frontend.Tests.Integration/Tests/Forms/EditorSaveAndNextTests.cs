@@ -527,7 +527,7 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
-        page.ShouldContain("""name="SaveAction" value="skip">Następny</button>""");
+        NextButton().IsMatch(page).ShouldBeTrue();
     }
 
     public EditorSaveAndNextTests(ProductionFrontendFactory factory)
@@ -541,6 +541,10 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
 
     [GeneratedRegex("""<input type="hidden" name="ShownTextField" value="(?<text>[^"]*)""")]
     private static partial Regex ShownTextField();
+
+    /// <summary>"Następny" in any attribute order.</summary>
+    [GeneratedRegex("""<button(?=[^>]*\bname="SaveAction")(?=[^>]*\bvalue="skip")[^>]*>Następny</button>""")]
+    private static partial Regex NextButton();
 
     private WebApplicationFactory<Program> CreateHost(StubTranslationSystem translationSystem) =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>

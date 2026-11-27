@@ -407,6 +407,28 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
+    public async Task Save_RecoveryFormOnARowWithAPlace_OffersOnlySaveAgain()
+    {
+        // The recovery form keeps only "Zapisz ponownie", also on a row opened from the list (spec 0018, #1585).
+        Guid id = Guid.NewGuid();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+        component.Render();
+
+        component.FindAll("form button[type=submit]").Select(button => button.TextContent).ShouldBe(["Zapisz ponownie"]);
+    }
+
+    [Fact]
     public async Task Save_RecoveryForm_CapsItsTextareaAtTheDatPieceLimitToo()
     {
         // The recovery textarea is a separate control in Editor.razor, so its limit is pinned on its own.

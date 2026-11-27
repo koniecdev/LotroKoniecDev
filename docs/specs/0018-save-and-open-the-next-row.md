@@ -205,7 +205,7 @@ editor and on the list, and that #1571 extends this button when this ticket land
 4. „Następny” never meets the stop (#1585). Keep its branch first in `SaveOrRedirectAsync`, above the
    unchanged check and the slip check, and keep it on the stop page next to „Zapisz mimo to”. If „Zapisz
    mimo to” uses the `SaveAction` field, its value differs from `next` and `skip`. A stop page draws four
-   buttons, so the 390 px check in `EditorLayoutTests` covers four.
+   buttons, so #1571 adds a 390 px check of that page next to the three-button one in `EditorLayoutTests`.
 
 ## Open questions
 

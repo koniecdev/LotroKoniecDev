@@ -89,23 +89,29 @@ public sealed class EditorSaveAndNextTests : E2ETestBase
     }
 
     [Fact]
-    public async Task Next_on_an_empty_untranslated_row_opens_the_next_row_and_saves_nothing()
+    public async Task Next_moves_on_from_an_empty_field_and_from_a_typed_text_and_saves_neither()
     {
         // Arrange: no status filter, so the rows keep their order whatever the other flows saved.
         await OpenListAsync(Fixture.TranslationRows.SaveAndNextToken, status: null);
         await ListRow(10).GetByRole(AriaRole.Link, new() { Name = "Edytuj", Exact = true }).ClickAsync();
         await WaitForTheEnglishOfRowAsync(10);
 
-        // Act
+        // Act: an empty field, which "Zapisz i następny" refuses, then a typed text, which a save would keep.
         await Page.GetByRole(AriaRole.Button, new() { Name = Next, Exact = true }).ClickAsync();
         await WaitForTheEnglishOfRowAsync(11);
-
-        // Assert
-        (await Page.GetByText("Poprzednie tłumaczenie zapisano.", new() { Exact = true }).IsVisibleAsync()).ShouldBeFalse();
+        bool savedLineAfterTheEmptyField =
+            await Page.GetByText("Poprzednie tłumaczenie zapisano.", new() { Exact = true }).IsVisibleAsync();
+        await Page.GetByLabel("Tłumaczenie polskie", new() { Exact = true }).FillAsync("Wiersz 11");
+        await Page.GetByRole(AriaRole.Button, new() { Name = Next, Exact = true }).ClickAsync();
+        await WaitForTheEnglishOfRowAsync(12);
         await Page.GetByRole(AriaRole.Link, new() { Name = "Wróć do listy" }).ClickAsync();
         await Page.WaitForURLAsync(url => new Uri(url).AbsolutePath == "/translations");
-        await ListRow(10).WaitForAsync(LongWait);
+        await ListRow(11).WaitForAsync(LongWait);
+
+        // Assert
+        savedLineAfterTheEmptyField.ShouldBeFalse();
         (await ListRow(10).InnerTextAsync()).ShouldContain("Nieprzetłumaczone");
+        (await ListRow(11).InnerTextAsync()).ShouldContain("Nieprzetłumaczone");
     }
 
     public EditorSaveAndNextTests(PlaywrightStackFixture fixture) : base(fixture)

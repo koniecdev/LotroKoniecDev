@@ -261,13 +261,17 @@ The owner ruled on #1587 that the editor's „Zapisz we wszystkich identycznych 
 each saved row as one save of a plain translator's budget, and that a copy which does not fit is refused
 as a whole. A fill saves this row (only when its text changes) and N empty rows with the same English.
 
-- **One permit per saved row, in one statement (§4).** The fill loads its rows first, because only then
-  is N known, and then takes N permits, plus one when this row changes, in one
-  `INSERT … SELECT … FROM unnest(…)` through the execution strategy, before any text changes. It counts
-  once, and `TranslationSaveBudget.Judge` needs no change, because the counts already include the new
-  permits. Only this row's permit can be an overwrite: a copy goes only into a row with no Polish. The
-  refusal is the usual 429 code, every permit is handed back, and its English message names the number
-  of rows.
+- **A refusal first, on two counts.** Before it loads a row or writes a permit, the fill counts its empty
+  rows and the account's saves in the window, and refuses at once when the copy cannot fit. A refused
+  fill then costs two counts however large its group, so a client that sends it again and again cannot
+  make the server load thousands of rows each time. Parallel fills can all pass this check; the permits
+  below still decide.
+- **One permit per saved row, in one statement (§4).** The fill then loads its rows and takes N permits,
+  plus one when this row changes, in one `INSERT … SELECT … FROM unnest(…)` through the execution
+  strategy, before any text changes. It counts once, and `TranslationSaveBudget.Judge` needs no change,
+  because the counts already include the new permits. Only this row's permit can be an overwrite: a copy
+  goes only into a row with no Polish. The refusal is the usual 429 code, every permit is handed back,
+  and its English message names the number of rows.
 - **This reverses §4's last paragraph, for the fill only.** A fill hands every permit back on any
   failure between the insert and the commit (a 409, a database error), not only on a refusal. One 409 on
   one of the rows would otherwise burn up to N + 1 permits for a fill that changed nothing, and the ticket
@@ -277,9 +281,9 @@ as a whole. A fill saves this row (only when its text changes) and N empty rows 
 - **No cancellation from the insert to the commit.** The rows are saved in one transaction that the
   execution strategy runs. When the commit's answer is lost, the strategy first reads the fill's stamp
   (the saver and the save time of the first row it wrote): a commit that landed counts as a success and
-  gives nothing back. Accepted leftovers: when that check read fails too, the retry meets a 409 and hands
-  back permits for rows that were saved; a process stopped during a fill (a deploy waits 30 s for open
-  requests) leaves its permits spent until the window ends.
+  gives nothing back. Accepted leftovers: when that check read fails too, the fill ends with a server
+  error while its rows stay saved, and it hands back their permits; a process stopped during a fill (a
+  deploy waits 30 s for open requests) leaves its permits spent until the window ends.
 - **Alternative H stays rejected.** Permits taken inside the rows' transaction stay invisible to other
   saves until the commit, so parallel fills could each pass the limit by up to N, unless every save took
   a per-account lock.

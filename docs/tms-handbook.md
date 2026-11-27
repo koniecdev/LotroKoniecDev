@@ -839,8 +839,8 @@ which writes the text into this row, when it changed, and into every empty ident
 (`docs/API.md`). When the panel has no link any more, no empty row is left: a changed text goes
 through the plain save, and an unchanged one writes nothing. The panel shows at most 50 rows; when
 there are more, "Pokaż wszystkie (N) na liście" opens the list with a "Cały tekst" search for this
-English (#1492), unless the English is blank, has a line break or is longer than 200 characters. Saving sends `PUT /api/v1/translations` with
-`(FileId, GossipId, TranslatedText)`. The handler:
+English (#1492), unless the English is blank, has a line break or is longer than 200 characters.
+Saving sends `PUT /api/v1/translations` with `(FileId, GossipId, TranslatedText)`. The handler:
 
 1. loads the row by fragment key — unknown key → 404 (rows are *born from imports*, never from
    the editor);

@@ -87,8 +87,10 @@ From the gate comment (2026-11-27):
 - **Save budget (ADR-0072 amendment).** A plain translator spends one permit per saved row: N, plus one
   when this row changes. Only this row's permit can be an overwrite. When the permits do not fit, the
   answer is `Translations.SaveBudgetExhausted` (or `Translations.OverwriteBudgetExhausted`), every
-  permit is handed back and no row changes. A fill that fails after its permits were taken (a 409, a
-  database error) hands every permit back too.
+  permit is handed back and no row changes. A fill that cannot fit is refused on two counts (its empty
+  rows and the account's window) before it loads a row or writes a permit, so a refused fill stays cheap
+  however large its group. A fill that fails after its permits were taken (a 409, a database error) hands
+  every permit back too.
 - **Game file.** A copy never starts a rebuild: an empty row is not in the file, and a copy is not
   approved. A rebuild starts only when this row was approved and its text changed.
 - **Log.** One Information line per fill: the account, the row and the number of filled rows. Its

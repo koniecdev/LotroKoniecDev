@@ -227,7 +227,7 @@ public sealed class FillIdenticalTranslationsHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenTheCopyDoesNotFit_ShouldAnswerWithTheSaveCodeHandEveryPermitBackAndChangeNoRow()
+    public async Task Handle_WhenTheCopyDoesNotFit_ShouldAnswerWithTheSaveCodeAndChangeNoRow()
     {
         // Arrange: two saves left, three needed.
         _budgetSettings = SmallBudget(saveLimit: 3);
@@ -242,6 +242,7 @@ public sealed class FillIdenticalTranslationsHandlerTests
         // Assert
         result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
         result.Error.Message.ShouldContain("3 rows");
+        _saveLedger.RecordCalls.ShouldBe(0);
         _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(1, 0));
         new[] { row }.Concat(twins).ShouldAllBe(translation => translation.TranslatedText == null);
         BudgetEntries().Count.ShouldBe(1);
@@ -284,6 +285,66 @@ public sealed class FillIdenticalTranslationsHandlerTests
         // Assert
         result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
         _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(2, 0));
+        twins.ShouldAllBe(translation => translation.TranslatedText == null);
+    }
+
+    [Fact]
+    public async Task Handle_WhenATwinIsFilledBetweenTheCountAndTheLoad_ShouldFillAndCountOnlyTheLoadedRows()
+    {
+        // Arrange: the count saw three empty twins; by the load, two had been filled by someone else.
+        Translation row = Row(1);
+        Translation twin = Row(2);
+        GivenRows(row, twin);
+        _translationRepository.CountEmptyRowsWithSourceAsync(row.Source, row.Id, Arg.Any<CancellationToken>())
+            .Returns(3);
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Value.FilledCount.ShouldBe(1);
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(2, 0));
+        FilledEntries().ShouldHaveSingleItem().Message.ShouldContain("into 1 empty rows");
+    }
+
+    [Fact]
+    public async Task Handle_WhenEveryTwinIsFilledBetweenTheCountAndTheLoadAndTheTextIsStored_ShouldWriteNothing()
+    {
+        // Arrange
+        Translation row = Row(1, polish: Polish);
+        GivenRows(row);
+        _translationRepository.CountEmptyRowsWithSourceAsync(row.Source, row.Id, Arg.Any<CancellationToken>())
+            .Returns(2);
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Value.FilledCount.ShouldBe(0);
+        result.Value.TranslationSaved.ShouldBeFalse();
+        _saveLedger.RecordCalls.ShouldBe(0);
+        await _unitOfWork.DidNotReceive().SaveChangesInTransactionAsync(
+            Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenMoreRowsAreLoadedThanCounted_ShouldLetThePermitsDecide()
+    {
+        // Arrange: the early check saw room for two saves; the load finds four, which do not fit.
+        _budgetSettings = SmallBudget(saveLimit: 3);
+        Translation row = Row(1);
+        Translation[] twins = [Row(2), Row(3), Row(4)];
+        GivenRows(row, twins);
+        _translationRepository.CountEmptyRowsWithSourceAsync(row.Source, row.Id, Arg.Any<CancellationToken>())
+            .Returns(1);
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
+        _saveLedger.RecordCalls.ShouldBe(1);
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(0, 0));
         twins.ShouldAllBe(translation => translation.TranslatedText == null);
     }
 

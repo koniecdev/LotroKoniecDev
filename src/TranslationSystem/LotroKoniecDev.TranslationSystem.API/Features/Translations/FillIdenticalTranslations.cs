@@ -100,7 +100,8 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
             bool changed = !string.Equals(translation.TranslatedText, storedText, StringComparison.Ordinal);
             bool replacesPolish = changed && translation.TranslatedText is not null;
 
-            // A copy that cannot fit is refused on two counts, before any row is loaded (ADR-0072 amendment).
+            // A copy that cannot fit is refused on two counts, before the rows to fill are loaded (ADR-0072
+            // amendment). Rows can change in between, so everything after the load uses the loaded rows.
             int emptyRowCount = await _translationRepository.CountEmptyRowsWithSourceAsync(
                 translation.Source, translation.Id, cancellationToken);
             int saves = emptyRowCount + (changed ? 1 : 0);

@@ -103,6 +103,30 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
         return Maybe<Translation>.From(translation);
     }
 
+    public async Task<IReadOnlyList<Translation>> GetEmptyRowsWithSourceAsync(
+        TranslationSource source,
+        TranslationId exceptId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        string text = source.Text;
+        string? argsOrder = source.ArgsOrder;
+        string? argsId = source.ArgsId;
+
+        // C# == on the nullable args is null-safe in EF Core, so a NULL column matches a null value.
+        List<Translation> translations = await DbContext.Set<Translation>()
+            .Where(translation => translation.Id != exceptId
+                && translation.RemovedInVersion == null
+                && translation.TranslatedText == null
+                && translation.Source.Text == text
+                && translation.Source.ArgsOrder == argsOrder
+                && translation.Source.ArgsId == argsId)
+            .ToListAsync(cancellationToken);
+
+        return translations;
+    }
+
     public void InsertRange(IEnumerable<Translation> translations)
     {
         ArgumentNullException.ThrowIfNull(translations);

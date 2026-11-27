@@ -50,4 +50,6 @@ internal static class EventIds
     // Translation save budget (1800-1899)
     public const int TranslationOverwritten = 1800;
     public const int TranslationSaveBudgetWarning = 1801;
+    public const int IdenticalRowsFilled = 1802;
+    public const int TranslationSavePermitsNotHandedBack = 1803;
 }

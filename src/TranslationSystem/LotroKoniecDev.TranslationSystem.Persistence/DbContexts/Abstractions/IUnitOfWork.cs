@@ -18,6 +18,15 @@ public interface IUnitOfWork
     Task ExecuteInTransactionAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Saves the tracked changes in one transaction owned by the retrying execution strategy. When a
+    /// temporary fault hides whether the commit landed, <paramref name="verifySucceeded"/> reads the
+    /// database first, so a save that did land is not run again over rows that already moved (#1587).
+    /// </summary>
+    Task SaveChangesInTransactionAsync(
+        Func<CancellationToken, Task<bool>> verifySucceeded,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// One chunk of a chunked apply inside <see cref="ExecuteInTransactionAsync"/> (spec 0006). The
     /// tracker is cleared so the next chunk starts empty and nothing survives into a retry.
     /// </summary>

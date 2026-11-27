@@ -24,6 +24,15 @@ public interface ITranslationRepository : IRepository<Translation, TranslationId
 
     Task<Maybe<Translation>> GetByFragmentKeyAsync(FragmentKey fragmentKey, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The live rows with no Polish whose source equals <paramref name="source"/> (text and both args
+    /// columns), <paramref name="exceptId"/> left out. Tracked, for the copy into identical rows (#1587).
+    /// </summary>
+    Task<IReadOnlyList<Translation>> GetEmptyRowsWithSourceAsync(
+        TranslationSource source,
+        TranslationId exceptId,
+        CancellationToken cancellationToken);
+
     void InsertRange(IEnumerable<Translation> translations);
 
     /// <summary>

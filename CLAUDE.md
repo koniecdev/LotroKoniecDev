@@ -344,7 +344,10 @@ simplified hash-check → patch → launch flow is validated. Re-investigating a
   the *target* endpoint's own policy (`IAllowAnonymous` → `AuthorizationPolicy.CombineAsync` incl.
   the fallback → `IAuthorizationService`) before it emits a link, so a rel is never advertised to a
   caller who would get 401/403 following it. Never restate a role rule inside a link factory: a
-  link factory encodes *state* rules only (removed, `Draft`/`NeedsReview`, `Unprocessed`). The TMS
+  link factory encodes *state* rules only (removed, `Draft`/`NeedsReview`, `Unprocessed`). A write that
+  changes more rows than its address names gets its own endpoint and rel, never a flag on an existing
+  write, and its link sits where the server knows the state rule (`fill-identical` on the panel of
+  identical rows; ADR-0040 amendment, #1587). The TMS
   service document (`GET /`) is the one deliberate `AllowAnonymous` hole in authorized-by-default:
   it advertises only what the caller may already reach, and it lets the CLI (and M4) boot without
   hardcoded paths. Only parameterless entry points belong in it; id-keyed affordances (`approve`,

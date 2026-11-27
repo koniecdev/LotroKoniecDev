@@ -377,7 +377,10 @@ internal static partial class ApiProblemCopy
         problem.Extensions.Remove(FrontendAuthoredExtensionKey);
     }
 
-    private static bool IsFrontendAuthored(ProblemDetails problem)
+    /// <summary>
+    /// A problem made by <see cref="FrontendAuthored"/>, such as a transport failure, never one read off the wire.
+    /// </summary>
+    internal static bool IsFrontendAuthored(ProblemDetails problem)
         => problem.Extensions.TryGetValue(FrontendAuthoredExtensionKey, out object? marker)
            && marker is true;
 

@@ -104,6 +104,24 @@ internal sealed class TranslationEditorLoader
             cancellationToken);
     }
 
+    /// <summary>
+    /// Follows the panel's <c>fill-identical</c> href (#1587). The website never retries it and gives it the
+    /// upload's time limit, because one attempt can write thousands of rows.
+    /// </summary>
+    public Task<ApiResult<FillIdenticalTranslationsResponse>> FillIdenticalAsync(
+        string fillIdenticalHref,
+        FillIdenticalTranslationsRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fillIdenticalHref);
+        ArgumentNullException.ThrowIfNull(request);
+
+        return _client.PostApiResultAsync<FillIdenticalTranslationsResponse>(
+            fillIdenticalHref,
+            request,
+            cancellationToken);
+    }
+
     public Task<ApiResult> ApproveAsync(
         string approveHref,
         CancellationToken cancellationToken = default)

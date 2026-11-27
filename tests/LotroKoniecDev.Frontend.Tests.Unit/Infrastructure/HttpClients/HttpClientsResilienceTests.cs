@@ -5,6 +5,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth.Password;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -45,6 +46,20 @@ public sealed class HttpClientsResilienceTests
     }
 
     [Fact]
+    public void ResolveTimeout_ForACopyIntoIdenticalRows_UsesTheWiderUploadBudget()
+    {
+        // One fill can write the largest group on prod, about 14,000 rows (#1587).
+        using HttpRequestMessage request = new(HttpMethod.Post, "api/v1/translations/x/fill-identical")
+        {
+            Content = JsonContent.Create(new FillIdenticalTranslationsRequest("Drewniana włócznia"))
+        };
+
+        TimeSpan timeout = HttpClientsDependencyInjectionExtensions.ResolveTimeout(request);
+
+        timeout.ShouldBe(HttpClientsDependencyInjectionExtensions.UploadRequestTimeout);
+    }
+
+    [Fact]
     public void ResolveTimeout_ForRequestWithoutContent_UsesTheTightDefaultBudget()
     {
         using HttpRequestMessage request = new(HttpMethod.Get, "api/v1/game-versions");
@@ -78,6 +93,20 @@ public sealed class HttpClientsResilienceTests
         using HttpRequestMessage request = new(HttpMethod.Post, "auth/account/delete")
         {
             Content = JsonContent.Create(body, body.GetType())
+        };
+
+        bool mayRetry = HttpClientsDependencyInjectionExtensions.MayRetry(request);
+
+        mayRetry.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MayRetry_ForACopyIntoIdenticalRows_IsFalse()
+    {
+        // Each attempt spends one save permit per row it writes (ADR-0072 amendment of 2026-11-27).
+        using HttpRequestMessage request = new(HttpMethod.Post, "api/v1/translations/x/fill-identical")
+        {
+            Content = JsonContent.Create(new FillIdenticalTranslationsRequest("Drewniana włócznia"))
         };
 
         bool mayRetry = HttpClientsDependencyInjectionExtensions.MayRetry(request);

@@ -1487,6 +1487,16 @@ main:has(> .home-banner) {
     flex-wrap: wrap;
 }
 
+/* The fill button's label ends with a count of up to five digits (#1587). On a phone it gets less padding
+   and a smaller font, so the label stays on one line (spec 0018's 390 px rule). */
+@media (max-width: 480px) {
+    .editor-fill {
+        padding-left: 12px;
+        padding-right: 12px;
+        font-size: 13px;
+    }
+}
+
 .editor-approve {
     margin: 0;
     padding-top: 14px;

@@ -3,6 +3,7 @@ using LotroKoniecDev.AuthSystem.Contracts.Features.Auth;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.AuthSystemHttpClients;
 using LotroKoniecDev.Frontend.Infrastructure.HttpClients.TranslationSystemHttpClients;
 using LotroKoniecDev.Frontend.Settings;
+using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Options;
@@ -20,7 +21,7 @@ public static class HttpClientsDependencyInjectionExtensions
 
     /// <summary>
     /// Per attempt, for a multipart upload. It covers sending exported.txt (about 80 MB) plus the API's
-    /// import, which takes minutes (spec 0003).
+    /// import, which takes minutes (spec 0003). A copy into identical rows gets it too (#1587).
     /// </summary>
     internal static readonly TimeSpan UploadRequestTimeout = TimeSpan.FromMinutes(5);
 
@@ -139,22 +140,32 @@ public static class HttpClientsDependencyInjectionExtensions
         }
     }
 
+    /// <summary>
+    /// A copy into identical rows can write the largest group on prod, about 14,000 rows, in one request
+    /// (#1587, spec 0019).
+    /// </summary>
     internal static TimeSpan ResolveTimeout(HttpRequestMessage? request) =>
-        request?.Content is MultipartFormDataContent
-            ? UploadRequestTimeout
-            : DefaultRequestTimeout;
+        request?.Content switch
+        {
+            MultipartFormDataContent => UploadRequestTimeout,
+            JsonContent { ObjectType: { } bodyType } when bodyType == typeof(FillIdenticalTranslationsRequest) => UploadRequestTimeout,
+            _ => DefaultRequestTimeout
+        };
 
     /// <summary>
     /// A multipart upload's body can be read only once, and an upload refused as too large will not pass
     /// on a second try. A password confirmation spends one permit of the account's budget per attempt
-    /// (ADR-0053), and a timed-out attempt may still be served, so one click would spend several. The
-    /// circuit breaker uses the same answer, so these failures never count toward opening it.
+    /// (ADR-0053), and a timed-out attempt may still be served, so one click would spend several. A copy
+    /// into identical rows spends one save permit per row it writes, and a retry after a fill that landed
+    /// would report no empty row left (ADR-0072 amendment of 2026-11-27). The circuit breaker uses the same
+    /// answer, so these failures never count toward opening it.
     /// </summary>
     internal static bool MayRetry(HttpRequestMessage? request) =>
         request?.Content switch
         {
             MultipartFormDataContent => false,
             JsonContent { ObjectType: { } bodyType } when bodyType.IsAssignableTo(typeof(IPasswordConfirmationRequest)) => false,
+            JsonContent { ObjectType: { } bodyType } when bodyType == typeof(FillIdenticalTranslationsRequest) => false,
             _ => true
         };
 

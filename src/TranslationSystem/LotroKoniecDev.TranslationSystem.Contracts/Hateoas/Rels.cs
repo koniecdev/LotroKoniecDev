@@ -30,6 +30,12 @@ public static class Rels
     /// </summary>
     public const string SameSourceText = "same-source-text";
 
+    /// <summary>
+    /// Saves one text in a row and in every empty row with the same English and args (#1587). It is on the
+    /// <see cref="SameSourceText"/> panel, which knows whether such a row exists (ADR-0040 amendment).
+    /// </summary>
+    public const string FillIdentical = "fill-identical";
+
     // Translation collection actions
     public const string BulkApprove = "bulk-approve";
 

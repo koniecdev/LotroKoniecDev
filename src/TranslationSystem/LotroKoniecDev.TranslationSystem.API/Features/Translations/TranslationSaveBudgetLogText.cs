@@ -13,6 +13,13 @@ internal static class TranslationSaveBudgetLogText
         OverwrittenPrefix
         + " translator {TranslatorId} replaced the Polish of ({FileId}, {GossipId}), previous status {PreviousStatus}, budgeted {Budgeted}";
 
+    /// <summary>
+    /// Starts with neither prefix above, so neither Grafana rule counts a fill (ADR-0072 amendment of
+    /// 2026-11-27).
+    /// </summary>
+    public const string FilledTemplate =
+        "Identical rows filled: translator {TranslatorId} copied the Polish of ({FileId}, {GossipId}) into {FilledCount} empty rows with the same English, row saved {TranslationSaved}";
+
     public const string BudgetTemplate =
         BudgetPrefix
         + " translator {TranslatorId}, budget {Budget}, outcome {Outcome}, {Count} with this save, limit {Limit} per {WindowHours} h";

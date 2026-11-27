@@ -66,7 +66,8 @@ html, body {
 
 /* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493), or any other jump
    target. One rule on the page, because a scroll margin on a table row is not honoured in every browser.
-   On a narrow window the links sit under the logo and the navbar is about 110px tall. */
+   The navbar wraps by its content: when the links sit under the logo it is about 113px tall. On a phone
+   narrower than about 340px the Discord pill takes a row of its own, so the block at 359px raises this. */
 html {
     scroll-padding-top: 128px;
 }
@@ -143,12 +144,14 @@ code {
     border-bottom: 1px solid var(--border);
 }
 
+/* The links take a second row only when they do not fit next to the logo and the Discord pill (#1590). */
 .nav-inner {
     padding-top: 14px;
     padding-bottom: 14px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 28px;
+    gap: 12px 28px;
 }
 
 .brand {
@@ -159,6 +162,7 @@ code {
     font-weight: 700;
     font-size: 17px;
     letter-spacing: -0.01em;
+    white-space: nowrap;
 }
 
 .brand-mark {
@@ -171,18 +175,51 @@ code {
     color: var(--accent-hi);
 }
 
+/* The auto margin pushes the links to the right end of the logo's row, and leaves them at the start of
+   their own row when they wrap. */
+.nav-discord {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 12px;
+    flex: none;
+    margin-right: auto;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-mute);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition: color .15s, background .15s;
+}
+
+.nav-discord:hover {
+    color: var(--text);
+    background: var(--surface);
+}
+
+.nav-discord-mark {
+    width: 18px;
+    height: 18px;
+    flex: none;
+}
+
 .nav-links {
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-left: auto;
 }
 
+/* A button's own font style resets the line height, so "Wyloguj" would sit lower than the links. */
 .nav-link {
     padding: 8px 14px;
     color: var(--text-mute);
     font-size: 14px;
     font-weight: 500;
+    line-height: inherit;
+    white-space: nowrap;
     border-radius: 8px;
     transition: color .15s, background .15s;
     position: relative;
@@ -1853,18 +1890,23 @@ main:has(> .home-banner) {
         --container-px: 20px;
     }
 
+    /* The pill sits at the right end of the logo's row. When it wraps to a row of its own, it is the only
+       item there, so it starts at the left. */
     .nav-inner {
-        flex-wrap: wrap;
+        justify-content: space-between;
         gap: 12px;
         padding-top: 12px;
         padding-bottom: 12px;
+    }
+
+    .nav-discord {
+        margin-right: 0;
     }
 
     .nav-links {
         order: 3;
         width: 100%;
         overflow-x: auto;
-        margin-left: 0;
         -webkit-overflow-scrolling: touch;
         scrollbar-width: none;
     }
@@ -1923,6 +1965,19 @@ main:has(> .home-banner) {
     .hero-actions .btn {
         flex: 1 1 auto;
         justify-content: center;
+    }
+}
+
+/* Below about 340px the Discord pill takes a row of its own, so the navbar is 46px taller: about 155px
+   signed in and about 196px for a visitor (#1590). This block must come after the one above, because
+   both set the visitor's rule with the same weight. */
+@media (max-width: 359px) {
+    html {
+        scroll-padding-top: 176px;
+    }
+
+    html:has(.nav-cta) {
+        scroll-padding-top: 216px;
     }
 }
 

@@ -1,6 +1,6 @@
 # ADR-0040: Authorization-aware HATEOAS link emission, and an anonymous TMS service document
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-27 — see "Amendment: a write that changes more than its address names")
 **Date:** 2026-08-05
 **Decision-makers:** Solo maintainer
 **Related:** #608 (the ticket), #309 (anonymous translation browsing), #153 (link-driven frontend affordances), ADR-0031 (deletion grace window — the auth link set this must not disturb), `LinkFactory`, `DiscoveryLinkFactory` (both systems), `DiscoveryCache` (frontend)
@@ -176,3 +176,21 @@ link, decided then.
 - Link factories read `await _linkFactory.CreateAsync(...)` inside `AddIfPresent`. The
   `AddIfPresent` collection idiom and the null-on-unresolvable behavior are unchanged.
 - The link factory **fails closed**: an endpoint name that cannot be located advertises nothing.
+
+## Amendment: a write that changes more than its address names (2026-11-27, #1587)
+
+Owner decision on #1587: an action that changes more resources than the one its address names gets
+its **own endpoint and its own rel**. It is never a flag or an option on an existing write.
+
+- **Why.** A client learns what an action does from its rel. A flag on `upsert` would hide a write of
+  many rows behind a one-row affordance: one rel would then have two budgets, two failure rules and two
+  answers, and a client could not be offered the one without the other. With its own rel the server
+  decides, per caller and per state, whether the bigger action exists at all (§1).
+- **Where the link goes.** On the representation where the server knows the state rule that decides
+  the action, which is not always the resource the address names. The first case is `fill-identical`
+  (`POST /api/v1/translations/{id}/fill-identical`, spec 0019): its state rule is "at least one empty
+  row has the same English", which the panel of identical rows (`same-source-text`) already computes,
+  so the link is on that panel and not on the row. It is id-keyed, so it stays out of the discovery
+  document (§3).
+- **What stays.** Every rule above: the link is replayed against the target's policy, and a link
+  factory adds only state rules. Adding the rel is cheap (ADR-0041); its name is frozen once shipped.

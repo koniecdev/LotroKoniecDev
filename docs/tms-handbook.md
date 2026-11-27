@@ -835,7 +835,9 @@ same text and args have no Polish, the panel carries `fill-identical`, and the s
 „Zapisz we wszystkich identycznych (N)” (#1587, spec 0019). It checks the slips first and sends
 nothing when there is one, offering „Zapisz we wszystkich mimo to”. Otherwise it reads the panel
 (this post's only panel read) and posts to its `fill-identical` href, which writes the text into
-this row, when it changed, and into every empty identical row (`docs/API.md`). It shows at most 50 rows; when there are more, "Pokaż wszystkie (N) na liście" opens the
+this row, when it changed, and into every empty identical row (`docs/API.md`). When the panel has
+no link any more, no empty row is left: a changed text goes through the plain save, and an
+unchanged one writes nothing. The panel shows at most 50 rows; when there are more, "Pokaż wszystkie (N) na liście" opens the
 list with a "Cały tekst" search for this English (#1492), unless the English is blank, has a line
 break or is longer than 200 characters. Saving sends `PUT /api/v1/translations` with
 `(FileId, GossipId, TranslatedText)`. The handler:

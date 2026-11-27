@@ -346,7 +346,7 @@ its row, a row that left the filter leaves a note, and bulk approve still works;
 the first row of the next, and an approved row passed with no edit that stays approved; "Następny"
 (#1585) on an empty untranslated row, which opens the next row and saves nothing, and the editor's
 save row on a phone; and the copy of one text into every empty row with the same English (#1587), with the
-save row on a phone at a five-digit count and on the slip stop. The list flows, the editor flows seed
+save row on a phone at a five-digit count and on the slip stop. The list flows and the editor flows seed
 their rows once per stack through the import page as the seeded admin, in one shared import
 (`Infrastructure/TranslationRowsSeed.cs`), because an import removes every row it does not carry
 (ADR-0009 §5 amendment).

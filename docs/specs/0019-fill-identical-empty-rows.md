@@ -108,11 +108,14 @@ From the gate comment (2026-11-27):
   (yellow), as #1571 draws its own stop.
 - **The link.** With no slip (or after „mimo to”), the editor reads the panel and posts to the href of
   its `fill-identical` link. The fill button needs the link, so this read comes before the write; it is
-  the post's only panel read. When the panel has no link any more, nothing is saved, the text stays and
-  the page says „Tekst nie jest jeszcze zapisany.” and „Nie ma już pustych wierszy z tym samym tekstem
-  angielskim. Ten wiersz zapiszesz przyciskiem „Zapisz”.”. When the panel cannot be read, nothing is
-  saved and the panel's own failure line shows. When the row itself cannot be loaded, nothing is saved
-  and the recovery form says so.
+  the post's only panel read. When the panel has no link any more, no empty row is left, so the rule
+  above applies to this row alone: a changed text goes through the plain save, which writes what the
+  fill would, and an unchanged text writes nothing. The page then shows the N = 0 line below. When the
+  panel cannot be read, nothing is saved, the page says „Tekst nie jest jeszcze zapisany.” and the panel's
+  own failure line shows. When the row itself cannot be loaded, nothing is saved and the recovery form
+  says so. A slip stop whose panel has no link any more says „Tekst nie jest jeszcze zapisany.” and „Nie
+  ma już pustych wierszy z tym samym tekstem angielskim.”, plus „Ten wiersz zapiszesz przyciskiem
+  „Zapisz”.” only for a changed text: on an unchanged approved row, „Zapisz” would make a draft.
 - **Success.** The editor redirects to the same row (spec 0018's address) and shows, only on that GET:
   - this row saved, N ≥ 1: „Tłumaczenie zapisano. Ten sam tekst wpisano też w N pustych wierszach z tym
     samym angielskim tekstem.” (N = 1: „w 1 pustym wierszu”);
@@ -127,8 +130,9 @@ From the gate comment (2026-11-27):
   mieści się w dziennym limicie zapisów. Sam ten wiersz możesz zapisać przyciskiem „Zapisz”.” (N = 1:
   „Kopia do 1 wiersza…”). Every other refusal (the overwrite budget, a 409, a 400) shows its usual
   text. A server error or a timeout can come after the commit, so it adds „Nie wiadomo, czy tekst
-  zapisano. Panel niżej pokazuje wiersze po tej próbie.” and reads the panel again. A failure the
-  website made before sending anything (an open circuit breaker) adds no such line.
+  zapisano.” and reads the panel again; „Panel niżej pokazuje wiersze po tej próbie.” follows only when
+  that read works. A failure the website made before the request left (an open circuit breaker, a
+  connection that was never made) adds no such line.
 - **Requests.** The website never retries a fill and never counts it toward the circuit breaker: each
   attempt would spend N + 1 permits, and a retry after a committed fill would report "no empty row
   left" for a fill that worked. It gets the long time limit of an upload (5 minutes).
@@ -205,6 +209,9 @@ None. The owner answered both gate questions on 2026-11-27.
 
 - The sentences the ticket does not give (this row unchanged, no empty row left, the "unknown" line, the
   recovery line, the N = 1 forms) are written from the ticket's own sentences.
+- With no link on the fresh panel, a changed text goes through the plain save: for this row it writes
+  exactly what the fill would (a draft of the caller, one permit, an overwrite only when the row had
+  Polish), and the ticket asks for this row to be saved when no empty row is left.
 - The button keeps the ticket's label; only the phone CSS changes so it fits.
 - The slip check also runs when the text is unchanged: the owner's answer names no exception, and „mimo
   to” keeps it from being a dead end.

@@ -146,7 +146,8 @@ public sealed class HomeLayoutTests : E2ETestBase
     // Below about 340 px the Discord pill takes a row of its own, so the top bar is taller still (#1590).
     [InlineData(320, false)]
     [InlineData(320, true)]
-    // The signed-in links take a second row next to the logo and the pill, so the bar is about 113 px (#1590).
+    // The signed-in links do not fit next to the logo and the pill, so they take a second row and the bar is
+    // about 113 px (#1590).
     [InlineData(1024, true)]
     public async Task Hero_jump_lands_the_players_box_below_the_top_bar(int width, bool signedIn)
     {

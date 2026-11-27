@@ -169,7 +169,9 @@ public sealed class NavMenuTests : BunitContext
         pill.GetAttribute("target").ShouldBe("_blank");
         pill.GetAttribute("rel").ShouldBe("noopener");
         pill.TextContent.Trim().ShouldBe("Discord");
-        pill.QuerySelector("svg").ShouldNotBeNull().GetAttribute("aria-hidden").ShouldBe("true");
+        IElement mark = pill.QuerySelector("svg").ShouldNotBeNull();
+        mark.GetAttribute("aria-hidden").ShouldBe("true");
+        mark.GetAttribute("fill").ShouldBe("#5865F2");
     }
 
     /// <summary>

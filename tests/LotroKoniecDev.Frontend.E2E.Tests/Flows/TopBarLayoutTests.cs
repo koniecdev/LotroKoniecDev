@@ -13,6 +13,8 @@ public sealed class TopBarLayoutTests : E2ETestBase
 {
     private const int PhoneSidePadding = 20;
 
+    private const int DesktopSidePadding = 32;
+
     private const int MinimumWordWidth = 40;
 
     private ILocator Brand => Page.Locator("header.nav a.brand");
@@ -83,6 +85,7 @@ public sealed class TopBarLayoutTests : E2ETestBase
         (pill.Y + pill.Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
         (links[0].Y + links[0].Height / 2).ShouldBe(brand.Y + brand.Height / 2, 1d);
         links[0].X.ShouldBeGreaterThan(pill.X + pill.Width);
+        (links[^1].X + links[^1].Width).ShouldBe(width - DesktopSidePadding, 1d);
         scrollsSideways.ShouldBeFalse();
     }
 

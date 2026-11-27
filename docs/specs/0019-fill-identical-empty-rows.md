@@ -1,6 +1,6 @@
 # Spec 0019: Save one text in every empty row with the same English
 
-- **Status:** Agreed
+- **Status:** Implemented
 - **Date:** 2026-11-27
 - **Author:** Claude Opus 5.5, from the owner decisions in #1587 (body and gate comment)
 - **Ticket:** #1587

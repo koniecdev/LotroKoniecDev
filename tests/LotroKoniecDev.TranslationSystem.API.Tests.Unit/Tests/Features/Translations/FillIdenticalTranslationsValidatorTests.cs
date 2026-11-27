@@ -40,6 +40,19 @@ public sealed class FillIdenticalTranslationsValidatorTests
         result.Errors.ShouldHaveSingleItem().ErrorCode.ShouldBe("MaximumLengthValidator");
     }
 
+    [Fact]
+    public void Validate_TheEmptyId_ShouldBeRefused()
+    {
+        // Arrange
+        FillIdenticalTranslations.Command command = new(TranslationId.Empty, "Drewniana włócznia");
+
+        // Act
+        ValidationResult result = new FillIdenticalTranslations.Validator().Validate(command);
+
+        // Assert
+        result.Errors.ShouldHaveSingleItem().ErrorMessage.ShouldBe("The translation id is required.");
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

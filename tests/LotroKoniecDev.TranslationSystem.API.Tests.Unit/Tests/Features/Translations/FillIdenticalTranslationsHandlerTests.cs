@@ -18,6 +18,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.ReadModels.Aggregates.TranslationAggregate;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -48,6 +49,13 @@ public sealed class FillIdenticalTranslationsHandlerTests
     private TranslationSaveBudgetSettings _budgetSettings = new();
     private bool _callerIsAdmin;
 
+    /// <summary>A database error, and what the execution strategy throws when the database stays down.</summary>
+    public static TheoryData<Exception> HandBackFailures => new()
+    {
+        new NpgsqlException("database down"),
+        new RetryLimitExceededException("still down after the retries", new NpgsqlException("database down"))
+    };
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -63,6 +71,39 @@ public sealed class FillIdenticalTranslationsHandlerTests
         // Assert
         result.Error.Code.ShouldBe("Translations.Validation");
         _saveLedger.RecordCalls.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Handle_WithTheEmptyId_ShouldReturnAValidationErrorAndLoadNothing()
+    {
+        // Arrange: the all-zero id never points at a row, so it is refused as a value, as approve does.
+        Translation row = Row(1);
+        GivenRows(row, Row(2));
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await CreateHandler().Handle(
+            new FillIdenticalTranslations.Command(TranslationId.Empty, Polish), CancellationToken.None);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.Validation");
+        await _translationRepository.DidNotReceive().GetByIdAsync(Arg.Any<TranslationId>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Stara włócznia")]
+    public async Task Handle_WithANewTextOnARowThatWasNotApproved_ShouldNotRebuild(string? storedPolish)
+    {
+        // Arrange: an untranslated or draft row is not in the game file, and neither is a copy.
+        Translation row = Row(1, polish: storedPolish);
+        GivenRows(row, Row(2));
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Value.TranslationSaved.ShouldBeTrue();
+        _rebuildScheduler.ScheduleCount.ShouldBe(0);
     }
 
     [Fact]
@@ -419,8 +460,9 @@ public sealed class FillIdenticalTranslationsHandlerTests
         // Act
         Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
 
-        // Assert
+        // Assert: the early check counts this row's overwrite too, so nothing is recorded.
         result.Error.Code.ShouldBe("Translations.OverwriteBudgetExhausted");
+        _saveLedger.RecordCalls.ShouldBe(0);
         _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(1, 1));
         twins.ShouldAllBe(translation => translation.TranslatedText == null);
         row.TranslatedText.ShouldBe("Stara włócznia");
@@ -445,15 +487,16 @@ public sealed class FillIdenticalTranslationsHandlerTests
         twins.ShouldAllBe(translation => translation.TranslatedText == null);
     }
 
-    [Fact]
-    public async Task Handle_WhenTheHandBackFailsToo_ShouldLogAWarningAndRethrowTheWritesError()
+    [Theory]
+    [MemberData(nameof(HandBackFailures))]
+    public async Task Handle_WhenTheHandBackFailsToo_ShouldLogAWarningAndRethrowTheWritesError(Exception handBackFailure)
     {
         // Arrange
         Translation row = Row(1);
         GivenRows(row, Row(2));
         _unitOfWork.SaveChangesInTransactionAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new DbUpdateConcurrencyException("a parallel save"));
-        _saveLedger.RemoveFailure = new NpgsqlException("database down");
+        _saveLedger.RemoveFailure = handBackFailure;
 
         // Act
         await Should.ThrowAsync<DbUpdateConcurrencyException>(async () => await Fill(row, Polish));

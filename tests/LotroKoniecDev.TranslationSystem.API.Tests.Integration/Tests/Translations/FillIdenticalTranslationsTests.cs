@@ -498,6 +498,17 @@ public sealed class FillIdenticalTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Fill_WithTheEmptyId_ShouldReturn400WithTheValidationCode()
+    {
+        // Act
+        HttpResponseMessage response = await FillAsync(TranslatorClient(), TranslationId.Empty, Polish);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Translations.Validation");
+    }
+
+    [Fact]
     public async Task Fill_WithUnknownId_ShouldReturn404()
     {
         // Act

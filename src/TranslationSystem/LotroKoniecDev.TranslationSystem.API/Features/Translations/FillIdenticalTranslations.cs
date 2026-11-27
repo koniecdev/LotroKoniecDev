@@ -39,6 +39,10 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
     {
         public Validator()
         {
+            RuleFor(command => command.Id)
+                .NotEqual(TranslationId.Empty)
+                .WithMessage("The translation id is required.");
+
             // Every copy has the same English, so one check of the typed text covers all of them.
             RuleFor(command => command.TranslatedText)
                 .MustBeAWritableTranslation();

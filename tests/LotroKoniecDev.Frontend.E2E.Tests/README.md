@@ -87,7 +87,13 @@ One test class per flow, in `Flows/`:
   the big percentage is centred against its text, and the gap between the boxes and between the
   sections is 24 px on a wide screen and 20 px on a phone (#1572); a one-line step is as tall as its
   badge with its text centred on it, a wrapped step keeps its first line there, and on a 360 px phone
-  a visitor's top bar wraps instead of scrolling sideways and the hero jump lands below it (#1575).
+  a visitor's top bar wraps instead of scrolling sideways and the hero jump lands below it (#1575); at
+  320 px, where the Discord pill takes a row of its own, at 360 px with larger text, where the pill wraps
+  too, and at 1024 px signed in, where the links take a second row, the hero jump still lands below the
+  bar (#1590).
+- `TopBarLayoutTests`: the Discord pill sits at the right end of the logo's row on a 360 px phone and on
+  a row of its own at 320 px, the bar never scrolls sideways, and the links take a second row only when
+  they do not fit, with "Wyloguj" as tall as the other links (#1590).
 - `PageWidthTests`: the page is as wide as the window up to 1920 px and centred on a wider one; the
   terms document stops at its width on a 1400 px page (#1572).
 - `FooterLayoutTests`: the footer's columns sit side by side and stack on a phone, the risk note

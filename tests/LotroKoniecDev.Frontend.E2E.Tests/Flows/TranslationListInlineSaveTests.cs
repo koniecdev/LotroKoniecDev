@@ -74,7 +74,7 @@ public sealed class TranslationListInlineSaveTests : E2ETestBase
     public async Task A_row_the_save_takes_out_of_the_filter_leaves_a_note_in_its_place()
     {
         // Arrange: a save makes the row a draft, so the "Nieprzetłumaczone" filter drops it. A narrow window,
-        // where the navbar's links wrap and it is at its tallest.
+        // where the navbar's links sit on their own row under the logo.
         await Page.SetViewportSizeAsync(860, 900);
         await OpenListAsync(status: Untranslated);
 

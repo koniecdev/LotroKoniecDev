@@ -337,7 +337,9 @@ logout happy path, the sign-up from the website's top bar that ends on the websi
 the auth pages' CSP, the one-time-link pages (back, reload, double click), the
 submit-once button, the e-mail change success style, the cookie banner, self-hosted fonts, the
 account's GDPR self-service, the home page's Discord band and its box layout, its step height and a
-visitor's top bar on a phone (#1575), the footer's columns and risk note (#1575), the page width up to
+visitor's top bar on a phone (#1575), the top bar's Discord pill and its rows: next to the logo, its own
+row on a phone too narrow for it, and the links on a second row only when they do not fit (#1590), the
+footer's columns and risk note (#1575), the page width up to
 1920 px and the gap between boxes on the home page and in the editor (#1572), the translation list's
 filter row layout, the editor's way back to the same list after a save (#1452), the list's save
 in place (#1493): the page scrolls back to the saved row below the navbar, a refused save stays in

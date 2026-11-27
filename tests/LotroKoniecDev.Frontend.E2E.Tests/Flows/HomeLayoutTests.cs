@@ -8,7 +8,8 @@ namespace LotroKoniecDev.Frontend.E2E.Tests.Flows;
 /// Side by side, the player and translator boxes have the same height, and the big percentage is centred
 /// against its text (#1457). Their texts wrap differently per browser and font, so only a browser shows it.
 /// The gap between the boxes and between the sections is never wider than the page's side padding (#1572).
-/// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575).
+/// A step is as tall as its number badge, and a visitor's top bar fits a phone (#1575). The hero jump lands
+/// below the top bar, also where the Discord pill or the signed-in links take a row of their own (#1590).
 /// </summary>
 public sealed class HomeLayoutTests : E2ETestBase
 {
@@ -140,20 +141,58 @@ public sealed class HomeLayoutTests : E2ETestBase
         (signUp.X + signUp.Width).ShouldBeLessThanOrEqualTo(360);
     }
 
-    [Fact]
-    public async Task Hero_jump_on_a_phone_lands_the_players_box_below_the_visitors_taller_top_bar()
+    [Theory]
+    [InlineData(360, false)]
+    // Below about 340 px the Discord pill takes a row of its own, so the top bar is taller still (#1590).
+    [InlineData(320, false)]
+    [InlineData(320, true)]
+    // The signed-in links do not fit next to the logo and the pill, so they take a second row and the bar is
+    // about 113 px (#1590).
+    [InlineData(1024, true)]
+    public async Task Hero_jump_lands_the_players_box_below_the_top_bar(int width, bool signedIn)
     {
         // Arrange
-        await OpenHomeAsync(360, 800);
+        if (signedIn)
+        {
+            await AuthActions.LoginAsync(Page, Fixture, Fixture.Admin);
+        }
+
+        await OpenHomeAsync(width, 800);
 
         // Act
         await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();
         await Page.WaitForFunctionAsync("() => window.scrollY > 0");
-        LocatorBoundingBoxResult heading = await Page.Locator("#dla-graczy h2").RequireBoundingBoxAsync();
+        // The box itself, not its heading: the box's top padding would hide a bar up to about 28 px too tall.
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
         LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
 
         // Assert
-        heading.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
+        players.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
+    }
+
+    [Fact]
+    public async Task Hero_jump_on_a_phone_with_larger_text_lands_the_players_box_below_the_top_bar()
+    {
+        // Arrange: the bar's text at about 130%, as a browser's text size setting makes it. The pill then wraps
+        // by its text on a 360 px phone, where the window width alone would keep it in the logo's row (#1590).
+        await AuthActions.LoginAsync(Page, Fixture, Fixture.Admin);
+        await OpenHomeAsync(360, 800);
+        await Page.AddStyleTagAsync(new()
+        {
+            Content = ".brand { font-size: 22px } .nav-discord, .nav-link { font-size: 18px } .nav-user { font-size: 14px }"
+        });
+        LocatorBoundingBoxResult brand = await Page.Locator("header.nav a.brand").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult pill = await Page.Locator("header.nav a.nav-discord").RequireBoundingBoxAsync();
+        pill.Y.ShouldBeGreaterThanOrEqualTo(brand.Y + brand.Height, "the larger text must make the pill wrap");
+
+        // Act
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();
+        await Page.WaitForFunctionAsync("() => window.scrollY > 0");
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
+
+        // Assert
+        players.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
     }
 
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)

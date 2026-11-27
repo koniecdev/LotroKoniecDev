@@ -27,6 +27,11 @@ internal sealed class InMemorySaveLedger : ITranslationSaveLedger
     /// </summary>
     public Exception? RecordFailure { get; set; }
 
+    /// <summary>
+    /// Saves of the same account that land right before the next record, as parallel requests would.
+    /// </summary>
+    public int ParallelSavesBeforeRecord { get; set; }
+
     public void Seed(TranslatorId translatorId, int saves, int overwrites)
     {
         for (int index = 0; index < saves; index++)
@@ -48,12 +53,20 @@ internal sealed class InMemorySaveLedger : ITranslationSaveLedger
         CancellationToken cancellationToken)
     {
         RecordCalls++;
+        Seed(translatorId, ParallelSavesBeforeRecord, overwrites: 0);
         _saves.AddRange(permits.Select(permit => (permit.Id, translatorId, permit.ReplacedPolish)));
         CancelAfterRecord?.Cancel();
         return RecordFailure is null
             ? Task.FromResult(CountFor(translatorId))
             : Task.FromException<TranslationSaveCounts>(RecordFailure);
     }
+
+    public Task<TranslationSaveCounts> CountAsync(
+        TranslatorId translatorId,
+        DateTimeOffset now,
+        TimeSpan window,
+        CancellationToken cancellationToken)
+        => Task.FromResult(CountFor(translatorId));
 
     public Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken)
         => Task.CompletedTask;

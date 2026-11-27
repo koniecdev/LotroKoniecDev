@@ -226,6 +226,26 @@ public sealed class FillIdenticalTranslationsTests : IAsyncLifetime
         (await CountPermitsAsync()).ShouldBe((0, 0));
     }
 
+    [Fact]
+    public async Task Fill_ThatCannotFit_ShouldBeRefusedWithoutWritingAPermit()
+    {
+        // Arrange: a refused fill must stay cheap however large its group, because a client can send it again
+        // and again (ADR-0072 amendment of 2026-11-27).
+        Translation row = Row(1);
+        await SeedAsync(row, Row(2), Row(3), Row(4));
+        CountPermitInserts interceptor = new();
+        await using WebApplicationFactory<Program> host = CreateHost(saveLimit: 3, interceptor: interceptor);
+        using HttpClient client = Client(host, AuthConstants.Roles.Translator, Guid.NewGuid());
+
+        // Act
+        HttpResponseMessage response = await FillAsync(client, row.Id, Polish);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.TooManyRequests);
+        interceptor.Inserts.ShouldBe(0);
+        (await CountPermitsAsync()).ShouldBe((0, 0));
+    }
+
     [Theory]
     [InlineData(AuthConstants.Roles.Admin)]
     [InlineData(AuthConstants.Roles.Reviewer)]
@@ -789,6 +809,28 @@ public sealed class FillIdenticalTranslationsTests : IAsyncLifetime
             _fileId = fileId;
             _gossipId = gossipId;
             _polish = polish;
+        }
+    }
+
+    /// <summary>Counts the permit inserts, so a test can tell a refusal that wrote none.</summary>
+    private sealed class CountPermitInserts : DbCommandInterceptor
+    {
+        private int _inserts;
+
+        public int Inserts => _inserts;
+
+        public override ValueTask<int> NonQueryExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            int result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("INSERT INTO \"translation\".\"TranslationSaves\"", StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _inserts);
+            }
+
+            return base.NonQueryExecutedAsync(command, eventData, result, cancellationToken);
         }
     }
 

@@ -33,7 +33,6 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
         ArgumentNullException.ThrowIfNull(permits);
         ArgumentOutOfRangeException.ThrowIfZero(permits.Count);
 
-        DateTimeOffset windowStart = savedAt - window;
         Guid[] ids = permits.Select(permit => permit.Id).ToArray();
         bool[] replacedPolish = permits.Select(permit => permit.ReplacedPolish).ToArray();
 
@@ -51,6 +50,17 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
                 ],
                 retryCancellationToken),
             cancellationToken);
+
+        return await CountAsync(translatorId, savedAt, window, cancellationToken);
+    }
+
+    public async Task<TranslationSaveCounts> CountAsync(
+        TranslatorId translatorId,
+        DateTimeOffset now,
+        TimeSpan window,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset windowStart = now - window;
 
         TranslationSaveCounts? counts = await _dbContext.TranslationSaves
             .Where(translationSave => translationSave.TranslatorId == translatorId && translationSave.SavedAt > windowStart)

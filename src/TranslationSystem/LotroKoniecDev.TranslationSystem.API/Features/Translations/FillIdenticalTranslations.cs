@@ -94,21 +94,35 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
             TranslationStatus previousStatus = translation.Status;
             DateTimeOffset now = WholeMicroseconds(_timeProvider.GetUtcNow());
 
-            // Compared with the text as the save would store it (#1476), so an untouched field is unchanged.
-            bool changed = !string.Equals(
-                translation.TranslatedText,
-                translation.Source.RemoveTrailingLineBreaksFrom(command.TranslatedText),
-                StringComparison.Ordinal);
+            // The text as the save stores it (#1476), made once and shared by every row; an untouched field is
+            // then unchanged.
+            string storedText = translation.Source.RemoveTrailingLineBreaksFrom(command.TranslatedText);
+            bool changed = !string.Equals(translation.TranslatedText, storedText, StringComparison.Ordinal);
             bool replacesPolish = changed && translation.TranslatedText is not null;
 
+            // A copy that cannot fit is refused on two counts, before any row is loaded (ADR-0072 amendment).
+            int emptyRowCount = await _translationRepository.CountEmptyRowsWithSourceAsync(
+                translation.Source, translation.Id, cancellationToken);
+            int saves = emptyRowCount + (changed ? 1 : 0);
+            if (saves > 0)
+            {
+                Result roomResult = await _saveBudgetGate.CheckRoomAsync(
+                    _logger, translatorId, saves, replacesPolish, now, cancellationToken);
+                if (roomResult.IsFailure)
+                {
+                    return Result.Failure<FillIdenticalTranslationsResponse>(roomResult.Error);
+                }
+            }
+
             // Found again now, never sent by the client, so a row filled after the page load is left alone.
-            IReadOnlyList<Translation> emptyRows =
-                await _translationRepository.GetEmptyRowsWithSourceAsync(translation.Source, translation.Id, cancellationToken);
+            IReadOnlyList<Translation> emptyRows = saves > 0
+                ? await _translationRepository.GetEmptyRowsWithSourceAsync(translation.Source, translation.Id, cancellationToken)
+                : [];
 
             if (changed || emptyRows.Count > 0)
             {
                 Result saveResult = await SaveAsync(
-                    translation, emptyRows, command.TranslatedText, changed, replacesPolish, translatorId, now);
+                    translation, emptyRows, storedText, changed, replacesPolish, translatorId, now);
                 if (saveResult.IsFailure)
                 {
                     return Result.Failure<FillIdenticalTranslationsResponse>(saveResult.Error);

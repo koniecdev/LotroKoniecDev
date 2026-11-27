@@ -108,23 +108,19 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
         TranslationId exceptId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(source);
-
-        string text = source.Text;
-        string? argsOrder = source.ArgsOrder;
-        string? argsId = source.ArgsId;
-
-        // C# == on the nullable args is null-safe in EF Core, so a NULL column matches a null value.
-        List<Translation> translations = await DbContext.Set<Translation>()
-            .Where(translation => translation.Id != exceptId
-                && translation.RemovedInVersion == null
-                && translation.TranslatedText == null
-                && translation.Source.Text == text
-                && translation.Source.ArgsOrder == argsOrder
-                && translation.Source.ArgsId == argsId)
-            .ToListAsync(cancellationToken);
+        List<Translation> translations = await EmptyRowsWithSource(source, exceptId).ToListAsync(cancellationToken);
 
         return translations;
+    }
+
+    public async Task<int> CountEmptyRowsWithSourceAsync(
+        TranslationSource source,
+        TranslationId exceptId,
+        CancellationToken cancellationToken)
+    {
+        int count = await EmptyRowsWithSource(source, exceptId).CountAsync(cancellationToken);
+
+        return count;
     }
 
     public void InsertRange(IEnumerable<Translation> translations)
@@ -144,5 +140,26 @@ internal sealed class TranslationRepository : GenericRepository<Translation, Tra
                 cancellationToken);
 
         return referenced;
+    }
+
+    /// <summary>
+    /// The live rows with no Polish and the same text and args, so the count and the load cannot disagree.
+    /// C# == on the nullable args is null-safe in EF Core, so a NULL column matches a null value.
+    /// </summary>
+    private IQueryable<Translation> EmptyRowsWithSource(TranslationSource source, TranslationId exceptId)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+
+        string text = source.Text;
+        string? argsOrder = source.ArgsOrder;
+        string? argsId = source.ArgsId;
+
+        return DbContext.Set<Translation>()
+            .Where(translation => translation.Id != exceptId
+                && translation.RemovedInVersion == null
+                && translation.TranslatedText == null
+                && translation.Source.Text == text
+                && translation.Source.ArgsOrder == argsOrder
+                && translation.Source.ArgsId == argsId);
     }
 }

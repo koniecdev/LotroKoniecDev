@@ -285,6 +285,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
         TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(CleanText);
+        page.ShouldContain("""<div class="status-message status-error" role="alert">""");
         page.ShouldNotContain("Tłumaczenie zapisano");
         page.ShouldNotContain("Ten sam tekst wpisano");
         translationSystem.UpsertAttempts.ShouldBeGreaterThanOrEqualTo(1);
@@ -292,9 +293,9 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
     }
 
     [Theory]
-    [InlineData(SlipText, "Tekst nie jest jeszcze zapisany.")]
-    [InlineData(StoredText + " ", "Tekst nie jest jeszcze zapisany.")]
-    public async Task Post_Fill_WithSlipsWhenThePanelFails_SendsNothingAndOffersNoMimoTo(string typed, string expectedLine)
+    [InlineData(SlipText)]
+    [InlineData(StoredText + " ")]
+    public async Task Post_Fill_WithSlipsWhenThePanelFails_SendsNothingAndOffersNoMimoTo(string typed)
     {
         // Arrange
         StubTranslationSystem translationSystem = new() { EmptyRows = 3, PanelFails = true };
@@ -308,7 +309,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
-        page.ShouldContain(expectedLine);
+        page.ShouldContain(NotSavedLine);
         page.ShouldContain("Nie udało się wczytać innych wierszy z tym samym tekstem angielskim.");
         FillAnywayButton().IsMatch(page).ShouldBeFalse();
         translationSystem.Fills.ShouldBeEmpty();

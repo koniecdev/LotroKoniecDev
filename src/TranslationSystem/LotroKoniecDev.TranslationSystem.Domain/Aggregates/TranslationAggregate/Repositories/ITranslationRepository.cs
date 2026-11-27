@@ -33,6 +33,14 @@ public interface ITranslationRepository : IRepository<Translation, TranslationId
         TranslationId exceptId,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The number of rows <see cref="GetEmptyRowsWithSourceAsync"/> would load, without loading them.
+    /// </summary>
+    Task<int> CountEmptyRowsWithSourceAsync(
+        TranslationSource source,
+        TranslationId exceptId,
+        CancellationToken cancellationToken);
+
     void InsertRange(IEnumerable<Translation> translations);
 
     /// <summary>

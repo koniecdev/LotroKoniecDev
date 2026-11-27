@@ -20,6 +20,16 @@ public interface ITranslationSaveLedger
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// The account's saves and overwrites inside the window, without recording anything. A fill reads it
+    /// first, so one that cannot fit is refused before it loads a row or writes a permit (#1587).
+    /// </summary>
+    Task<TranslationSaveCounts> CountAsync(
+        TranslatorId translatorId,
+        DateTimeOffset now,
+        TimeSpan window,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Deletes every account's rows older than the window. A save without a budget calls it too, so a
     /// translator who becomes a Reviewer leaves no rows behind (ADR-0072 amendment of 2026-11-21).
     /// </summary>

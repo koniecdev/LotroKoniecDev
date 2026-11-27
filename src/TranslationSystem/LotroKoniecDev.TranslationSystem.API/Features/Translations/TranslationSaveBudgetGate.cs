@@ -56,6 +56,36 @@ internal sealed partial class TranslationSaveBudgetGate
     }
 
     /// <summary>
+    /// Refuses an action that cannot fit before it loads a row or writes a permit, so a refused fill costs two
+    /// counts, however large its group (ADR-0072 amendment of 2026-11-27). Parallel actions can all pass it;
+    /// <see cref="SpendAsync"/> still decides.
+    /// </summary>
+    public async Task<Result> CheckRoomAsync(
+        ILogger logger,
+        TranslatorId translatorId,
+        int saves,
+        bool replacesPolish,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (!_currentUserAccessor.HasDailySaveBudget())
+        {
+            return Result.Success();
+        }
+
+        TranslationSaveBudgetSettings settings = _saveBudgetSettings.Value;
+        TranslationSaveCounts counts = await _saveLedger.CountAsync(
+            translatorId, now, TimeSpan.FromHours(settings.WindowHours), cancellationToken);
+        TranslationSaveCounts withThisAction = new(counts.Saves + saves, counts.Overwrites + (replacesPolish ? 1 : 0));
+
+        TranslationSaveBudgetVerdict verdict = TranslationSaveBudget.Judge(withThisAction, replacesPolish, settings);
+
+        return verdict.RefusedBy is TranslationSaveBudgetKind refusedBy
+            ? Result.Failure(Refuse(logger, translatorId, refusedBy, withThisAction, saves, settings))
+            : Result.Success();
+    }
+
+    /// <summary>
     /// Records the permits of a plain translator and judges them together; a refusal hands every one back.
     /// Any other caller only clears the expired rows (ADR-0072 amendment of 2026-11-21).
     /// </summary>
@@ -89,22 +119,9 @@ internal sealed partial class TranslationSaveBudgetGate
 
         if (verdict.RefusedBy is TranslationSaveBudgetKind refusedBy)
         {
-            (int count, int limit, Error error) = refusedBy switch
-            {
-                TranslationSaveBudgetKind.Saves when saves > 1 => (counts.Saves, settings.SaveLimit,
-                    TranslationSaveBudgetErrors.FillExceedsSaveBudget(saves, settings.SaveLimit, settings.WindowHours)),
-                TranslationSaveBudgetKind.Saves => (counts.Saves, settings.SaveLimit,
-                    TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours)),
-                _ => (counts.Overwrites, settings.OverwriteLimit,
-                    TranslationSaveBudgetErrors.OverwriteBudgetExhausted(settings.OverwriteLimit, settings.WindowHours))
-            };
-
             // Not the request's token: a client that leaves now must not keep a refused permit.
             await _saveLedger.RemoveAsync(permitIds, CancellationToken.None);
-            LogSaveBudget(
-                logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
-                count, limit, settings.WindowHours);
-            return Result.Failure(error);
+            return Result.Failure(Refuse(logger, translatorId, refusedBy, counts, saves, settings));
         }
 
         // Every save at or above a threshold, not only the crossing one: two parallel saves can both skip the
@@ -171,6 +188,31 @@ internal sealed partial class TranslationSaveBudgetGate
         _currentUserAccessor = currentUserAccessor;
         _saveLedger = saveLedger;
         _saveBudgetSettings = saveBudgetSettings;
+    }
+
+    /// <summary>The refusal's answer and its Warning line (ADR-0072 §5 and §6).</summary>
+    private static Error Refuse(
+        ILogger logger,
+        TranslatorId translatorId,
+        TranslationSaveBudgetKind refusedBy,
+        TranslationSaveCounts counts,
+        int saves,
+        TranslationSaveBudgetSettings settings)
+    {
+        (int count, int limit, Error error) = refusedBy switch
+        {
+            TranslationSaveBudgetKind.Saves when saves > 1 => (counts.Saves, settings.SaveLimit,
+                TranslationSaveBudgetErrors.FillExceedsSaveBudget(saves, settings.SaveLimit, settings.WindowHours)),
+            TranslationSaveBudgetKind.Saves => (counts.Saves, settings.SaveLimit,
+                TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours)),
+            _ => (counts.Overwrites, settings.OverwriteLimit,
+                TranslationSaveBudgetErrors.OverwriteBudgetExhausted(settings.OverwriteLimit, settings.WindowHours))
+        };
+
+        LogSaveBudget(
+            logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
+            count, limit, settings.WindowHours);
+        return error;
     }
 
     [LoggerMessage(EventId = EventIds.TranslationOverwritten, Level = LogLevel.Information,

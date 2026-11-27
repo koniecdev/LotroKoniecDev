@@ -248,6 +248,46 @@ public sealed class FillIdenticalTranslationsHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenTheCopyCannotFit_ShouldRefuseBeforeLoadingARowOrWritingAPermit()
+    {
+        // Arrange: a refused fill must stay cheap however large its group, because it can be sent again
+        // and again (ADR-0072 amendment of 2026-11-27).
+        _budgetSettings = SmallBudget(saveLimit: 3);
+        Translation row = Row(1);
+        GivenRows(row, Row(2), Row(3), Row(4));
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
+        result.Error.Message.ShouldContain("4 rows");
+        _saveLedger.RecordCalls.ShouldBe(0);
+        await _translationRepository.DidNotReceive().GetEmptyRowsWithSourceAsync(
+            Arg.Any<TranslationSource>(), Arg.Any<TranslationId>(), Arg.Any<CancellationToken>());
+        BudgetEntries().Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenParallelSavesUseTheRoomAfterTheCheck_ShouldStillRefuseAndHandEveryPermitBack()
+    {
+        // Arrange: the early check sees room for three; two parallel saves take it before the permits land.
+        _budgetSettings = SmallBudget(saveLimit: 3);
+        _saveLedger.ParallelSavesBeforeRecord = 2;
+        Translation row = Row(1);
+        Translation[] twins = [Row(2), Row(3)];
+        GivenRows(row, twins);
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.SaveBudgetExhausted");
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(2, 0));
+        twins.ShouldAllBe(translation => translation.TranslatedText == null);
+    }
+
+    [Fact]
     public async Task Handle_WhenTheCallerIsAnAdmin_ShouldNeitherSpendNorBeRefused()
     {
         // Arrange
@@ -498,6 +538,8 @@ public sealed class FillIdenticalTranslationsHandlerTests
             .Returns(Maybe<Translation>.From(row));
         _translationRepository.GetEmptyRowsWithSourceAsync(row.Source, row.Id, Arg.Any<CancellationToken>())
             .Returns(twins);
+        _translationRepository.CountEmptyRowsWithSourceAsync(row.Source, row.Id, Arg.Any<CancellationToken>())
+            .Returns(twins.Length);
         _readModels.Add(ReadModelOf(row, CurrentTranslator, Now));
     }
 

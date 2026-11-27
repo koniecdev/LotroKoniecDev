@@ -3,7 +3,7 @@
 - **Status:** Implemented
 - **Date:** 2026-11-25
 - **Author:** Claude Opus 5.5, from the owner decisions on #1490
-- **Ticket:** #1490
+- **Ticket:** #1490; #1585 (2026-11-27) adds „Następny”, which opens the next row without a save
 - **Related:** ADR-0077 (the place and `after` contract), #1452 (the list state in the editor's address),
   #1489 (the warnings), #1493 (the list's inline save), #1384 (proposals, which changes the "Tylko moje"
   order), #1569 (a second click in the browser), #1571 (the slip check before the save, which extends
@@ -24,6 +24,7 @@ From the editor, the translator saves a row and lands on the next row of the sam
 ## In scope
 
 - A second button, „Zapisz i następny”, next to „Zapisz” in the editor.
+- A third button, „Następny”, after „Zapisz i następny”: it opens the next row and saves nothing (#1585).
 - A "place" for each row of the translation list and a new list option, `after`, that returns the rows
   after a place (ADR-0077).
 - One shared rule for removing line breaks at the end of the Polish.
@@ -33,6 +34,7 @@ From the editor, the translator saves a row and lands on the next row of the sam
 - The list's inline save (#1493) gets no "next".
 - The recovery form, which the editor shows when the row cannot load, keeps only „Zapisz ponownie”.
 - Blocking a second click in the browser: #1569.
+- A „Poprzedni” button: `after` goes forward only, and the owner kept the API as it is (#1585).
 - The catalog's own "next untranslated" (#371, M7).
 
 ## Owner decisions
@@ -57,6 +59,14 @@ From the comments on #1490 of 2026-11-24 17:41 UTC and 2026-11-25:
     „Tłumaczenie zapisano.” and „Nie udało się otworzyć następnego wiersza. Spróbuj jeszcze raz albo
     wróć do listy.”
   - None of these lines shows after a failed save.
+
+From the body of #1585 (2026-11-27):
+
+- „Następny” is a third button in the save row, right after „Zapisz i następny”:
+  `[Zapisz] [Zapisz i następny] [Następny]`. It was chosen over a „Następny →” link in the page head.
+- Typed text that is not saved is dropped without a warning, as „← Wróć do listy” drops it. There is no
+  stop and no "go on without saving" step.
+- There is no „Poprzedni” button, so the translation API does not change.
 
 ## Business rules & edge cases
 
@@ -104,6 +114,16 @@ From the comments on #1490 of 2026-11-24 17:41 UTC and 2026-11-25:
     group leaves the filter. Its rows after the saved one are not offered.
   - In „Tylko moje”, a row that another person changes while the translator works moves to the top of
     the list, before the place, so it is not offered again.
+- **„Następny”** (#1585) works as „Zapisz i następny” with an unchanged text, whatever the field holds:
+  - It never saves: no save request, nothing spent from the save budget, no slip check. The typed text,
+    an empty field on an untranslated row included, is dropped.
+  - It shows only where „Zapisz i następny” shows: on a row with a place and a save form. A post of it
+    with no place saves nothing either and shows the row again.
+  - The next row shows no line; after the last row the list shows only „To był ostatni wiersz tej listy.”;
+    a failed next read keeps the translator on the row with only the „Nie udało się otworzyć…” line.
+  - It stays on the row after „Zapisz”, after „Zatwierdź” and after a failed save.
+  - A press costs the same API reads as an unchanged „Zapisz i następny”: the row on the post, the rows
+    after the place, then the next row and its panel of rows with the same English.
 - **A fast double click.** Two posts one after the other open the same next row; the second one saves
   again only when the text changed, and spends one more permit. A truly simultaneous double click can
   answer the second post with an error (409) although the first save went through, as „Zapisz” does
@@ -112,7 +132,7 @@ From the comments on #1490 of 2026-11-24 17:41 UTC and 2026-11-25:
 ## Contract
 
 - **Trigger:** the editor's save form at `/editor/{id}?…&place=<place>`, with the pressed button's name
-  `SaveAction` and value `next`; „Zapisz” sends no value.
+  `SaveAction`: value `next` for „Zapisz i następny”, `skip` for „Następny”; „Zapisz” sends no value.
 - **List API:** `GET /api/v1/translations` (`ListTranslationsRequest`):
   - Each item of `TranslationListItemResponse` has `place`, an opaque string, or `null` when the
     request has a `sort`.
@@ -145,7 +165,13 @@ From the comments on #1490 of 2026-11-24 17:41 UTC and 2026-11-25:
       two posts one after the other, when the save took the row out of the filter, and in „Tylko moje”.
 - [ ] „Poprzednie tłumaczenie zapisano.” shows only when this press saved.
 - [ ] A failed next read keeps the translator on the row with the two lines.
-- [ ] No button without a place, after „Otwórz”, after „Otwórz w edytorze” or on a read-only row.
+- [ ] No „Zapisz i następny” or „Następny” without a place, after „Otwórz”, after „Otwórz w edytorze”
+      or on a read-only row.
+- [ ] „Następny” opens the next row of the same list and saves nothing, with an empty field on an
+      untranslated row and with a changed text; a post of it with no place saves nothing either.
+- [ ] After the last row „Następny” returns to the list with only „To był ostatni wiersz tej listy.”, and
+      a failed next read shows only the „Nie udało się otworzyć…” line.
+- [ ] On a 390 px phone every button of the save row stays inside the form with its label on one line.
 - [ ] The API refuses a bad `after` with a 400, never a 500.
 
 ## Duties for #1384
@@ -176,6 +202,10 @@ editor and on the list, and that #1571 extends this button when this ticket land
 3. A clean text still saves and moves on, and an unchanged text still moves on without a save. Keep the
    unchanged check before the slip check, so a correct text with a slip never becomes a dead end
    (`EditorSaveAndNextTests.Post_SaveAndNext_WithAnUnchangedTextThatHasSlips_MovesOnWithoutASave`).
+4. „Następny” never meets the stop (#1585). Keep its branch first in `SaveOrRedirectAsync`, above the
+   unchanged check and the slip check, and keep it on the stop page next to „Zapisz mimo to”. If „Zapisz
+   mimo to” uses the `SaveAction` field, its value differs from `next` and `skip`. A stop page draws four
+   buttons, so #1571 adds a 390 px check of that page next to the three-button one in `EditorLayoutTests`.
 
 ## Open questions
 

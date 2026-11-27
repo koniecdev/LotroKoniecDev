@@ -27,11 +27,14 @@ internal sealed record TranslationListQuery
     /// <summary>
     /// The row's place in the list, in the editor's address (#1490, ADR-0077). "Edytuj" on the list writes
     /// it, and so does the editor when it opens the next row; only an editor with a place offers "Zapisz i
-    /// następny".
+    /// następny" and "Następny".
     /// </summary>
     internal const string PlaceName = "place";
 
-    /// <summary>The list's note after "Zapisz i następny" passed the last row (#1490). The list page reads it.</summary>
+    /// <summary>
+    /// The list's note after "Zapisz i następny" or "Następny" passed the last row (#1490, #1585). The list page
+    /// reads it.
+    /// </summary>
     internal const string LastRowName = "lastRow";
 
     internal const string LastRowSavedValue = "saved";
@@ -130,7 +133,7 @@ internal sealed record TranslationListQuery
         return QueryHelpers.AddQueryString(collectionHref, ToApiRequest(after).ToQueryParameters());
     }
 
-    /// <summary>The same list on another page, for the row "Zapisz i następny" opens (#1490).</summary>
+    /// <summary>The same list on another page, for the row "Zapisz i następny" or "Następny" opens (#1490).</summary>
     public TranslationListQuery AtPage(int page) =>
         new(Search, Status, page, PageSize, ConflictsOnly, Match, Mine);
 
@@ -181,7 +184,8 @@ internal sealed record TranslationListQuery
         QueryHelpers.AddQueryString(PagePath, PageQueryParameters(PageUnlessFirst()));
 
     /// <summary>
-    /// Where "Zapisz i następny" ends after the last row (#1490). The note says whether that press saved.
+    /// Where "Zapisz i następny" or "Następny" ends after the last row (#1490). The note says whether that press
+    /// saved.
     /// </summary>
     public string ToListRelativeUriWithLastRowNote(bool saved)
     {

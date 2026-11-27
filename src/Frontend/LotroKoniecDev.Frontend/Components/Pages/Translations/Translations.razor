@@ -456,7 +456,9 @@
     private TranslationId? _savedAfter;
     private bool _savedSlips;
 
-    /// <summary>The note after "Zapisz i następny" passed the last row (#1490), read only on a GET.</summary>
+    /// <summary>
+    /// The note after "Zapisz i następny" or "Następny" passed the last row (#1490, #1585), read only on a GET.
+    /// </summary>
     private string? _lastRowNote;
 
     [SupplyParameterFromQuery]
@@ -659,7 +661,7 @@
 
     /// <summary>
     /// The editor gets the list state, so its way back shows this list again (#1452), and the row's place, so
-    /// "Zapisz i następny" can go on in this list (#1490).
+    /// "Zapisz i następny" and "Następny" can go on in this list (#1490).
     /// </summary>
     private string EditorHref(TranslationListItemResponse item) =>
         _query.ToEditorRelativeUri(item.Id, item.Place);

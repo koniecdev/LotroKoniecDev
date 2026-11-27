@@ -407,6 +407,28 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
+    public async Task Save_RecoveryFormOnARowWithAPlace_OffersOnlySaveAgain()
+    {
+        // The recovery form keeps only "Zapisz ponownie", also on a row opened from the list (spec 0018, #1585).
+        Guid id = Guid.NewGuid();
+        _client
+            .GetApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(
+                ApiResult.Success(BuildDetail(sourceText: "Hello.", translatedText: "Cześć.", canEdit: true)),
+                ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Nie znaleziono." }));
+        _client
+            .PutApiResultAsync<TranslationDetailResponse>(Arg.Any<string>(), Arg.Any<object>(), Arg.Any<CancellationToken>())
+            .Returns(ApiResult.Failure<TranslationDetailResponse>(new() { Title = "Zapis odrzucony." }));
+        Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
+        IRenderedComponent<EditorComponent> component = RenderEditor(id);
+
+        await component.Find("form").SubmitAsync();
+        component.Render();
+
+        component.FindAll("form button[type=submit]").Select(button => button.TextContent).ShouldBe(["Zapisz ponownie"]);
+    }
+
+    [Fact]
     public async Task Save_RecoveryForm_CapsItsTextareaAtTheDatPieceLimitToo()
     {
         // The recovery textarea is a separate control in Editor.razor, so its limit is pinned on its own.
@@ -1144,9 +1166,9 @@ public sealed class EditorTests : BunitContext
     }
 
     [Fact]
-    public void Render_WithAPlace_ShowsSaveAndNextBesideSaveAndCarriesTheShownText()
+    public void Render_WithAPlace_ShowsSaveAndNextAndNextBesideSaveAndCarriesTheShownText()
     {
-        // A row opened from the list carries its place (#1490, spec 0018).
+        // A row opened from the list carries its place (#1490, #1585, spec 0018).
         Guid id = Guid.NewGuid();
         StubLoad(BuildDetail(sourceText: "Hello.", translatedText: "Cześć."));
         Navigation().NavigateTo($"/editor/{id}?{ListState}&place=azoxOjI");
@@ -1154,10 +1176,12 @@ public sealed class EditorTests : BunitContext
         IRenderedComponent<EditorComponent> component = RenderEditor(id);
 
         IReadOnlyList<IElement> buttons = component.FindAll(".editor-actions button[type=submit]");
-        buttons.Select(button => button.TextContent).ShouldBe(["Zapisz", "Zapisz i następny"]);
+        buttons.Select(button => button.TextContent).ShouldBe(["Zapisz", "Zapisz i następny", "Następny"]);
         buttons[0].HasAttribute("name").ShouldBeFalse();
         buttons[1].GetAttribute("name").ShouldBe("SaveAction");
         buttons[1].GetAttribute("value").ShouldBe("next");
+        buttons[2].GetAttribute("name").ShouldBe("SaveAction");
+        buttons[2].GetAttribute("value").ShouldBe("skip");
         component.Find("input[name=ShownTextField]").GetAttribute("value").ShouldBe("Cześć.");
     }
 

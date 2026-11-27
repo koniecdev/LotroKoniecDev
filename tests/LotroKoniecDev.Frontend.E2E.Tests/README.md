@@ -97,7 +97,8 @@ One test class per flow, in `Flows/`:
   confirm the e-mail in a second tab → "Przejdź do logowania" → log in → back on the website, signed
   in (#1575).
 - `EditorLayoutTests`: the editor's English and Polish boxes are 24 px apart side by side and 20 px
-  apart stacked on a phone (#1572).
+  apart stacked on a phone (#1572); on a phone every button of the save row stays inside the form with
+  its label on one line (#1585).
 - `TranslationsFilterLayoutTests`: the translation list's filter row keeps every control inside the
   form and the search and status fields wide enough on every desktop width, shares one row on a wide
   screen, and stacks its fields on a phone.
@@ -109,7 +110,8 @@ One test class per flow, in `Flows/`:
 - `EditorSaveAndNextTests`: "Zapisz i następny" three times through an untranslated search opens the next
   row each time; on the last row of a page it opens the first row of the next page, and "Wróć do listy"
   shows that page; an approved row that starts with a line break, passed with no edit, stays approved
-  and the press ends on the list after the last row (#1490).
+  and the press ends on the list after the last row (#1490); "Następny" on an empty untranslated row
+  opens the next row, and the skipped row is still untranslated on the list (#1585).
 - Both list flows, `EditorLayoutTests` and `EditorSaveAndNextTests` get their rows from `TranslationRowsSeed`
   (`PlaywrightStackFixture.TranslationRows`):
   the first flow that needs them signs in as the admin the auth host seeds

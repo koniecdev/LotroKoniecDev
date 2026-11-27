@@ -20,8 +20,9 @@ using AuthDiscoveryResponse = LotroKoniecDev.AuthSystem.Contracts.Discovery.Disc
 namespace LotroKoniecDev.Frontend.Tests.Integration.Tests.Forms;
 
 /// <summary>
-/// "Zapisz i następny" (#1490, spec 0018) on a posted form, which bUnit cannot bind: which button was
-/// pressed, the text the form showed, the save, the read of the rows after the place and the redirect.
+/// "Zapisz i następny" (#1490, spec 0018) and "Następny" (#1585) on a posted form, which bUnit cannot bind:
+/// which button was pressed, the text the form showed, the save, the read of the rows after the place and the
+/// redirect.
 /// </summary>
 public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFrontendFactory>
 {
@@ -394,6 +395,141 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
         posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"{EditorAddress}&approved=true");
     }
 
+    [Theory]
+    [InlineData(null, "", "")]
+    [InlineData(null, "Witaj.", "")]
+    [InlineData(StoredText, "Witaj.", StoredText)]
+    [InlineData(StoredText, "", StoredText)]
+    [InlineData(StoredText, "Cześć ", StoredText)]
+    public async Task Post_Next_WithAnyText_SendsNoSaveAndOpensTheNextRowWithNoLine(
+        string? stored,
+        string typed,
+        string shown)
+    {
+        // Arrange: the typed text is dropped, a blank or a slip included (owner decisions of 2026-11-27 on #1585).
+        StubTranslationSystem translationSystem = new() { StoredTranslatedText = stored, RowsAfter = NextRowOnPage(2) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, typed, shown, saveAction: "skip"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith(
+            $"/editor/{NextRowId}?page=2&search=axe&status=Untranslated&pageSize=25&place={NextPlace}");
+        translationSystem.Upserts.ShouldBeEmpty();
+        translationSystem.ListReads.ShouldBe(
+            [$"?search=axe&status=Untranslated&after={Place}&page=2&pageSize=25"]);
+    }
+
+    [Fact]
+    public async Task Post_Next_AfterTheLastRow_GoesBackToTheListWithOnlyTheLastRowNote()
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new() { RowsAfter = NoRowAfterThePlace(lastPage: 3) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, typed: "Witaj.", shown: StoredText, saveAction: "skip"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith(
+            "/translations?page=3&search=axe&status=Untranslated&pageSize=25&lastRow=unchanged");
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Next_WhenTheRowsAfterCannotBeRead_StaysOnTheRowWithOnlyTheNextFailedLine()
+    {
+        // Arrange: no RowsAfter, so the list read fails. The form posts to its own address, so the flags of the
+        // last redirect come along and must not come back.
+        StubTranslationSystem translationSystem = new();
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(
+            antiforgeryToken,
+            typed: "Witaj.",
+            shown: StoredText,
+            saveAction: "skip",
+            address: $"{EditorAddress}&saved=true&previousSaved=true"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"{EditorAddress}&nextFailed=true");
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Next_WithoutAPlace_SendsNoSaveAndShowsTheRowAgain()
+    {
+        // Arrange: a hand-made post, since the page draws no button without a place.
+        StubTranslationSystem translationSystem = new() { RowsAfter = NextRowOnPage(2) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(SavePost(
+            antiforgeryToken, typed: "Witaj.", shown: StoredText, saveAction: "skip", address: $"/editor/{RowId}?{ListState}"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"/editor/{RowId}?{ListState}");
+        translationSystem.Upserts.ShouldBeEmpty();
+        translationSystem.ListReads.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Next_WhenTheRowDoesNotLoad_SendsNoSaveAndOpensTheNextRow()
+    {
+        // Arrange: the recovery form carries the same form name, so the post still reaches the button's branch.
+        StubTranslationSystem translationSystem = new() { RowLoads = false, RowsAfter = NextRowOnPage(2) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, typed: "Witaj.", shown: StoredText, saveAction: "skip"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith(
+            $"/editor/{NextRowId}?page=2&search=axe&status=Untranslated&pageSize=25&place={NextPlace}");
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("next")]
+    public async Task Post_Save_WhenTheSaveFails_StillShowsNext(string? saveAction)
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new() { UpsertAnswer = HttpStatusCode.Conflict, RowsAfter = NextRowOnPage(2) };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(
+            SavePost(antiforgeryToken, typed: "Witaj.", shown: StoredText, saveAction));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        NextButton().IsMatch(page).ShouldBeTrue();
+    }
+
     public EditorSaveAndNextTests(ProductionFrontendFactory factory)
     {
         _factory = factory;
@@ -405,6 +541,10 @@ public sealed partial class EditorSaveAndNextTests : IClassFixture<ProductionFro
 
     [GeneratedRegex("""<input type="hidden" name="ShownTextField" value="(?<text>[^"]*)""")]
     private static partial Regex ShownTextField();
+
+    /// <summary>"Następny" in any attribute order.</summary>
+    [GeneratedRegex("""<button(?=[^>]*\bname="SaveAction")(?=[^>]*\bvalue="skip")[^>]*>Następny</button>""")]
+    private static partial Regex NextButton();
 
     private WebApplicationFactory<Program> CreateHost(StubTranslationSystem translationSystem) =>
         _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>

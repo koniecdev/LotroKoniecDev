@@ -22,6 +22,11 @@ internal sealed class InMemorySaveLedger : ITranslationSaveLedger
     /// </summary>
     public Exception? RemoveFailure { get; set; }
 
+    /// <summary>
+    /// Stores the permits, then fails, as a count that breaks after the insert committed would.
+    /// </summary>
+    public Exception? RecordFailure { get; set; }
+
     public void Seed(TranslatorId translatorId, int saves, int overwrites)
     {
         for (int index = 0; index < saves; index++)
@@ -45,7 +50,9 @@ internal sealed class InMemorySaveLedger : ITranslationSaveLedger
         RecordCalls++;
         _saves.AddRange(permits.Select(permit => (permit.Id, translatorId, permit.ReplacedPolish)));
         CancelAfterRecord?.Cancel();
-        return Task.FromResult(CountFor(translatorId));
+        return RecordFailure is null
+            ? Task.FromResult(CountFor(translatorId))
+            : Task.FromException<TranslationSaveCounts>(RecordFailure);
     }
 
     public Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken)

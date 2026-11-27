@@ -1,3 +1,5 @@
+using LotroKoniecDev.SharedKernel.BuildingBlocks;
+using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
 using LotroKoniecDev.Tests.Shared;
@@ -42,6 +44,7 @@ public sealed class FillIdenticalTranslationsHandlerTests
     private readonly InMemorySaveLedger _saveLedger = new();
     private readonly CapturingLoggerFactory _loggerFactory = new();
 
+    private StubTranslatorProvisioner _provisioner = new(Result.Success(CurrentTranslator));
     private TranslationSaveBudgetSettings _budgetSettings = new();
     private bool _callerIsAdmin;
 
@@ -280,6 +283,68 @@ public sealed class FillIdenticalTranslationsHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenThePermitStepFailsAfterItsInsert_ShouldHandEveryPermitBackAndRethrow()
+    {
+        // Arrange: the permits are stored, then the count breaks; nothing was written to the rows.
+        Translation row = Row(1);
+        Translation[] twins = [Row(2), Row(3)];
+        GivenRows(row, twins);
+        _saveLedger.RecordFailure = new NpgsqlException("the count broke");
+
+        // Act
+        await Should.ThrowAsync<NpgsqlException>(async () => await Fill(row, Polish));
+
+        // Assert
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(0, 0));
+        twins.ShouldAllBe(translation => translation.TranslatedText == null);
+    }
+
+    [Fact]
+    public async Task Handle_WhenOnlyTheOverwriteBudgetIsSpent_ShouldRefuseAFillThatReplacesThisRowsPolish()
+    {
+        // Arrange: this row has Polish, so its own save is the fill's one overwrite.
+        _budgetSettings = new TranslationSaveBudgetSettings
+        {
+            SaveLimit = 100,
+            SaveAlertThreshold = 100,
+            OverwriteLimit = 1,
+            OverwriteAlertThreshold = 1
+        };
+        _saveLedger.Seed(CurrentTranslator, saves: 1, overwrites: 1);
+        Translation row = Row(1, polish: "Stara włócznia");
+        Translation[] twins = [Row(2), Row(3)];
+        GivenRows(row, twins);
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translations.OverwriteBudgetExhausted");
+        _saveLedger.CountFor(CurrentTranslator).ShouldBe(new TranslationSaveCounts(1, 1));
+        twins.ShouldAllBe(translation => translation.TranslatedText == null);
+        row.TranslatedText.ShouldBe("Stara włócznia");
+    }
+
+    [Fact]
+    public async Task Handle_WhenProvisioningFails_ShouldReturnItsErrorAndSpendNothing()
+    {
+        // Arrange: a token without a usable subject must never be attributed.
+        Translation row = Row(1);
+        Translation[] twins = [Row(2)];
+        GivenRows(row, twins);
+        _provisioner = new StubTranslatorProvisioner(Result.Failure<TranslatorId>(new Error(
+            "Translators.Unauthenticated", "no subject", TypeOfError.Forbidden)));
+
+        // Act
+        Result<FillIdenticalTranslationsResponse> result = await Fill(row, Polish);
+
+        // Assert
+        result.Error.Code.ShouldBe("Translators.Unauthenticated");
+        _saveLedger.RecordCalls.ShouldBe(0);
+        twins.ShouldAllBe(translation => translation.TranslatedText == null);
+    }
+
+    [Fact]
     public async Task Handle_WhenTheHandBackFailsToo_ShouldLogAWarningAndRethrowTheWritesError()
     {
         // Arrange
@@ -392,7 +457,7 @@ public sealed class FillIdenticalTranslationsHandlerTests
             new FillIdenticalTranslations.Validator(),
             _translationRepository,
             _unitOfWork,
-            new StubTranslatorProvisioner(Result.Success(CurrentTranslator)),
+            _provisioner,
             new FakeReadDbContext(_readModels),
             timeProvider ?? TimeProvider.System,
             _rebuildScheduler,

@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using LotroKoniecDev.TranslationSystem.API.Features.Translations;
 using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
@@ -225,6 +226,23 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
             (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
         body.EmptyIdenticalCount.ShouldBe(2);
         body.TotalCount.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task Get_WithMoreEmptyTwinsThanAPage_ShouldCountThemAll()
+    {
+        // Arrange: the fill writes every empty twin, not only the 50 the panel lists (#1587).
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync([row, .. Enumerable.Range(2, 60).Select(gossipId => Row(gossipId, SourceText, polish: null))]);
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.Items.Count.ShouldBe(ListSameSourceTextTranslations.MaxItems);
+        body.EmptyIdenticalCount.ShouldBe(60);
     }
 
     [Fact]

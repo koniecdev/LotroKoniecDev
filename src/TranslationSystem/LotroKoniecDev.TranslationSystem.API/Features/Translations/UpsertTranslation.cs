@@ -44,11 +44,8 @@ internal sealed class UpsertTranslation : IEndpoint
             RuleFor(command => command.GossipId)
                 .GreaterThanOrEqualTo(0);
 
-            // Above the DAT limit the patcher cannot write the row at all (#598, ADR-0043), so the
-            // translator is told here, not a player halfway through a patch.
             RuleFor(command => command.TranslatedText)
-                .NotEmpty()
-                .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
+                .MustBeAWritableTranslation();
         }
     }
 
@@ -131,11 +128,11 @@ internal sealed class UpsertTranslation : IEndpoint
             bool replacesPolish = translation.TranslatedText is not null;
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
-            Result<IReadOnlyList<Guid>> permitResult = await _saveBudgetGate.SpendAsync(
-                _logger, translatorId, saves: 1, replacesPolish, now, cancellationToken);
-            if (permitResult.IsFailure)
+            Result budgetResult = await _saveBudgetGate.SpendAsync(
+                _logger, translatorId, TranslationSaveBudgetGate.NewPermits(saves: 1, replacesPolish, now), now, cancellationToken);
+            if (budgetResult.IsFailure)
             {
-                return Result.Failure<TranslationDetailResponse>(permitResult.Error);
+                return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
             }
 
             translation.ProvideTranslation(command.TranslatedText, translatorId, now);

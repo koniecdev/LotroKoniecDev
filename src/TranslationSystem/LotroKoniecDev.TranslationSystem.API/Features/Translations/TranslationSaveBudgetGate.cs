@@ -42,20 +42,31 @@ internal sealed partial class TranslationSaveBudgetGate
     }
 
     /// <summary>
-    /// Takes one permit per row the action saves, for a plain translator, and judges them together. Only
-    /// the first permit can be an overwrite: a copy goes only into rows with no Polish. A refusal hands
-    /// every permit back. Any other caller only clears the expired rows (ADR-0072 amendment of 2026-11-21).
+    /// One permit per row the action saves (ADR-0072 §4 and its amendment of 2026-11-27). Only the first can be
+    /// an overwrite: a copy goes only into rows with no Polish. The ids exist before anything is recorded, so a
+    /// caller can hand them back whatever fails.
     /// </summary>
-    /// <returns>The permit ids, empty when the caller has no budget.</returns>
-    public async Task<Result<IReadOnlyList<Guid>>> SpendAsync(
+    public static IReadOnlyList<TranslationSavePermit> NewPermits(int saves, bool replacesPolish, DateTimeOffset now)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(saves, 1);
+
+        return Enumerable.Range(0, saves)
+            .Select(index => new TranslationSavePermit(Guid.CreateVersion7(now), replacesPolish && index == 0))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Records the permits of a plain translator and judges them together; a refusal hands every one back.
+    /// Any other caller only clears the expired rows (ADR-0072 amendment of 2026-11-21).
+    /// </summary>
+    public async Task<Result> SpendAsync(
         ILogger logger,
         TranslatorId translatorId,
-        int saves,
-        bool replacesPolish,
+        IReadOnlyList<TranslationSavePermit> permits,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(saves, 1);
+        ArgumentNullException.ThrowIfNull(permits);
 
         TranslationSaveBudgetSettings settings = _saveBudgetSettings.Value;
         TimeSpan window = TimeSpan.FromHours(settings.WindowHours);
@@ -65,12 +76,11 @@ internal sealed partial class TranslationSaveBudgetGate
             // Without this, rows would wait for a plain translator's save, and there may be none once
             // every regular translator is a Reviewer (#1488).
             await _saveLedger.DeleteExpiredAsync(now, window, cancellationToken);
-            return Result.Success<IReadOnlyList<Guid>>([]);
+            return Result.Success();
         }
 
-        List<TranslationSavePermit> permits = Enumerable.Range(0, saves)
-            .Select(index => new TranslationSavePermit(Guid.CreateVersion7(now), replacesPolish && index == 0))
-            .ToList();
+        int saves = permits.Count;
+        bool replacesPolish = permits.Any(permit => permit.ReplacedPolish);
         List<Guid> permitIds = permits.Select(permit => permit.Id).ToList();
 
         TranslationSaveCounts counts = await _saveLedger.RecordAsync(permits, translatorId, now, window, cancellationToken);
@@ -94,7 +104,7 @@ internal sealed partial class TranslationSaveBudgetGate
             LogSaveBudget(
                 logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
                 count, limit, settings.WindowHours);
-            return Result.Failure<IReadOnlyList<Guid>>(error);
+            return Result.Failure(error);
         }
 
         // Every save at or above a threshold, not only the crossing one: two parallel saves can both skip the
@@ -113,24 +123,24 @@ internal sealed partial class TranslationSaveBudgetGate
                 counts.Overwrites, settings.OverwriteLimit, settings.WindowHours);
         }
 
-        return Result.Success<IReadOnlyList<Guid>>(permitIds);
+        return Result.Success();
     }
 
     /// <summary>
     /// Gives a failed fill's permits back (ADR-0072 amendment of 2026-11-27). Never on the request's token,
     /// and a failure here is logged, not thrown, so the write's own error reaches the caller.
     /// </summary>
-    public async Task HandBackAsync(ILogger logger, TranslatorId translatorId, IReadOnlyList<Guid> permitIds)
+    public async Task HandBackAsync(ILogger logger, TranslatorId translatorId, IReadOnlyList<TranslationSavePermit> permits)
     {
-        ArgumentNullException.ThrowIfNull(permitIds);
+        ArgumentNullException.ThrowIfNull(permits);
 
         try
         {
-            await _saveLedger.RemoveAsync(permitIds, CancellationToken.None);
+            await _saveLedger.RemoveAsync(permits.Select(permit => permit.Id).ToList(), CancellationToken.None);
         }
         catch (Exception exception) when (exception is DbException or RetryLimitExceededException)
         {
-            LogPermitsNotHandedBack(logger, exception, translatorId.Value, permitIds.Count);
+            LogPermitsNotHandedBack(logger, exception, translatorId.Value, permits.Count);
         }
     }
 

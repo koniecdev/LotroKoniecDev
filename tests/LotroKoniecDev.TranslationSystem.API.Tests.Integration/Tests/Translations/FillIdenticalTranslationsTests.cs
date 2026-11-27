@@ -22,6 +22,7 @@ using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.GameVersionAggregat
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
+using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -382,6 +383,64 @@ public sealed class FillIdenticalTranslationsTests : IAsyncLifetime
         // Assert
         response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
         (await ReadErrorCodeAsync(response)).ShouldBe("TranslationEntity.TranslatedText.PlaceholderCountMismatch");
+        (await ReadRowsAsync()).ShouldAllBe(translation => translation.TranslatedText == null);
+        (await CountPermitsAsync()).ShouldBe((0, 0));
+    }
+
+    [Fact]
+    public async Task Fill_FromARowWithArgs_ShouldMatchBothArgsColumnsExactly()
+    {
+        // Arrange: only the twin with both columns equal is the same source; one column off is another text.
+        Translation row = Row(1, argsOrder: "1-2", argsId: "1-2");
+        await SeedAsync(
+            row,
+            Row(2, argsOrder: "1-2", argsId: "1-2"),
+            Row(3, argsOrder: "1-2", argsId: null),
+            Row(4, argsOrder: null, argsId: "1-2"),
+            Row(5, argsOrder: "2-1", argsId: "1-2"),
+            Row(6, argsOrder: "1-2", argsId: "2-1"),
+            Row(7));
+
+        // Act
+        HttpResponseMessage response = await FillAsync(TranslatorClient(), row.Id, Polish);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<FillIdenticalTranslationsResponse>(JsonOptions))!.FilledCount.ShouldBe(1);
+        (await ReadRowsAsync()).Select(translation => translation.TranslatedText)
+            .ShouldBe([Polish, Polish, null, null, null, null, null]);
+    }
+
+    [Fact]
+    public async Task Fill_WithATextAtTheDatLimit_ShouldFillEveryRow()
+    {
+        // Arrange
+        Translation row = Row(1);
+        await SeedAsync(row, Row(2));
+        string atLimit = new('ż', DatFormatConstants.MaxTranslatedTextLength);
+
+        // Act
+        HttpResponseMessage response = await FillAsync(TranslatorClient(), row.Id, atLimit);
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await ReadRowsAsync()).ShouldAllBe(translation => translation.TranslatedText == atLimit);
+    }
+
+    [Fact]
+    public async Task Fill_WithATextOneAboveTheDatLimit_ShouldReturn400AndLeaveNoTrace()
+    {
+        // Arrange: the patcher could not write any of the rows (#598, ADR-0043).
+        Translation row = Row(1);
+        await SeedAsync(row, Row(2));
+
+        // Act
+        HttpResponseMessage response = await FillAsync(
+            TranslatorClient(), row.Id, new string('ż', DatFormatConstants.MaxTranslatedTextLength + 1));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+        (await ReadErrorCodeAsync(response)).ShouldBe("Translations.Validation");
         (await ReadRowsAsync()).ShouldAllBe(translation => translation.TranslatedText == null);
         (await CountPermitsAsync()).ShouldBe((0, 0));
     }

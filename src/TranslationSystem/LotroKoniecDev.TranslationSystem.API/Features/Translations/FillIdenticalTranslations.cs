@@ -15,6 +15,7 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Re
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
+using LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
@@ -38,10 +39,9 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
     {
         public Validator()
         {
-            // The save's rules (#598, ADR-0043): every copy has the same English, so one check covers all.
+            // Every copy has the same English, so one check of the typed text covers all of them.
             RuleFor(command => command.TranslatedText)
-                .NotEmpty()
-                .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
+                .MustBeAWritableTranslation();
         }
     }
 
@@ -182,16 +182,19 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
             TranslatorId translatorId,
             DateTimeOffset now)
         {
-            int saves = emptyRows.Count + (changed ? 1 : 0);
-            Result<IReadOnlyList<Guid>> permitResult = await _saveBudgetGate.SpendAsync(
-                _logger, translatorId, saves, replacesPolish, now, CancellationToken.None);
-            if (permitResult.IsFailure)
-            {
-                return Result.Failure(permitResult.Error);
-            }
+            IReadOnlyList<TranslationSavePermit> permits =
+                TranslationSaveBudgetGate.NewPermits(emptyRows.Count + (changed ? 1 : 0), replacesPolish, now);
 
+            // From the first permit on, so a failure inside the permit step itself gives them back too.
             try
             {
+                Result budgetResult = await _saveBudgetGate.SpendAsync(
+                    _logger, translatorId, permits, now, CancellationToken.None);
+                if (budgetResult.IsFailure)
+                {
+                    return budgetResult;
+                }
+
                 if (changed)
                 {
                     translation.ProvideTranslation(translatedText, translatorId, now);
@@ -210,7 +213,7 @@ internal sealed partial class FillIdenticalTranslations : IEndpoint
             }
             catch
             {
-                await _saveBudgetGate.HandBackAsync(_logger, translatorId, permitResult.Value);
+                await _saveBudgetGate.HandBackAsync(_logger, translatorId, permits);
                 throw;
             }
 

@@ -5,7 +5,6 @@ using LotroKoniecDev.SharedKernel.Enums;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
-using LotroKoniecDev.TranslationSystem.API.Auth.CurrentUserAccessing;
 using LotroKoniecDev.TranslationSystem.API.Auth.Provisioning;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
@@ -17,12 +16,10 @@ using LotroKoniecDev.TranslationSystem.Domain.Aggregates.TranslationAggregate.Va
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.Abstractions;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
-using LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslationAggregate.Enums;
 using LotroKoniecDev.TranslationSystem.Primitives.Aggregates.TranslatorAggregate;
 using LotroKoniecDev.TranslationSystem.Primitives.Constants;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 
@@ -32,7 +29,7 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// (#1437). A plain translator (neither Admin nor Reviewer) spends the per-account save budget of
 /// ADR-0072 first.
 /// </summary>
-internal sealed partial class UpsertTranslation : IEndpoint
+internal sealed class UpsertTranslation : IEndpoint
 {
     internal sealed record Command(int FileId, long GossipId, string TranslatedText)
         : ICommand<Result<TranslationDetailResponse>>;
@@ -47,15 +44,12 @@ internal sealed partial class UpsertTranslation : IEndpoint
             RuleFor(command => command.GossipId)
                 .GreaterThanOrEqualTo(0);
 
-            // Above the DAT limit the patcher cannot write the row at all (#598, ADR-0043), so the
-            // translator is told here, not a player halfway through a patch.
             RuleFor(command => command.TranslatedText)
-                .NotEmpty()
-                .MaximumLength(DatFormatConstants.MaxTranslatedTextLength);
+                .MustBeAWritableTranslation();
         }
     }
 
-    internal sealed partial class Handler : ICommandHandler<Command, Result<TranslationDetailResponse>>
+    internal sealed class Handler : ICommandHandler<Command, Result<TranslationDetailResponse>>
     {
         private readonly IValidator<Command> _validator;
         private readonly ITranslationRepository _translationRepository;
@@ -64,9 +58,7 @@ internal sealed partial class UpsertTranslation : IEndpoint
         private readonly IApplicationReadDbContext _readDbContext;
         private readonly TimeProvider _timeProvider;
         private readonly ITranslationFileRebuildScheduler _rebuildScheduler;
-        private readonly ICurrentUserAccessor _currentUserAccessor;
-        private readonly ITranslationSaveLedger _saveLedger;
-        private readonly IOptions<TranslationSaveBudgetSettings> _saveBudgetSettings;
+        private readonly TranslationSaveBudgetGate _saveBudgetGate;
         private readonly ILogger<Handler> _logger;
 
         public Handler(
@@ -77,9 +69,7 @@ internal sealed partial class UpsertTranslation : IEndpoint
             IApplicationReadDbContext readDbContext,
             TimeProvider timeProvider,
             ITranslationFileRebuildScheduler rebuildScheduler,
-            ICurrentUserAccessor currentUserAccessor,
-            ITranslationSaveLedger saveLedger,
-            IOptions<TranslationSaveBudgetSettings> saveBudgetSettings,
+            TranslationSaveBudgetGate saveBudgetGate,
             ILogger<Handler> logger)
         {
             _validator = validator;
@@ -89,9 +79,7 @@ internal sealed partial class UpsertTranslation : IEndpoint
             _readDbContext = readDbContext;
             _timeProvider = timeProvider;
             _rebuildScheduler = rebuildScheduler;
-            _currentUserAccessor = currentUserAccessor;
-            _saveLedger = saveLedger;
-            _saveBudgetSettings = saveBudgetSettings;
+            _saveBudgetGate = saveBudgetGate;
             _logger = logger;
         }
 
@@ -118,18 +106,11 @@ internal sealed partial class UpsertTranslation : IEndpoint
 
             Translation translation = translationMaybe.Value;
 
-            // A soft-removed row is out of translation work (spec 0001).
-            if (translation.IsRemoved)
+            // Before the save permit, which commits on its own, so a refused save spends nothing (ADR-0072 §4).
+            Result writableResult = TranslationSaveBudgetGate.CheckWritable(translation, command.TranslatedText);
+            if (writableResult.IsFailure)
             {
-                return Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.CannotEditRemoved);
-            }
-
-            // Here and not in the validator, which cannot see the English. Before the save permit,
-            // which commits on its own, so a refused save spends nothing (ADR-0072 §4).
-            Result placeholderResult = translation.Source.CheckPlaceholderCountOf(command.TranslatedText);
-            if (placeholderResult.IsFailure)
-            {
-                return Result.Failure<TranslationDetailResponse>(placeholderResult.Error);
+                return Result.Failure<TranslationDetailResponse>(writableResult.Error);
             }
 
             // Commits the caller's Translator row before the foreign key is written (ADR-0004).
@@ -145,35 +126,22 @@ internal sealed partial class UpsertTranslation : IEndpoint
             // Only an approved row leaves the distributed set, so only then is a rebuild needed.
             bool wasApproved = previousStatus is TranslationStatus.Approved;
             bool replacesPolish = translation.TranslatedText is not null;
-            bool isBudgeted = _currentUserAccessor.HasDailySaveBudget();
             DateTimeOffset now = _timeProvider.GetUtcNow();
 
-            if (isBudgeted)
+            Result budgetResult = await _saveBudgetGate.SpendAsync(
+                _logger, translatorId, TranslationSaveBudgetGate.NewPermits(saves: 1, replacesPolish, now), now, cancellationToken);
+            if (budgetResult.IsFailure)
             {
-                Result budgetResult = await SpendSaveBudgetAsync(translatorId, replacesPolish, now, cancellationToken);
-                if (budgetResult.IsFailure)
-                {
-                    return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
-                }
-            }
-            else
-            {
-                // Without this, rows would wait for a plain translator's save, and there may be none
-                // once every regular translator is a Reviewer (#1488).
-                await _saveLedger.DeleteExpiredAsync(
-                    now, TimeSpan.FromHours(_saveBudgetSettings.Value.WindowHours), cancellationToken);
+                return Result.Failure<TranslationDetailResponse>(budgetResult.Error);
             }
 
             translation.ProvideTranslation(command.TranslatedText, translatorId, now);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-            // Only after the commit, so a refused or conflicting save never counts toward the owner's
-            // total alert (ADR-0072).
             if (replacesPolish)
             {
-                LogTranslationOverwritten(
-                    _logger, translatorId.Value, command.FileId, command.GossipId, previousStatus, isBudgeted);
+                _saveBudgetGate.LogOverwrite(_logger, translatorId, command.FileId, command.GossipId, previousStatus);
             }
 
             if (wasApproved)
@@ -192,71 +160,6 @@ internal sealed partial class UpsertTranslation : IEndpoint
                 ? Result.Failure<TranslationDetailResponse>(DomainErrors.TranslationEntity.NotFound(command.FileId, command.GossipId))
                 : Result.Success(response);
         }
-
-        private async Task<Result> SpendSaveBudgetAsync(
-            TranslatorId translatorId,
-            bool replacesPolish,
-            DateTimeOffset now,
-            CancellationToken cancellationToken)
-        {
-            TranslationSaveBudgetSettings settings = _saveBudgetSettings.Value;
-            Guid saveId = Guid.CreateVersion7(now);
-
-            TranslationSaveCounts counts = await _saveLedger.RecordAsync(
-                saveId, translatorId, replacesPolish, now, TimeSpan.FromHours(settings.WindowHours), cancellationToken);
-
-            TranslationSaveBudgetVerdict verdict = TranslationSaveBudget.Judge(counts, replacesPolish, settings);
-
-            if (verdict.RefusedBy is TranslationSaveBudgetKind refusedBy)
-            {
-                (int count, int limit, Error error) = refusedBy is TranslationSaveBudgetKind.Saves
-                    ? (counts.Saves, settings.SaveLimit,
-                        TranslationSaveBudgetErrors.SaveBudgetExhausted(settings.SaveLimit, settings.WindowHours))
-                    : (counts.Overwrites, settings.OverwriteLimit,
-                        TranslationSaveBudgetErrors.OverwriteBudgetExhausted(settings.OverwriteLimit, settings.WindowHours));
-
-                // Not the request's token: a client that leaves now must not keep a refused permit.
-                await _saveLedger.RemoveAsync(saveId, CancellationToken.None);
-                LogSaveBudget(
-                    _logger, translatorId.Value, refusedBy, TranslationSaveBudgetOutcome.Refused,
-                    count, limit, settings.WindowHours);
-                return Result.Failure(error);
-            }
-
-            // Every save at or above a threshold, not only the crossing one: two parallel saves can both
-            // skip the exact number, and the alert looks back one hour.
-            if (verdict.SavesAtAlertThreshold)
-            {
-                LogSaveBudget(
-                    _logger, translatorId.Value, TranslationSaveBudgetKind.Saves, TranslationSaveBudgetOutcome.AlertThreshold,
-                    counts.Saves, settings.SaveLimit, settings.WindowHours);
-            }
-
-            if (verdict.OverwritesAtAlertThreshold)
-            {
-                LogSaveBudget(
-                    _logger, translatorId.Value, TranslationSaveBudgetKind.Overwrites, TranslationSaveBudgetOutcome.AlertThreshold,
-                    counts.Overwrites, settings.OverwriteLimit, settings.WindowHours);
-            }
-
-            return Result.Success();
-        }
-
-        [LoggerMessage(EventId = EventIds.TranslationOverwritten, Level = LogLevel.Information,
-            Message = TranslationSaveBudgetLogText.OverwrittenTemplate)]
-        private static partial void LogTranslationOverwritten(
-            ILogger logger, Guid translatorId, int fileId, long gossipId, TranslationStatus previousStatus, bool budgeted);
-
-        [LoggerMessage(EventId = EventIds.TranslationSaveBudgetWarning, Level = LogLevel.Warning,
-            Message = TranslationSaveBudgetLogText.BudgetTemplate)]
-        private static partial void LogSaveBudget(
-            ILogger logger,
-            Guid translatorId,
-            TranslationSaveBudgetKind budget,
-            TranslationSaveBudgetOutcome outcome,
-            int count,
-            int limit,
-            int windowHours);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)

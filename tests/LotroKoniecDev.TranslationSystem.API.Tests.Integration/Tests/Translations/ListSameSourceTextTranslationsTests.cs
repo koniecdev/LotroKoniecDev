@@ -1,8 +1,11 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LotroKoniecDev.Hateoas.Abstractions;
 using LotroKoniecDev.SharedKernel.Authorization;
 using LotroKoniecDev.SharedKernel.StronglyTypedIds;
+using LotroKoniecDev.TranslationSystem.API.Features.Translations;
+using LotroKoniecDev.TranslationSystem.Contracts.Hateoas;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.Entities;
 using LotroKoniecDev.TranslationSystem.Domain.Aggregates.GameVersionAggregate.ValueObjects;
@@ -202,6 +205,100 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_ShouldCountOnlyTheEmptyLiveTwinsWithTheSameArgsForTheFill()
+    {
+        // Arrange: two rows the fill would write, and one row of each kind it would not (#1587).
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync(
+            row,
+            Row(2, SourceText, polish: null),
+            Row(3, SourceText, polish: null),
+            Row(4, SourceText, "Krzepki Topornik"),
+            Row(5, SourceText, polish: null, removed: true),
+            Row(6, SourceText, polish: null, argsOrder: "1", argsId: "1"));
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.EmptyIdenticalCount.ShouldBe(2);
+        body.TotalCount.ShouldBe(4);
+    }
+
+    [Fact]
+    public async Task Get_WithMoreEmptyTwinsThanAPage_ShouldCountThemAll()
+    {
+        // Arrange: the fill writes every empty twin, not only the 50 the panel lists (#1587).
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync([row, .. Enumerable.Range(2, 60).Select(gossipId => Row(gossipId, SourceText, polish: null))]);
+
+        // Act
+        HttpResponseMessage response = await TranslatorClient().GetAsync(SameSourceTextUri(row.Id));
+
+        // Assert
+        SameSourceTextTranslationsResponse body =
+            (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+        body.Items.Count.ShouldBe(ListSameSourceTextTranslations.MaxItems);
+        body.EmptyIdenticalCount.ShouldBe(60);
+    }
+
+    [Fact]
+    public async Task Get_FromARowWithArgs_ShouldCountOnlyTheEmptyTwinsWithBothArgsEqual()
+    {
+        // Arrange
+        Translation row = Row(1, SourceText, "Topór wojenny", argsOrder: "1-2", argsId: "1-2");
+        await SeedAsync(
+            row,
+            Row(2, SourceText, polish: null, argsOrder: "1-2", argsId: "1-2"),
+            Row(3, SourceText, polish: null, argsOrder: "1-2", argsId: null),
+            Row(4, SourceText, polish: null, argsOrder: null, argsId: "1-2"),
+            Row(5, SourceText, polish: null));
+
+        // Act
+        SameSourceTextTranslationsResponse body = await GetWithLinksAsync(row.Id);
+
+        // Assert
+        body.EmptyIdenticalCount.ShouldBe(1);
+        body.TotalCount.ShouldBe(4);
+        body.Links.ShouldHaveSingleItem().Rel.ShouldBe(Rels.FillIdentical);
+    }
+
+    [Fact]
+    public async Task Get_WithAnEmptyTwin_ShouldOfferTheFillLinkForThisRow()
+    {
+        // Arrange
+        Translation row = Row(1, SourceText, "Topór wojenny");
+        await SeedAsync(row, Row(2, SourceText, polish: null));
+
+        // Act
+        SameSourceTextTranslationsResponse body = await GetWithLinksAsync(row.Id);
+
+        // Assert
+        LinkDto fillLink = body.Links.ShouldHaveSingleItem();
+        fillLink.Rel.ShouldBe(Rels.FillIdentical);
+        fillLink.Method.ShouldBe("POST");
+        fillLink.Href.ShouldEndWith($"/api/v1/translations/{row.Id.Value}/fill-identical");
+    }
+
+    [Fact]
+    public async Task Get_WithNoEmptyTwin_ShouldOfferNoFillLink()
+    {
+        // Arrange: a twin with Polish is not a row the fill would write.
+        Translation row = Row(1, SourceText, polish: null);
+        await SeedAsync(row, Row(2, SourceText, "Topór wojenny"));
+
+        // Act
+        SameSourceTextTranslationsResponse body = await GetWithLinksAsync(row.Id);
+
+        // Assert
+        body.EmptyIdenticalCount.ShouldBe(0);
+        body.Links.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task Get_WhenTheRowIsRemoved_ShouldReturn404()
     {
         // Arrange
@@ -273,6 +370,15 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
         return client;
     }
 
+    private async Task<SameSourceTextTranslationsResponse> GetWithLinksAsync(TranslationId id)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, SameSourceTextUri(id));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypes.HateoasJson));
+        HttpResponseMessage response = await TranslatorClient().SendAsync(request);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+        return (await response.Content.ReadFromJsonAsync<SameSourceTextTranslationsResponse>(JsonOptions))!;
+    }
+
     private async Task SeedAsync(params Translation[] rows)
     {
         using IServiceScope scope = _factory.Services.CreateScope();
@@ -281,11 +387,18 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
         await dbContext.SaveChangesAsync();
     }
 
-    private Translation Row(long gossipId, string source, string? polish, bool approve = false, bool removed = false)
+    private Translation Row(
+        long gossipId,
+        string source,
+        string? polish,
+        bool approve = false,
+        bool removed = false,
+        string? argsOrder = null,
+        string? argsId = null)
     {
         Translation row = Translation.CreateUntranslated(
             FragmentKey.Create(FileId, gossipId).Value,
-            TranslationSource.Create(source, null, null).Value,
+            TranslationSource.Create(source, argsOrder, argsId).Value,
             _versionId,
             Now).Value;
 

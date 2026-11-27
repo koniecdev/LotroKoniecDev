@@ -23,6 +23,12 @@ internal interface ITranslationAggregateLinkFactory
         bool callerIsAdmin);
 
     /// <summary>
+    /// The panel of identical rows: <c>fill-identical</c> only while at least one empty row has the same
+    /// source (#1587, ADR-0040 amendment). The caller has already been checked for the panel's role.
+    /// </summary>
+    ValueTask<List<LinkDto>> CreateSameSourceTextLinksAsync(TranslationId id, int emptyIdenticalCount);
+
+    /// <summary>
     /// Today only the admin action <c>bulk-approve</c> (#322).
     /// </summary>
     ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin);

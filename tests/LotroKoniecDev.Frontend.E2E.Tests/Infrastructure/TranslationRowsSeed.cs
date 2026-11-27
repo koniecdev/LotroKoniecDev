@@ -15,6 +15,14 @@ internal sealed class TranslationRowsSeed
     internal const int WayBackFileId = 620_756_992;
     internal const int InlineSaveFileId = 620_756_993;
     internal const int SaveAndNextFileId = 620_756_994;
+    internal const int FillLayoutFileId = 620_756_995;
+    internal const int FillFlowFileId = 620_756_996;
+
+    /// <summary>
+    /// Each fill group's rows share one English, so a row of the group offers to fill the other ones (#1587).
+    /// The layout flow never fills its group, so the flows do not depend on each other's order.
+    /// </summary>
+    internal const int FillGroupRows = 4;
 
     /// <summary>
     /// Two pages of 25 per flow, and the second page still has rows after a save moves one row out of a
@@ -37,6 +45,10 @@ internal sealed class TranslationRowsSeed
     public string InlineSaveToken { get; } = NewToken("inlsv");
 
     public string SaveAndNextToken { get; } = NewToken("svnxt");
+
+    public string FillLayoutToken { get; } = NewToken("fllay");
+
+    public string FillFlowToken { get; } = NewToken("flflw");
 
     /// <summary>The page must already be signed in as the admin.</summary>
     public async Task EnsureSeededAsync(IPage page, string frontendBaseUrl)
@@ -77,7 +89,13 @@ internal sealed class TranslationRowsSeed
                 : string.Create(CultureInfo.InvariantCulture, $"{InlineSaveFileId}||{gossipId}||Row {gossipId:00} of {InlineSaveToken}||NULL||NULL||1"));
         IEnumerable<string> saveAndNextLines = Enumerable.Range(1, RowsPerFlow).Select(gossipId =>
             string.Create(CultureInfo.InvariantCulture, $"{SaveAndNextFileId}||{gossipId}||Row {gossipId:00} of {SaveAndNextToken}||NULL||NULL||1"));
-        string exported = string.Join('\n', wayBackLines.Concat(inlineSaveLines).Concat(saveAndNextLines));
+        IEnumerable<string> fillLines = Enumerable.Range(1, FillGroupRows).SelectMany(gossipId => new[]
+        {
+            string.Create(CultureInfo.InvariantCulture, $"{FillLayoutFileId}||{gossipId}||Spear of {FillLayoutToken}||NULL||NULL||1"),
+            string.Create(CultureInfo.InvariantCulture, $"{FillFlowFileId}||{gossipId}||Spear of {FillFlowToken}||NULL||NULL||1")
+        });
+        string exported = string.Join(
+            '\n', wayBackLines.Concat(inlineSaveLines).Concat(saveAndNextLines).Concat(fillLines));
 
         await page.GotoAsync($"{frontendBaseUrl}/import-export");
         await page.GetByLabel("Plik exported.txt", new() { Exact = true }).SetInputFilesAsync(new FilePayload

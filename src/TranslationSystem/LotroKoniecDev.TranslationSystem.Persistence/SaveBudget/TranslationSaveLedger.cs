@@ -9,26 +9,32 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 internal sealed class TranslationSaveLedger : ITranslationSaveLedger
 {
     // Raw SQL skips the execution strategy, so RecordAsync runs it through one, like the purge and the
-    // count. ON CONFLICT then makes a retry after a lost commit answer harmless.
+    // count. ON CONFLICT then makes a retry after a lost commit answer harmless. Two array parameters,
+    // whatever the number of permits, so a fill of thousands of rows stays far below PostgreSQL's limit
+    // of 65,535 parameters.
     private static readonly string InsertSql =
         $"""
          INSERT INTO "{DatabaseSchemas.Translation}"."{TranslationSaveConfiguration.TableName}"
              ("{nameof(TranslationSave.Id)}", "{nameof(TranslationSave.TranslatorId)}", "{nameof(TranslationSave.SavedAt)}", "{nameof(TranslationSave.ReplacedPolish)}")
-         VALUES (@id, @translatorId, @savedAt, @replacedPolish)
+         SELECT permit.id, @translatorId, @savedAt, permit.replaced_polish
+         FROM unnest(@ids, @replacedPolish) AS permit(id, replaced_polish)
          ON CONFLICT ("{nameof(TranslationSave.Id)}") DO NOTHING
          """;
 
     private readonly ApplicationWriteDbContext _dbContext;
 
     public async Task<TranslationSaveCounts> RecordAsync(
-        Guid saveId,
+        IReadOnlyList<TranslationSavePermit> permits,
         TranslatorId translatorId,
-        bool replacedPolish,
         DateTimeOffset savedAt,
         TimeSpan window,
         CancellationToken cancellationToken)
     {
-        DateTimeOffset windowStart = savedAt - window;
+        ArgumentNullException.ThrowIfNull(permits);
+        ArgumentOutOfRangeException.ThrowIfZero(permits.Count);
+
+        Guid[] ids = permits.Select(permit => permit.Id).ToArray();
+        bool[] replacedPolish = permits.Select(permit => permit.ReplacedPolish).ToArray();
 
         await DeleteExpiredAsync(savedAt, window, cancellationToken);
 
@@ -37,13 +43,24 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
             async retryCancellationToken => await _dbContext.Database.ExecuteSqlRawAsync(
                 InsertSql,
                 [
-                    new NpgsqlParameter("id", saveId),
+                    new NpgsqlParameter("ids", ids),
+                    new NpgsqlParameter("replacedPolish", replacedPolish),
                     new NpgsqlParameter("translatorId", translatorId.Value),
-                    new NpgsqlParameter("savedAt", savedAt),
-                    new NpgsqlParameter("replacedPolish", replacedPolish)
+                    new NpgsqlParameter("savedAt", savedAt)
                 ],
                 retryCancellationToken),
             cancellationToken);
+
+        return await CountAsync(translatorId, savedAt, window, cancellationToken);
+    }
+
+    public async Task<TranslationSaveCounts> CountAsync(
+        TranslatorId translatorId,
+        DateTimeOffset now,
+        TimeSpan window,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset windowStart = now - window;
 
         TranslationSaveCounts? counts = await _dbContext.TranslationSaves
             .Where(translationSave => translationSave.TranslatorId == translatorId && translationSave.SavedAt > windowStart)
@@ -65,11 +82,21 @@ internal sealed class TranslationSaveLedger : ITranslationSaveLedger
             .ExecuteDeleteAsync(cancellationToken);
     }
 
-    public async Task RemoveAsync(Guid saveId, CancellationToken cancellationToken)
+    public async Task RemoveAsync(IReadOnlyList<Guid> saveIds, CancellationToken cancellationToken)
     {
-        await _dbContext.TranslationSaves
-            .Where(translationSave => translationSave.Id == saveId)
-            .ExecuteDeleteAsync(cancellationToken);
+        ArgumentNullException.ThrowIfNull(saveIds);
+
+        if (saveIds.Count == 0)
+        {
+            return;
+        }
+
+        // A delete by id is safe to run again, so a short fault does not leave a fill's permits spent.
+        await _dbContext.Database.CreateExecutionStrategy().ExecuteAsync(
+            async retryCancellationToken => await _dbContext.TranslationSaves
+                .Where(translationSave => saveIds.Contains(translationSave.Id))
+                .ExecuteDeleteAsync(retryCancellationToken),
+            cancellationToken);
     }
 
     public TranslationSaveLedger(ApplicationWriteDbContext dbContext)

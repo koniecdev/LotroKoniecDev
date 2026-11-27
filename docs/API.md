@@ -421,6 +421,7 @@ number (#624). Otherwise **422** (`GameVersionEntity.ProcessedCannotBeDeleted` /
 | `GET` | `/api/v1/translations/{id:guid}` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **404** |
 | `GET` | `/api/v1/translations/{id:guid}/same-source-text` | `RequireTranslatorRole` | **200** `SameSourceTextTranslationsResponse` · **404** (unknown or soft-removed row) — see below |
 | `PUT` | `/api/v1/translations` | `RequireTranslatorRole` | **200** `TranslationDetailResponse` · **400** · **403** · **404** · **422** · **429** |
+| `POST` | `/api/v1/translations/{id:guid}/fill-identical` | `RequireTranslatorRole` | **200** `FillIdenticalTranslationsResponse` · **400** · **403** · **404** · **409** · **422** · **429** — see below |
 | `POST` | `/api/v1/translations/{id:guid}/approve` | `RequireAdminRole` | **204** · **400** · **403** · **404** · **422** |
 | `POST` | `/api/v1/translations/approve` | `RequireAdminRole` | **200** `BulkApproveTranslationsResponse` · **400** · **403** — see below |
 
@@ -513,8 +514,11 @@ game update invalidated the row; it is set from the invalidation until the row i
 panel. It returns the other live rows whose `SourceText` is exactly the row's (the args columns do not
 matter here): rows with Polish first, then `(FileId, GossipId)`, at most **50**. `totalCount` counts
 all of them; `hasConflictingTranslations` is `true` when the live group, this row included, has two
-or more different non-null Polish texts. Nothing is written. Clients follow the `same-source-text`
-rel on the translation rather than build the URL.
+or more different non-null Polish texts. `emptyIdenticalCount` counts every other live row with no
+Polish whose text **and** args columns are the row's, not only the 50 shown: the rows the fill below
+would write (#1587). Nothing is written. Clients follow the `same-source-text` rel on the translation
+rather than build the URL. For a caller who asks for links, the answer carries `fill-identical` while
+`emptyIdenticalCount` is at least 1.
 
 ```json
 {
@@ -524,9 +528,26 @@ rel on the translation rather than build the URL.
       "submitter": { "id": "0190...", "displayName": "Gimli" } }
   ],
   "totalCount": 2,
-  "hasConflictingTranslations": true
+  "hasConflictingTranslations": true,
+  "emptyIdenticalCount": 0
 }
 ```
+
+**`POST /translations/{id}/fill-identical`** (#1587, spec 0019) — saves one text in this row and in every
+empty row with the same English. The body is `FillIdenticalTranslationsRequest { translatedText }`;
+the server finds the rows to fill at the moment of the save, and the client never sends a list of rows.
+It writes the text into every other live row with no Polish whose `SourceText`, `ArgsOrder` and
+`ArgsId` equal this row's, and into this row only when the text differs from its stored Polish (the
+stored form, with the line breaks at the end removed as the save removes them). So an approved row
+with the same text stays approved. Rows with Polish and removed rows never change. Every written row
+becomes a `Draft` of the caller; a rebuild of the game file starts only when this row was approved and
+changed. The rows are saved in one transaction: a parallel change of one of them is a **409** and no
+row changes. A plain translator spends one save permit per written row (ADR-0072 amendment of
+2026-11-27): a copy that does not fit is a **429** `Translations.SaveBudgetExhausted`, and every permit
+is handed back, also after a 409. The checks and the other answers are the save's (**400** for an
+empty or too long text or a different placeholder count, **404**, **422** for a removed row). The
+answer is `FillIdenticalTranslationsResponse { translation, filledCount, translationSaved }`, where
+`translationSaved` says whether this row was written. Clients follow the panel's `fill-identical` rel.
 
 `TranslationStatsResponse` (mini dashboard): `{ total, translated, approved, remaining }` over the
 active (non-removed) catalog. `translated` = rows with Polish (Draft + Approved + NeedsReview),
@@ -687,6 +708,7 @@ Rels on resources and collections:
 | `upsert` | PUT | `/api/v1/translations` | caller is `Translator`/`Admin`, translation not soft-removed |
 | `approve` | POST | `/api/v1/translations/{id}/approve` | caller is `Admin` **and** status is Draft or NeedsReview, not removed |
 | `same-source-text` | GET | `/api/v1/translations/{id}/same-source-text` | caller is `Translator`/`Admin`, translation not soft-removed (#1347) |
+| `fill-identical` | POST | `/api/v1/translations/{id}/fill-identical` | on the `same-source-text` answer: the caller passes the endpoint's policy **and** at least one other live row with no Polish has the same text and args (#1587, ADR-0040 amendment) |
 | `bulk-approve` | POST | `/api/v1/translations/approve` | on the translations collection, caller is `Admin` |
 | `register` | POST | `/api/v1/game-versions` | on the game-versions collection, caller is `Admin` |
 | `delete` | DELETE | `/api/v1/game-versions/{id}` | caller is `Admin` **and** the version is not `Processed` (#624) |

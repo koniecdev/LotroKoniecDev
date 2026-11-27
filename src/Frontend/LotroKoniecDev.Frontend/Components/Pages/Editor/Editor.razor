@@ -1,8 +1,10 @@
 @page "/editor/{Id:guid}"
 @attribute [Authorize]
+@using System.Globalization
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Mvc
 @using LotroKoniecDev.Frontend.Components.Pages.Translations
+@using LotroKoniecDev.Frontend.Infrastructure.Errors
 @using LotroKoniecDev.Frontend.Infrastructure.Forms
 @using LotroKoniecDev.Frontend.Infrastructure.Hateoas
 @using LotroKoniecDev.Frontend.Infrastructure.HttpClients
@@ -79,7 +81,13 @@
         {
             @* The action happened even when the reload after its redirect fails, so the confirmation still
                shows (#1122). A post keeps the flag only because the address still has it, so it shows none. *@
-            @if (_postedFormName is null && Saved)
+            @if (_filledCount is { } filledAfterRedirect)
+            {
+                <div class="status-message status-success" role="status">
+                    <p>@FilledLine(filledAfterRedirect)</p>
+                </div>
+            }
+            else if (_postedFormName is null && Saved)
             {
                 <div class="status-message status-success" role="status">
                     <p>Tłumaczenie zapisano.</p>
@@ -129,15 +137,25 @@
             </span>
         </div>
 
-        @* A success flag stays in the URL after its redirect. It is hidden when the other action just
-           failed, so a new error never sits next to an old confirmation. *@
+        @* A success flag stays in the URL after its redirect. It shows only on a GET, and it is hidden when the
+           other action just failed, so a new error or a stop never sits next to an old confirmation. *@
         @if (_saveProblem is not null)
         {
             <div class="status-message status-error" role="alert">
                 <ApiProblemAlert Problem="@_saveProblem" Fallback="Nie udało się zapisać tłumaczenia."/>
+                @if (_fillOutcomeUnknown)
+                {
+                    <p>@UnknownOutcomeLine()</p>
+                }
             </div>
         }
-        else if (Saved && _approveProblem is null)
+        else if (_filledCount is { } filled && _approveProblem is null)
+        {
+            <div class="status-message status-success" role="status">
+                <p>@FilledLine(filled)</p>
+            </div>
+        }
+        else if (_postedFormName is null && Saved && _approveProblem is null)
         {
             <div class="status-message status-success" role="status">
                 <p>Tłumaczenie zapisano.</p>
@@ -150,7 +168,7 @@
                 <ApiProblemAlert Problem="@_approveProblem" Fallback="Nie udało się zatwierdzić tłumaczenia."/>
             </div>
         }
-        else if (Approved && _saveProblem is null)
+        else if (_postedFormName is null && Approved && _saveProblem is null)
         {
             <div class="status-message status-success" role="status">
                 <p>Tłumaczenie zatwierdzono i dołączono do dystrybucji.</p>
@@ -167,6 +185,26 @@
                     w tłumaczeniu @comparison.TranslatedCount. Zachowaj każdy znacznik
                     <code class="ph-token">@PlaceholderAnalyzer.Placeholder</code>.
                 </p>
+            </div>
+        }
+
+        @* The fill checks the slips before it sends anything (owner decision of 2026-11-27 on #1587). The
+           line sits right above the slips, which are drawn once. *@
+        @if (_fillStop is not FillStop.None)
+        {
+            <div class="status-message status-warning fill-stop" role="alert">
+                @if (_fillStop is FillStop.Slips && FillLink is not null)
+                {
+                    <p>Tekst nie jest jeszcze zapisany. Popraw go albo zapisz mimo to.</p>
+                }
+                else
+                {
+                    <p>@NotFilledLine(detail)</p>
+                    @if (_fillStop is FillStop.Slips && _sameSourceText is not null)
+                    {
+                        <p>Nie ma już pustych wierszy z tym samym tekstem angielskim. Ten wiersz zapiszesz przyciskiem „Zapisz”.</p>
+                    }
+                }
             </div>
         }
 
@@ -231,6 +269,15 @@
                                 {
                                     <button type="submit" class="btn btn-primary" name="SaveAction" value="@NextSaveAction">Zapisz i następny</button>
                                     <button type="submit" class="btn btn-ghost" name="SaveAction" value="@SkipSaveAction">Następny</button>
+                                }
+                                @* While a fill's outcome is unknown, it may still be running; a second press would race it. *@
+                                @if (FillLink is not null && !_fillOutcomeUnknown && _sameSourceText is { } fillPanel)
+                                {
+                                    <button type="submit" class="btn btn-primary editor-fill" name="SaveAction" value="@FillSaveAction">Zapisz we wszystkich identycznych (@fillPanel.EmptyIdenticalCount.ToString(CultureInfo.InvariantCulture))</button>
+                                    @if (_fillStop is FillStop.Slips)
+                                    {
+                                        <button type="submit" class="btn btn-primary editor-fill" name="SaveAction" value="@FillAnywaySaveAction">Zapisz we wszystkich mimo to</button>
+                                    }
                                 }
                             </div>
                         </form>
@@ -349,10 +396,17 @@
     /// <summary>The value of the "Następny" button, which opens the next row and never saves (#1585).</summary>
     private const string SkipSaveAction = "skip";
 
+    /// <summary>The value of the fill button, which checks the slips first (#1587, spec 0019).</summary>
+    private const string FillSaveAction = "fill";
+
+    /// <summary>The fill after a slip stop: it fills the text as it stands.</summary>
+    private const string FillAnywaySaveAction = "fill-anyway";
+
     private const string SavedFlag = "saved";
     private const string ApprovedFlag = "approved";
     private const string PreviousSavedFlag = "previousSaved";
     private const string NextFailedFlag = "nextFailed";
+    private const string FilledFlag = "filled";
 
     /// <summary>
     /// The capped panel's list links search for the English only up to this length, so the URL stays short.
@@ -374,6 +428,18 @@
     private string? _postedShownText;
     private bool _previousSaved;
     private bool _nextFailed;
+
+    /// <summary>The rows the last fill wrote, from the address of its redirect; read only on a GET.</summary>
+    private int? _filledCount;
+
+    private FillStop _fillStop;
+    private bool _fillOutcomeUnknown;
+
+    /// <summary>
+    /// A post reads the panel once: the fill before its write, any other post after it (#1482). Only a fill
+    /// whose outcome is unknown reads it again.
+    /// </summary>
+    private bool _sameSourceTextLoaded;
 
     /// <summary>
     /// The list state the editor's address carries, for every way back to the list (#1452). It has a value
@@ -424,6 +490,12 @@
     [SupplyParameterFromQuery(Name = NextFailedFlag)]
     private string? NextFailed { get; set; }
 
+    [SupplyParameterFromQuery(Name = FilledFlag)]
+    private string? Filled { get; set; }
+
+    /// <summary>The panel offers the fill only while an empty row with the same source exists (ADR-0040 amendment).</summary>
+    private LinkDto? FillLink => _sameSourceText?.Links.FindLink(Rels.FillIdentical);
+
     protected override async Task OnParametersSetAsync()
     {
         _listQuery = TranslationListQuery.FromPageQuery(Navigation.Uri);
@@ -434,6 +506,10 @@
         // A post keeps the address and so its flags, so only a GET shows them (#1122).
         _previousSaved = _postedFormName is null && IsOn(PreviousSaved);
         _nextFailed = _postedFormName is null && IsOn(NextFailed);
+        _filledCount = _postedFormName is null
+                       && int.TryParse(Filled, NumberStyles.None, CultureInfo.InvariantCulture, out int filled)
+            ? filled
+            : null;
 
         ApiResult<TranslationDetailResponse> result = await Loader.LoadAsync(TranslationId.FromValue(Id), CancellationToken.None);
         if (result.IsSuccess)
@@ -470,12 +546,13 @@
 
     /// <summary>
     /// Every form of this page posts through here. A good post redirects to a GET that loads the panel. A
-    /// post that stays on the page loads it after its write, so the panel read never delays the write and a
-    /// good post costs no extra request (#1482).
+    /// post that stays on the page loads it after its write, so a good post costs no extra request (#1482).
+    /// The fill is the one post that reads the panel before its write, because its link lives there; that
+    /// read is then the post's only one, unless the fill's outcome is unknown.
     /// </summary>
     private async Task PostAsync(Func<Task<bool>> postOrRedirect)
     {
-        if (await postOrRedirect() || _detail is null)
+        if (await postOrRedirect() || _detail is null || _sameSourceTextLoaded)
         {
             return;
         }
@@ -505,6 +582,11 @@
             return true;
         }
 
+        if (SaveAction is FillSaveAction or FillAnywaySaveAction)
+        {
+            return await FillOrRedirectAsync(checkSlips: SaveAction == FillSaveAction);
+        }
+
         _saveProblem = null;
         _draftText = DraftField ?? string.Empty;
 
@@ -516,24 +598,15 @@
             return true;
         }
 
-        // Never an href that came with the post: a changed post could send the request, and its token, to
-        // another host. The upsert rel always points at the collection PUT, so when the row cannot give it,
-        // the service document does (#610). The server still decides on the request.
-        string? upsertHref = _detail?.Links.FindLink(Rels.Upsert)?.Href;
-        if (upsertHref is null)
+        ApiResult<string> upsertHref = await ResolveUpsertHrefAsync();
+        if (upsertHref.IsFailure)
         {
-            ApiResult<string> resolved = await Loader.ResolveCollectionUpsertHrefAsync(CancellationToken.None);
-            if (resolved.IsFailure)
-            {
-                _saveProblem = resolved.ProblemDetails;
-                return false;
-            }
-
-            upsertHref = resolved.Value;
+            _saveProblem = upsertHref.ProblemDetails;
+            return false;
         }
 
         UpsertTranslationRequest request = new(FileIdField, GossipIdField, _draftText);
-        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(upsertHref, request, CancellationToken.None);
+        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(upsertHref.Value, request, CancellationToken.None);
 
         if (result.IsSuccess)
         {
@@ -577,6 +650,118 @@
         _approveProblem = result.ProblemDetails;
         return false;
     }
+
+    /// <summary>
+    /// The copy into every empty row with the same English (#1587, spec 0019). The slip check comes first
+    /// and sends nothing. The href comes only from the panel read here, never from the post. With no empty
+    /// row left, only this row can change, as the API would do it.
+    /// </summary>
+    /// <returns><c>true</c> when the fill went through and the page redirects.</returns>
+    private async Task<bool> FillOrRedirectAsync(bool checkSlips)
+    {
+        _saveProblem = null;
+        _draftText = DraftField ?? string.Empty;
+
+        if (_detail is null)
+        {
+            _saveProblem = ApiProblemCopy.FrontendAuthored(
+                "Tekst nie jest jeszcze zapisany.",
+                "Nie udało się wczytać wiersza, więc nie wypełniono żadnego wiersza. „Zapisz ponownie” zapisze tylko ten wiersz.");
+            return false;
+        }
+
+        if (checkSlips && TranslationSlipChecker.Check(_detail.SourceText, _draftText).Count > 0)
+        {
+            // With no empty row left, the stored text has nothing to stop: nothing would be written at all.
+            await LoadSameSourceTextAsync(_detail);
+            if (_sameSourceText is not null && FillLink is null && IsStoredText(_detail, _draftText))
+            {
+                Navigation.NavigateTo(FilledUri(saved: false, filled: 0));
+                return true;
+            }
+
+            _fillStop = FillStop.Slips;
+            return false;
+        }
+
+        await LoadSameSourceTextAsync(_detail);
+        if (_sameSourceText is not { } panel)
+        {
+            _fillStop = FillStop.PanelFailed;
+            return false;
+        }
+
+        if (FillLink is not { } fillLink)
+        {
+            return await SaveWithNoEmptyRowLeftAsync(_detail);
+        }
+
+        ApiResult<FillIdenticalTranslationsResponse> result = await Loader.FillIdenticalAsync(
+            fillLink.Href, new FillIdenticalTranslationsRequest(_draftText), CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            Navigation.NavigateTo(FilledUri(result.Value.TranslationSaved, result.Value.FilledCount));
+            return true;
+        }
+
+        _saveProblem = FillProblem(result.ProblemDetails, panel.EmptyIdenticalCount);
+        if (IsOutcomeUnknown(result.ProblemDetails))
+        {
+            // The rows may be saved already, so the panel shows them as they are now.
+            _fillOutcomeUnknown = true;
+            await LoadSameSourceTextAsync(_detail);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The ticket's rule for a fill with no empty row left (spec 0019): this row is saved only when its text
+    /// changed, through the plain save, which writes what the fill would. An unchanged text writes nothing, so
+    /// an approved row stays approved and spends no overwrite.
+    /// </summary>
+    private async Task<bool> SaveWithNoEmptyRowLeftAsync(TranslationDetailResponse detail)
+    {
+        if (IsStoredText(detail, _draftText!))
+        {
+            Navigation.NavigateTo(FilledUri(saved: false, filled: 0));
+            return true;
+        }
+
+        ApiResult<string> upsertHref = await ResolveUpsertHrefAsync();
+        if (upsertHref.IsFailure)
+        {
+            _saveProblem = upsertHref.ProblemDetails;
+            return false;
+        }
+
+        ApiResult<TranslationDetailResponse> result = await Loader.SaveAsync(
+            upsertHref.Value, new UpsertTranslationRequest(detail.FileId, detail.GossipId, _draftText!), CancellationToken.None);
+        if (result.IsSuccess)
+        {
+            Navigation.NavigateTo(FilledUri(saved: true, filled: 0));
+            return true;
+        }
+
+        _saveProblem = result.ProblemDetails;
+        return false;
+    }
+
+    /// <summary>
+    /// Never an href that came with the post: a changed post could send the request, and its token, to another
+    /// host. The upsert rel always points at the collection PUT, so when the row cannot give it, the service
+    /// document does (#610). The server still decides on the request.
+    /// </summary>
+    private async Task<ApiResult<string>> ResolveUpsertHrefAsync() =>
+        _detail?.Links.FindLink(Rels.Upsert)?.Href is { } upsertHref
+            ? ApiResult.Success(upsertHref)
+            : await Loader.ResolveCollectionUpsertHrefAsync(CancellationToken.None);
+
+    private string FilledUri(bool saved, int filled) =>
+        QueryHelpers.AddQueryString(
+            saved ? EditorUriWithFlags(SavedFlag) : EditorUriWithFlags(),
+            FilledFlag,
+            filled.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
     /// Redirect after post (#321): a reload is a plain GET, and the fresh load shows the server's new
@@ -652,6 +837,7 @@
     {
         _sameSourceText = null;
         _sameSourceTextFailed = false;
+        _sameSourceTextLoaded = true;
 
         string? sameSourceTextHref = detail.Links.FindLink(Rels.SameSourceText)?.Href;
         if (sameSourceTextHref is null)
@@ -711,6 +897,60 @@
             ? sourceText
             : null;
 
+    /// <summary>The limit answer names the copy, so the translator knows the row alone may still fit (spec 0019).</summary>
+    private static ProblemDetails? FillProblem(ProblemDetails? problem, int emptyRows) =>
+        problem is not null && ApiProblemCopy.ReadErrorCode(problem) == ApiProblemCopy.SaveBudgetExhaustedCode
+            ? ApiProblemCopy.FrontendAuthored(
+                $"Kopia do {RowsGenitive(emptyRows)} nie mieści się w dziennym limicie zapisów. Sam ten wiersz możesz zapisać przyciskiem „Zapisz”.",
+                status: StatusCodes.Status429TooManyRequests)
+            : problem;
+
+    /// <summary>
+    /// A server error or a timeout can come after the commit. Only a failure the website knows never left (an
+    /// open circuit breaker, a connection that was never made) is known to have changed nothing.
+    /// </summary>
+    private static bool IsOutcomeUnknown(ProblemDetails? problem) =>
+        problem?.Status is >= StatusCodes.Status500InternalServerError
+        && !ApiProblemCopy.WasNeverSent(problem);
+
+    /// <summary>The panel sentence only when the panel read after the failure worked.</summary>
+    private string UnknownOutcomeLine() =>
+        _sameSourceText is not null
+            ? "Nie wiadomo, czy tekst zapisano. Panel niżej pokazuje wiersze po tej próbie."
+            : "Nie wiadomo, czy tekst zapisano.";
+
+    /// <summary>The stored text is saved in this row already; only the empty rows did not get it.</summary>
+    private string NotFilledLine(TranslationDetailResponse detail) =>
+        IsStoredText(detail, _draftText ?? string.Empty)
+            ? "Tekstu nie wpisano jeszcze w puste wiersze."
+            : "Tekst nie jest jeszcze zapisany.";
+
+    /// <summary>
+    /// "Unchanged" as the API decides it for the fill: the typed text, trimmed as the save trims it, is the
+    /// stored Polish.
+    /// </summary>
+    private static bool IsStoredText(TranslationDetailResponse detail, string typedText) =>
+        detail.TranslatedText is not null
+        && string.Equals(
+            TrailingLineBreaks.RemoveFrom(typedText, detail.SourceText),
+            detail.TranslatedText,
+            StringComparison.Ordinal);
+
+    private string FilledLine(int filled) =>
+        (Saved, filled) switch
+        {
+            (true, 0) => "Tłumaczenie zapisano. Nie było już pustych wierszy z tym samym tekstem angielskim.",
+            (false, 0) => "Nie było już pustych wierszy z tym samym tekstem angielskim. Ten wiersz już miał ten tekst, więc nic nie zapisano.",
+            (true, _) => $"Tłumaczenie zapisano. Ten sam tekst wpisano też {InEmptyRows(filled)} z tym samym angielskim tekstem.",
+            (false, _) => $"Ten sam tekst wpisano {InEmptyRows(filled)} z tym samym angielskim tekstem. Ten wiersz już go miał, więc się nie zmienił."
+        };
+
+    private static string InEmptyRows(int count) =>
+        count == 1 ? "w 1 pustym wierszu" : string.Create(CultureInfo.InvariantCulture, $"w {count} pustych wierszach");
+
+    private static string RowsGenitive(int count) =>
+        count == 1 ? "1 wiersza" : string.Create(CultureInfo.InvariantCulture, $"{count} wierszy");
+
     private static bool IsOn(string? flag) => bool.TryParse(flag, out bool isOn) && isOn;
 
     /// <summary>
@@ -754,4 +994,15 @@
             }
         }
     };
+
+    private enum FillStop
+    {
+        None,
+
+        /// <summary>The typed text has slips, so the fill sent nothing.</summary>
+        Slips,
+
+        /// <summary>The panel could not be read, so the fill has no link to post to.</summary>
+        PanelFailed
+    }
 }

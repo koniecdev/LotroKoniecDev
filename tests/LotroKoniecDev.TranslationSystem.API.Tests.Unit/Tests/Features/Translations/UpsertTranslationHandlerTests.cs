@@ -42,7 +42,7 @@ public sealed class UpsertTranslationHandlerTests
     private readonly List<TranslationReadModel> _readModels = [];
     private readonly List<string> _callOrder = [];
 
-    private readonly RecordingScheduler _rebuildScheduler;
+    private readonly RecordingRebuildScheduler _rebuildScheduler;
     private readonly InMemorySaveLedger _saveLedger = new();
     private readonly CapturingLoggerFactory _loggerFactory = new();
 
@@ -52,7 +52,7 @@ public sealed class UpsertTranslationHandlerTests
 
     public UpsertTranslationHandlerTests()
     {
-        _rebuildScheduler = new RecordingScheduler(_callOrder);
+        _rebuildScheduler = new RecordingRebuildScheduler(_callOrder);
         _unitOfWork.When(unitOfWork => unitOfWork.SaveChangesAsync(Arg.Any<CancellationToken>()))
             .Do(_ => _callOrder.Add(nameof(IUnitOfWork.SaveChangesAsync)));
     }
@@ -334,6 +334,21 @@ public sealed class UpsertTranslationHandlerTests
         result.Error.Type.ShouldBe(TypeOfError.TooManyRequests);
         row.TranslatedText.ShouldBeNull();
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Handle_WhenTheSaveBudgetIsSpent_ShouldAnswerWithTheSavesOwnMessage()
+    {
+        // Arrange: the fill's message names a number of rows; a single save keeps its own (#1587).
+        _budgetSettings = SmallBudget(saveLimit: 2, overwriteLimit: 2);
+        _saveLedger.Seed(CurrentTranslator, saves: 2, overwrites: 0);
+        GivenStoredRow(Untranslated());
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Witaj"), CancellationToken.None);
+
+        // Assert
+        result.Error.Message.ShouldBe(TranslationSaveBudgetErrors.SaveBudgetExhausted(2, 24).Message);
     }
 
     [Fact]
@@ -648,9 +663,10 @@ public sealed class UpsertTranslationHandlerTests
             readDbContext ?? new FakeReadDbContext(_readModels),
             TimeProvider.System,
             _rebuildScheduler,
-            new StubCurrentUserAccessor(ValueMaybe<IdentityId>.From(IdentityId.Create()), isAdmin: _callerIsAdmin),
-            _saveLedger,
-            Microsoft.Extensions.Options.Options.Create(_budgetSettings),
+            new TranslationSaveBudgetGate(
+                new StubCurrentUserAccessor(ValueMaybe<IdentityId>.From(IdentityId.Create()), isAdmin: _callerIsAdmin),
+                _saveLedger,
+                Microsoft.Extensions.Options.Options.Create(_budgetSettings)),
             new Logger<UpsertTranslation.Handler>(_loggerFactory));
 
     private static UpsertTranslation.Command Command(int gossipId, string text)
@@ -723,24 +739,6 @@ public sealed class UpsertTranslationHandlerTests
             .Where(entry => entry.EventId.Id == EventIds.TranslationOverwritten)
             .ToList();
 
-    private sealed class RecordingScheduler : ITranslationFileRebuildScheduler
-    {
-        private readonly List<string> _callOrder;
-
-        public RecordingScheduler(List<string> callOrder)
-        {
-            _callOrder = callOrder;
-        }
-
-        public int ScheduleCount { get; private set; }
-
-        public void Schedule(string language)
-        {
-            ScheduleCount++;
-            _callOrder.Add(nameof(ITranslationFileRebuildScheduler.Schedule));
-        }
-    }
-
     public enum TranslationSeed
     {
         Draft,
@@ -753,58 +751,5 @@ public sealed class UpsertTranslationHandlerTests
         UnknownRow,
         RemovedRow,
         PlaceholderMismatch
-    }
-
-    /// <summary>
-    /// Counts like the real ledger: the save just recorded is included.
-    /// </summary>
-    private sealed class InMemorySaveLedger : ITranslationSaveLedger
-    {
-        private readonly List<(Guid Id, TranslatorId TranslatorId, bool ReplacedPolish)> _saves = [];
-
-        public int RecordCalls { get; private set; }
-
-        /// <summary>
-        /// Cancels the request right after the permit is recorded, as a client that leaves would.
-        /// </summary>
-        public CancellationTokenSource? CancelAfterRecord { get; set; }
-
-        public void Seed(TranslatorId translatorId, int saves, int overwrites)
-        {
-            for (int index = 0; index < saves; index++)
-            {
-                _saves.Add((Guid.NewGuid(), translatorId, index < overwrites));
-            }
-        }
-
-        public TranslationSaveCounts CountFor(TranslatorId translatorId)
-            => new(
-                _saves.Count(save => save.TranslatorId == translatorId),
-                _saves.Count(save => save.TranslatorId == translatorId && save.ReplacedPolish));
-
-        public Task<TranslationSaveCounts> RecordAsync(
-            Guid saveId,
-            TranslatorId translatorId,
-            bool replacedPolish,
-            DateTimeOffset savedAt,
-            TimeSpan window,
-            CancellationToken cancellationToken)
-        {
-            RecordCalls++;
-            _saves.Add((saveId, translatorId, replacedPolish));
-            CancelAfterRecord?.Cancel();
-            return Task.FromResult(CountFor(translatorId));
-        }
-
-        public Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken)
-            => Task.CompletedTask;
-
-        public Task RemoveAsync(Guid saveId, CancellationToken cancellationToken)
-        {
-            // Like EF Core, a cancelled token stops the delete.
-            cancellationToken.ThrowIfCancellationRequested();
-            _saves.RemoveAll(save => save.Id == saveId);
-            return Task.CompletedTask;
-        }
     }
 }

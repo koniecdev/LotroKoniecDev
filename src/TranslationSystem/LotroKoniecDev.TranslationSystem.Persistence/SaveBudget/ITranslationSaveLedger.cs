@@ -9,14 +9,23 @@ namespace LotroKoniecDev.TranslationSystem.Persistence.SaveBudget;
 public interface ITranslationSaveLedger
 {
     /// <summary>
-    /// Records the save first and counts after, so parallel requests can never pass more saves than
-    /// the limit. Rows older than the window are deleted on the way, for every account.
+    /// Records the permits first, in one statement, and counts after, so parallel requests can never pass
+    /// more saves than the limit. Rows older than the window are deleted on the way, for every account.
     /// </summary>
     Task<TranslationSaveCounts> RecordAsync(
-        Guid saveId,
+        IReadOnlyList<TranslationSavePermit> permits,
         TranslatorId translatorId,
-        bool replacedPolish,
         DateTimeOffset savedAt,
+        TimeSpan window,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The account's saves and overwrites inside the window, without recording anything. A fill reads it
+    /// first, so one that cannot fit is refused before it loads a row or writes a permit (#1587).
+    /// </summary>
+    Task<TranslationSaveCounts> CountAsync(
+        TranslatorId translatorId,
+        DateTimeOffset now,
         TimeSpan window,
         CancellationToken cancellationToken);
 
@@ -27,7 +36,8 @@ public interface ITranslationSaveLedger
     Task DeleteExpiredAsync(DateTimeOffset now, TimeSpan window, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Hands the permit back after a refusal, so a refused attempt spends nothing.
+    /// Hands permits back after a refusal, so a refused attempt spends nothing. A fill also hands them back
+    /// when its write fails (ADR-0072 amendment of 2026-11-27).
     /// </summary>
-    Task RemoveAsync(Guid saveId, CancellationToken cancellationToken);
+    Task RemoveAsync(IReadOnlyList<Guid> saveIds, CancellationToken cancellationToken);
 }

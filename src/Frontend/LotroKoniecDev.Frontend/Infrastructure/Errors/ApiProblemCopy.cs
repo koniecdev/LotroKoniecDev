@@ -34,6 +34,13 @@ internal static partial class ApiProblemCopy
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
+    /// Marks a transport failure that never reached the API: an open circuit breaker, or a connection that
+    /// was never made. Only <see cref="FrontendAuthored"/> sets it, so a wire answer cannot claim it (#1587).
+    /// It speaks of the last attempt only, so it proves nothing for a retried request; the fill is never retried.
+    /// </summary>
+    internal const string NeverSentExtensionKey = "neverSent";
+
+    /// <summary>
     /// The three codes the export download route redirects on instead of rendering a problem (#690, #813).
     /// Named once, so the route and the map below cannot drift.
     /// </summary>
@@ -44,6 +51,12 @@ internal static partial class ApiProblemCopy
 
     /// <inheritdoc cref="InvalidCurrentPasswordCode"/>
     internal const string PasswordConfirmationThrottledCode = "Auth.PasswordConfirmationThrottled";
+
+    /// <summary>
+    /// The editor gives a refused copy into identical rows its own sentence (#1587). Named once, so the editor
+    /// and the map below cannot drift.
+    /// </summary>
+    internal const string SaveBudgetExhaustedCode = "Translations.SaveBudgetExhausted";
 
     /// <summary>
     /// The last resort, for a code with no text here and a status with none either. Reaching it means
@@ -110,7 +123,7 @@ internal static partial class ApiProblemCopy
                 + "Popraw liczbę znaczników i zapisz ponownie.",
             ["Translations.Validation"] =
                 "Tłumaczenie nie może być puste i nie może przekraczać dozwolonej długości.",
-            ["Translations.SaveBudgetExhausted"] =
+            [SaveBudgetExhaustedCode] =
                 "Wykorzystano limit zapisów tłumaczeń. Spróbuj ponownie później.",
             ["Translations.OverwriteBudgetExhausted"] =
                 "Wykorzystano limit poprawek istniejących tłumaczeń. Spróbuj ponownie później. "
@@ -347,14 +360,23 @@ internal static partial class ApiProblemCopy
     /// A problem the Frontend created itself: a transport failure from Polly, a rel the server does not
     /// send, or a check inside a form. It is Polish already and is never translated.
     /// </summary>
-    public static ProblemDetails FrontendAuthored(string title, string? detail = null, int? status = null)
-        => new()
+    public static ProblemDetails FrontendAuthored(string title, string? detail = null, int? status = null, bool neverSent = false)
+    {
+        ProblemDetails problem = new()
         {
             Title = title,
             Detail = detail,
             Status = status,
             Extensions = { [FrontendAuthoredExtensionKey] = true }
         };
+
+        if (neverSent)
+        {
+            problem.Extensions[NeverSentExtensionKey] = true;
+        }
+
+        return problem;
+    }
 
     /// <summary>
     /// A failure with a missing or unreadable body, such as the HTML a reverse proxy sends when the
@@ -375,6 +397,19 @@ internal static partial class ApiProblemCopy
     {
         ArgumentNullException.ThrowIfNull(problem);
         problem.Extensions.Remove(FrontendAuthoredExtensionKey);
+    }
+
+    /// <summary>
+    /// A failure the website made before the request left, so the API did nothing (#1587). A timeout or a
+    /// broken answer is not one: the API may have done the work.
+    /// </summary>
+    internal static bool WasNeverSent(ProblemDetails problem)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+
+        return IsFrontendAuthored(problem)
+               && problem.Extensions.TryGetValue(NeverSentExtensionKey, out object? marker)
+               && marker is true;
     }
 
     private static bool IsFrontendAuthored(ProblemDetails problem)

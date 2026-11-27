@@ -69,6 +69,22 @@ internal sealed class TranslationAggregateLinkFactory : ITranslationAggregateLin
         return links;
     }
 
+    public async ValueTask<List<LinkDto>> CreateSameSourceTextLinksAsync(TranslationId id, int emptyIdenticalCount)
+    {
+        List<LinkDto> links = [];
+
+        if (emptyIdenticalCount > 0)
+        {
+            links.AddIfPresent(await _linkFactory.CreateAsync(
+                endpoint: nameof(FillIdenticalTranslations),
+                rel: Rels.FillIdentical,
+                method: HttpMethods.Post,
+                values: new { id = id.Value }));
+        }
+
+        return links;
+    }
+
     public async ValueTask<List<LinkDto>> CreateCollectionLinksAsync(bool callerIsAdmin)
     {
         List<LinkDto> links = [];

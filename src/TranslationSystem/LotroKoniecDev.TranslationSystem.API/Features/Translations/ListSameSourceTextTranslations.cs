@@ -1,8 +1,10 @@
+using LotroKoniecDev.Hateoas.ContentNegotiation;
 using LotroKoniecDev.SharedKernel.Messaging;
 using LotroKoniecDev.SharedKernel.Monads;
 using LotroKoniecDev.TranslationSystem.API.Auth;
 using LotroKoniecDev.TranslationSystem.API.Common;
 using LotroKoniecDev.TranslationSystem.API.Extensions;
+using LotroKoniecDev.TranslationSystem.API.Hateoas.TranslationAggregateFactories;
 using LotroKoniecDev.TranslationSystem.Contracts.Translations;
 using LotroKoniecDev.TranslationSystem.Domain.Core.Errors;
 using LotroKoniecDev.TranslationSystem.Persistence.DbContexts.ReadDbContexts;
@@ -15,7 +17,8 @@ namespace LotroKoniecDev.TranslationSystem.API.Features.Translations;
 /// <summary>
 /// The editor's "other rows with the same text" panel (#1347): live rows whose English is exactly the
 /// asked row's, so a translator sees how the same words were already translated. Text only, not the args
-/// columns: a shown match needs no argument identity, unlike a copy (TP-01, #378).
+/// columns: a shown match needs no argument identity. The count of empty rows for the copy into identical
+/// rows matches the args too (#1587), and the copy's link comes with it (ADR-0040 amendment).
 /// </summary>
 internal sealed class ListSameSourceTextTranslations : IEndpoint
 {
@@ -38,15 +41,19 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
             }
 
             // A removed row is out of translation work, and it never carries the rel to this endpoint.
-            string? sourceText = await _readDbContext.Translations
+            AskedSource? asked = await _readDbContext.Translations
                 .Where(translation => translation.Id == query.Id && translation.RemovedInVersion == null)
-                .Select(translation => translation.SourceText)
+                .Select(translation => new AskedSource(translation.SourceText, translation.ArgsOrder, translation.ArgsId))
                 .FirstOrDefaultAsync(cancellationToken);
 
-            if (sourceText is null)
+            if (asked is null)
             {
                 return Result.Failure<SameSourceTextTranslationsResponse>(DomainErrors.TranslationEntity.NotFound(query.Id));
             }
+
+            string sourceText = asked.SourceText;
+            string? argsOrder = asked.ArgsOrder;
+            string? argsId = asked.ArgsId;
 
             IQueryable<TranslationReadModel> liveGroup = _readDbContext.Translations
                 .Where(translation => translation.RemovedInVersion == null && translation.SourceText == sourceText);
@@ -60,8 +67,9 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
                 .Select(TranslationProjections.ToSameSourceTextItem)
                 .ToListAsync(cancellationToken);
 
-            // One statement for both numbers. The explicit null check keeps an untranslated twin from
-            // counting as a different Polish text: LINQ counts null as a value, SQL does not.
+            // One statement for every number. The explicit null check keeps an untranslated twin from
+            // counting as a different Polish text: LINQ counts null as a value, SQL does not. C# == on the
+            // nullable args is null-safe in EF Core.
             GroupSummary? summary = await liveGroup
                 .GroupBy(translation => translation.SourceText)
                 .Select(group => new GroupSummary(
@@ -70,13 +78,18 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
                         .Where(translation => translation.TranslatedText != null)
                         .Select(translation => translation.TranslatedText)
                         .Distinct()
-                        .Count()))
+                        .Count(),
+                    group.Count(translation => translation.Id != query.Id
+                        && translation.TranslatedText == null
+                        && translation.ArgsOrder == argsOrder
+                        && translation.ArgsId == argsId)))
                 .FirstOrDefaultAsync(cancellationToken);
 
             return Result.Success(new SameSourceTextTranslationsResponse(
                 items,
                 summary?.OtherRows ?? 0,
-                summary?.DistinctTranslations > 1));
+                summary?.DistinctTranslations > 1,
+                summary?.EmptyIdenticalRows ?? 0));
         }
 
         public Handler(IApplicationReadDbContext readDbContext)
@@ -84,7 +97,9 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
             _readDbContext = readDbContext;
         }
 
-        private sealed record GroupSummary(int OtherRows, int DistinctTranslations);
+        private sealed record AskedSource(string SourceText, string? ArgsOrder, string? ArgsId);
+
+        private sealed record GroupSummary(int OtherRows, int DistinctTranslations, int EmptyIdenticalRows);
     }
 
     public void MapEndpoint(IEndpointRouteBuilder endpointRouteBuilder)
@@ -92,13 +107,18 @@ internal sealed class ListSameSourceTextTranslations : IEndpoint
         endpointRouteBuilder.MapGet("/api/v1/translations/{id:guid}/same-source-text", async (
                 Guid id,
                 IQueryHandler<Query, Result<SameSourceTextTranslationsResponse>> handler,
+                ITranslationAggregateLinkFactory translationLinkFactory,
                 CancellationToken cancellationToken) =>
             {
+                TranslationId translationId = TranslationId.FromValue(id);
                 Result<SameSourceTextTranslationsResponse> result =
-                    await handler.Handle(new Query(TranslationId.FromValue(id)), cancellationToken);
+                    await handler.Handle(new Query(translationId), cancellationToken);
 
+                // A removed row is a 404 above, so every answer here is about a live row.
                 return result.IsSuccess
-                    ? Results.Ok(result.Value)
+                    ? HateoasResults.Ok(result.Value, async response =>
+                        response.Links = await translationLinkFactory.CreateSameSourceTextLinksAsync(
+                            translationId, response.EmptyIdenticalCount))
                     : Results.Problem(result.Error.ToProblemDetails());
             })
             .WithName(nameof(ListSameSourceTextTranslations))

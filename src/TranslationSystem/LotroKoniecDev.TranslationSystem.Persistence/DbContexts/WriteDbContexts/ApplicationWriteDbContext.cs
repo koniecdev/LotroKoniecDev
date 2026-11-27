@@ -60,6 +60,24 @@ internal sealed class ApplicationWriteDbContext : DbContext, IUnitOfWork
     }
 
     /// <inheritdoc />
+    public async Task SaveChangesInTransactionAsync(
+        Func<CancellationToken, Task<bool>> verifySucceeded,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(verifySucceeded);
+
+        // Accept only after the commit, as in ExecuteInTransactionAsync: a retry must find the changes
+        // still pending, with the concurrency tokens it read.
+        IExecutionStrategy strategy = Database.CreateExecutionStrategy();
+        await strategy.ExecuteInTransactionAsync(
+            async retryCancellationToken => await SaveChangesAsync(acceptAllChangesOnSuccess: false, retryCancellationToken),
+            verifySucceeded,
+            IsolationLevel.ReadCommitted,
+            cancellationToken);
+        ChangeTracker.AcceptAllChanges();
+    }
+
+    /// <inheritdoc />
     public async Task SaveChangesAndClearAsync(CancellationToken cancellationToken = default)
     {
         await SaveChangesAsync(acceptAllChangesOnSuccess: false, cancellationToken);

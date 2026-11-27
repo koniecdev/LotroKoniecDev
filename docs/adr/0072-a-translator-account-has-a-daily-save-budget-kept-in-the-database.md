@@ -1,6 +1,6 @@
 # ADR-0072: A translator account has a daily save budget, kept in the database
 
-**Status:** Accepted (amended 2026-11-21 — see "Amendment: a Reviewer has no budget either")
+**Status:** Accepted (amended 2026-11-21 — see "Amendment: a Reviewer has no budget either"; amended 2026-11-27 — see "Amendment: a copy into identical rows counts each saved row")
 **Date:** 2026-11-13
 **Decision-makers:** Solo maintainer (owner decision recorded in #687, 2026-11-13)
 **Related:** `TranslationSystem.API/Features/Translations/UpsertTranslation.cs`,
@@ -254,6 +254,53 @@ translators only": the budget applies to an account that holds neither Admin nor
 Tests: `TranslationSaveBudgetTests` (a Reviewer is never refused and spends nothing; its save deletes
 rows older than the window; its overwrite still writes the line the total alert counts),
 `CurrentUserAccessorTests`.
+
+## Amendment: a copy into identical rows counts each saved row (2026-11-27, #1587)
+
+The owner ruled on #1587 that the editor's „Zapisz we wszystkich identycznych (N)” (spec 0019) counts
+each saved row as one save of a plain translator's budget, and that a copy which does not fit is refused
+as a whole. A fill saves this row (only when its text changes) and N empty rows with the same English.
+
+- **A refusal first, on two counts.** Before it loads a row or writes a permit, the fill counts its empty
+  rows and the account's saves in the window, and refuses at once when the copy cannot fit. A refused
+  fill then costs two counts however large its group, so a client that sends it again and again cannot
+  make the server load thousands of rows each time. Parallel fills can all pass this check; the permits
+  below still decide. Nothing was spent, so this refusal writes an Information line
+  `Identical rows fill refused: …`, not the budget Warning (§6): a group larger than the limit is the
+  normal result of pressing the offered button (#977). A refusal by the permits themselves, after a
+  parallel race, is still the Warning.
+- **One permit per saved row, in one statement (§4).** The fill then loads its rows and takes N permits,
+  plus one when this row changes, in one `INSERT … SELECT … FROM unnest(…)` through the execution
+  strategy, before any text changes. It counts once, and `TranslationSaveBudget.Judge` needs no change,
+  because the counts already include the new permits. Only this row's permit can be an overwrite: a copy
+  goes only into a row with no Polish. The refusal is the usual 429 code, every permit is handed back,
+  and its English message names the number of rows.
+- **This reverses §4's last paragraph, for the fill only.** A fill hands every permit back on any
+  failure between the insert and the commit (a 409, a database error), not only on a refusal. One 409 on
+  one of the rows would otherwise burn up to N + 1 permits for a fill that changed nothing, and the ticket
+  makes the permits and the rows one action. §4's reasons do not hold here: the fill has one exit path
+  around its write, and the hand-back runs through the execution strategy. A database that is down at the
+  hand-back still leaves the permits spent, as before. The normal save keeps §4.
+- **No cancellation from the insert to the commit.** The rows are saved in one transaction that the
+  execution strategy runs. When the commit's answer is lost, the strategy first reads the fill's stamp
+  (the saver and the save time of the first row it wrote): a commit that landed counts as a success and
+  gives nothing back. Accepted leftovers: when that check read fails too, the fill ends with a server
+  error while its rows stay saved, and it hands back their permits; a process stopped during a fill (a
+  deploy waits 30 s for open requests) leaves its permits spent until the window ends.
+- **Alternative H stays rejected.** Permits taken inside the rows' transaction stay invisible to other
+  saves until the commit, so parallel fills could each pass the limit by up to N, unless every save took
+  a per-account lock.
+- **Alternative I does not hold for a fill.** One attempt costs N + 1 permits, not one, and a retry after
+  a committed fill would report "no empty row left" for a fill that worked. So the website never retries a
+  fill and never counts it toward its circuit breaker, and it gives a fill the 5-minute time limit of an
+  upload.
+- **Alerts (§6).** A fill writes the overwrite line for this row only, when this row replaced Polish. A
+  fill at or above the alert threshold writes one Warning line for the whole fill, so a fill of 1,500 rows
+  by one plain translator sends the alert mail; that is wanted. Each fill writes one Information line
+  `Identical rows filled: …`, which neither rule matches.
+
+Tests: `FillIdenticalTranslationsTests` (one permit per saved row, a refusal and a 409 leave none, a lost
+commit answer, the admin and a Reviewer), `FillIdenticalTranslationsHandlerTests`.
 
 ## References
 

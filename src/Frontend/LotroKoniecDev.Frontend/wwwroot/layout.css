@@ -66,8 +66,8 @@ html, body {
 
 /* The sticky navbar would cover a row that a #row-<id> address scrolls to (#1493), or any other jump
    target. One rule on the page, because a scroll margin on a table row is not honoured in every browser.
-   The navbar wraps by its content: when the links sit under the logo it is about 113px tall. On a phone
-   narrower than about 340px the Discord pill takes a row of its own, so the block at 359px raises this. */
+   The navbar wraps by its content: when the links sit under the logo it is about 113px tall. A phone's
+   navbar can be taller, so the 880px block raises this. */
 html {
     scroll-padding-top: 128px;
 }
@@ -1926,8 +1926,15 @@ main:has(> .home-banner) {
         overflow-x: visible;
     }
 
+    /* Room for the tallest phone navbar, where the Discord pill takes a row of its own: about 155px signed in
+       and about 196px for a visitor. The pill wraps by the width of its text, not of the window, so a phone
+       with larger text gets that bar on any width (#1590). */
+    html {
+        scroll-padding-top: 176px;
+    }
+
     html:has(.nav-cta) {
-        scroll-padding-top: 168px;
+        scroll-padding-top: 216px;
     }
 
     .hero {
@@ -1965,19 +1972,6 @@ main:has(> .home-banner) {
     .hero-actions .btn {
         flex: 1 1 auto;
         justify-content: center;
-    }
-}
-
-/* Below about 340px the Discord pill takes a row of its own, so the navbar is 46px taller: about 155px
-   signed in and about 196px for a visitor (#1590). This block must come after the one above, because
-   both set the visitor's rule with the same weight. */
-@media (max-width: 359px) {
-    html {
-        scroll-padding-top: 176px;
-    }
-
-    html:has(.nav-cta) {
-        scroll-padding-top: 216px;
     }
 }
 

@@ -170,6 +170,31 @@ public sealed class HomeLayoutTests : E2ETestBase
         players.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
     }
 
+    [Fact]
+    public async Task Hero_jump_on_a_phone_with_larger_text_lands_the_players_box_below_the_top_bar()
+    {
+        // Arrange: the bar's text at about 130%, as a browser's text size setting makes it. The pill then wraps
+        // by its text on a 360 px phone, where the window width alone would keep it in the logo's row (#1590).
+        await AuthActions.LoginAsync(Page, Fixture, Fixture.Admin);
+        await OpenHomeAsync(360, 800);
+        await Page.AddStyleTagAsync(new()
+        {
+            Content = ".brand { font-size: 22px } .nav-discord, .nav-link { font-size: 18px } .nav-user { font-size: 14px }"
+        });
+        LocatorBoundingBoxResult brand = await Page.Locator("header.nav a.brand").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult pill = await Page.Locator("header.nav a.nav-discord").RequireBoundingBoxAsync();
+        pill.Y.ShouldBeGreaterThanOrEqualTo(brand.Y + brand.Height, "the larger text must make the pill wrap");
+
+        // Act
+        await Page.GetByRole(AriaRole.Link, new() { Name = "Pobierz spolszczenie", Exact = true }).ClickAsync();
+        await Page.WaitForFunctionAsync("() => window.scrollY > 0");
+        LocatorBoundingBoxResult players = await Page.Locator("#dla-graczy").RequireBoundingBoxAsync();
+        LocatorBoundingBoxResult navbar = await Page.Locator("header.nav").RequireBoundingBoxAsync();
+
+        // Assert
+        players.Y.ShouldBeGreaterThanOrEqualTo(navbar.Y + navbar.Height - 1);
+    }
+
     public HomeLayoutTests(PlaywrightStackFixture fixture) : base(fixture)
     {
     }

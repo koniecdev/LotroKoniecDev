@@ -139,7 +139,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
     [Fact]
     public async Task Post_Fill_WithSlips_SendsNothingAndShowsTheStopAboveTheSlipsDrawnOnce()
     {
-        // Arrange: the address still carries an old confirmation, which a stop must not show.
+        // Arrange: the address still carries old confirmations, which a stop must not show.
         StubTranslationSystem translationSystem = new() { EmptyRows = 3 };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
@@ -147,7 +147,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
 
         // Act
         using HttpResponseMessage posted = await browser.SendAsync(
-            FillPost(antiforgeryToken, SlipText, "fill", address: EditorAddress + "&saved=true&filled=3"));
+            FillPost(antiforgeryToken, SlipText, "fill", address: EditorAddress + "&saved=true&approved=true&filled=3"));
 
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -160,8 +160,31 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         FillButton().IsMatch(page).ShouldBeTrue();
         TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(SlipText);
         page.ShouldNotContain("Tłumaczenie zapisano.");
+        page.ShouldNotContain("Tłumaczenie zatwierdzono");
         page.ShouldNotContain("Ten sam tekst wpisano");
         translationSystem.PanelReads.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Post_Fill_WithSlipsInTheStoredTextWhileEmptyRowsExist_StopsAndOffersMimoTo()
+    {
+        // Arrange: the normal use, from a row that is already translated, when its text has a slip. The
+        // copy would carry the slip into every empty row, so the owner's stop applies.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 3, StoredTranslatedText = SlipText };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, SlipText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain(StopLine);
+        FillAnywayButton().IsMatch(page).ShouldBeTrue();
+        translationSystem.Fills.ShouldBeEmpty();
+        translationSystem.Upserts.ShouldBeEmpty();
     }
 
     [Fact]
@@ -311,6 +334,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
         page.ShouldContain(NotSavedLine);
         page.ShouldContain("Nie udało się wczytać innych wierszy z tym samym tekstem angielskim.");
+        page.ShouldNotContain("Nie ma już pustych wierszy");
         FillAnywayButton().IsMatch(page).ShouldBeFalse();
         translationSystem.Fills.ShouldBeEmpty();
         translationSystem.Upserts.ShouldBeEmpty();

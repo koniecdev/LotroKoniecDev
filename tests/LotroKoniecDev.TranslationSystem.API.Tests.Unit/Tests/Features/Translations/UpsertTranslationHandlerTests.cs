@@ -337,6 +337,21 @@ public sealed class UpsertTranslationHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenTheSaveBudgetIsSpent_ShouldAnswerWithTheSavesOwnMessage()
+    {
+        // Arrange: the fill's message names a number of rows; a single save keeps its own (#1587).
+        _budgetSettings = SmallBudget(saveLimit: 2, overwriteLimit: 2);
+        _saveLedger.Seed(CurrentTranslator, saves: 2, overwrites: 0);
+        GivenStoredRow(Untranslated());
+
+        // Act
+        Result<TranslationDetailResponse> result = await CreateHandler().Handle(Command(1, "Witaj"), CancellationToken.None);
+
+        // Assert
+        result.Error.Message.ShouldBe(TranslationSaveBudgetErrors.SaveBudgetExhausted(2, 24).Message);
+    }
+
+    [Fact]
     public async Task Handle_WhenRefused_ShouldHandThePermitBack()
     {
         // Arrange: a refused attempt spends nothing, so the account stays exactly at its limit.

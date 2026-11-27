@@ -34,6 +34,12 @@ internal static partial class ApiProblemCopy
     internal const string TraceIdExtensionKey = "traceId";
 
     /// <summary>
+    /// Marks a transport failure that never reached the API: an open circuit breaker, or a connection that
+    /// was never made. Only <see cref="FrontendAuthored"/> sets it, so a wire answer cannot claim it (#1587).
+    /// </summary>
+    internal const string NeverSentExtensionKey = "neverSent";
+
+    /// <summary>
     /// The three codes the export download route redirects on instead of rendering a problem (#690, #813).
     /// Named once, so the route and the map below cannot drift.
     /// </summary>
@@ -347,14 +353,23 @@ internal static partial class ApiProblemCopy
     /// A problem the Frontend created itself: a transport failure from Polly, a rel the server does not
     /// send, or a check inside a form. It is Polish already and is never translated.
     /// </summary>
-    public static ProblemDetails FrontendAuthored(string title, string? detail = null, int? status = null)
-        => new()
+    public static ProblemDetails FrontendAuthored(string title, string? detail = null, int? status = null, bool neverSent = false)
+    {
+        ProblemDetails problem = new()
         {
             Title = title,
             Detail = detail,
             Status = status,
             Extensions = { [FrontendAuthoredExtensionKey] = true }
         };
+
+        if (neverSent)
+        {
+            problem.Extensions[NeverSentExtensionKey] = true;
+        }
+
+        return problem;
+    }
 
     /// <summary>
     /// A failure with a missing or unreadable body, such as the HTML a reverse proxy sends when the
@@ -378,9 +393,19 @@ internal static partial class ApiProblemCopy
     }
 
     /// <summary>
-    /// A problem made by <see cref="FrontendAuthored"/>, such as a transport failure, never one read off the wire.
+    /// A failure the website made before the request left, so the API did nothing (#1587). A timeout or a
+    /// broken answer is not one: the API may have done the work.
     /// </summary>
-    internal static bool IsFrontendAuthored(ProblemDetails problem)
+    internal static bool WasNeverSent(ProblemDetails problem)
+    {
+        ArgumentNullException.ThrowIfNull(problem);
+
+        return IsFrontendAuthored(problem)
+               && problem.Extensions.TryGetValue(NeverSentExtensionKey, out object? marker)
+               && marker is true;
+    }
+
+    private static bool IsFrontendAuthored(ProblemDetails problem)
         => problem.Extensions.TryGetValue(FrontendAuthoredExtensionKey, out object? marker)
            && marker is true;
 

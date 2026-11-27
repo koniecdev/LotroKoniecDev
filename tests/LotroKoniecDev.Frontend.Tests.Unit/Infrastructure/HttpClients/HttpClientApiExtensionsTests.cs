@@ -13,6 +13,43 @@ namespace LotroKoniecDev.Frontend.Tests.Unit.Infrastructure.HttpClients;
 
 public sealed class HttpClientApiExtensionsTests
 {
+    /// <summary>Each failure, and whether the request provably never left the website (#1587).</summary>
+    public static TheoryData<Exception, bool> TransportFailures => new()
+    {
+        { new BrokenCircuitException(), true },
+        { new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"), true },
+        { new HttpRequestException(HttpRequestError.NameResolutionError, "no such host"), true },
+        { new HttpRequestException(HttpRequestError.SecureConnectionError, "the TLS handshake failed"), true },
+        { new HttpRequestException(HttpRequestError.ResponseEnded, "the answer stopped halfway"), false },
+        { new HttpRequestException("no reason given"), false },
+        { new TimeoutRejectedException(), false },
+        { new TaskCanceledException(), false }
+    };
+
+    [Theory]
+    [MemberData(nameof(TransportFailures))]
+    public async Task PostApiResultAsync_ForATransportFailure_MarksOnlyARequestThatNeverLeft(Exception failure, bool neverSent)
+    {
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.Throw(failure));
+
+        ApiResult result = await httpClient.PostApiResultAsync("api/v1/translations/x/fill-identical", new { id = 1 });
+
+        ApiProblemCopy.WasNeverSent(result.ProblemDetails!).ShouldBe(neverSent);
+    }
+
+    [Fact]
+    public async Task GetApiResultAsync_WhenAnApiProblemClaimsItWasNeverSent_IgnoresTheClaim()
+    {
+        // Only the website can know that; an answer from the API came back, so it was sent.
+        HttpClient httpClient = CreateClient(StubHttpMessageHandler.RespondWith(
+            HttpStatusCode.InternalServerError,
+            """{"status":500,"title":"x","frontendAuthored":true,"neverSent":true}"""));
+
+        ApiResult<string> result = await httpClient.GetApiResultAsync<string>("health");
+
+        ApiProblemCopy.WasNeverSent(result.ProblemDetails!).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task GetApiResultAsync_WhenCircuitIsOpen_MapsToServiceUnavailableProblem()
     {

@@ -60,6 +60,13 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
 
     private readonly ProductionFrontendFactory _factory;
 
+    /// <summary>A timeout or a broken answer can come after the API committed the rows.</summary>
+    public static TheoryData<Exception> FailuresAfterTheRequestLeft => new()
+    {
+        new TaskCanceledException("The answer did not come in time."),
+        new HttpRequestException(HttpRequestError.ResponseEnded, "The connection closed before the answer.")
+    };
+
     [Fact]
     public async Task Get_WithTheFillLinkOnThePanel_ShowsTheButtonWithThePanelsCount()
     {
@@ -196,10 +203,10 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
     }
 
     [Fact]
-    public async Task Post_Fill_WhenThePanelHasNoLinkAnyMore_SavesNothingAndSaysNoEmptyRowIsLeft()
+    public async Task Post_Fill_WithAChangedTextWhenNoEmptyRowIsLeft_SavesThisRowThroughThePlainSave()
     {
-        // Arrange: someone filled the last empty row after the page was loaded. The plain save would turn an
-        // approved row into a draft, so nothing falls back to it.
+        // Arrange: someone filled the last empty row after the page was loaded. The ticket's rule: the row
+        // itself is saved, and the line says that no empty row was left.
         StubTranslationSystem translationSystem = new() { EmptyRows = 0 };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
@@ -209,14 +216,54 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, CleanText, "fill"));
 
         // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith(
+            $"/editor/{RowId}?{ListState}&saved=true&filled=0");
+        translationSystem.Upserts.ShouldBe([new UpsertTranslationRequest(FileId, GossipId, CleanText)]);
+        translationSystem.Fills.ShouldBeEmpty();
+        translationSystem.PanelReads.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(StoredText)]
+    [InlineData(StoredText + "\r\n")]
+    public async Task Post_Fill_WithTheStoredTextWhenNoEmptyRowIsLeft_WritesNothing(string typed)
+    {
+        // Arrange: a save of an unchanged text would turn an approved row into a draft. The save would drop
+        // the line breaks at the end, so they do not count as a change.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 0 };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, typed, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"/editor/{RowId}?{ListState}&filled=0");
+        translationSystem.Upserts.ShouldBeEmpty();
+        translationSystem.Fills.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Fill_WithSlipsInTheStoredTextWhenNoEmptyRowIsLeft_GivesNoAdviceToSave()
+    {
+        // Arrange: „Zapisz” on an unchanged text would only turn the row into a draft.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 0, StoredTranslatedText = SlipText };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, SlipText, "fill"));
+
+        // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
-        translationSystem.Fills.ShouldBeEmpty();
+        page.ShouldContain("Nie ma już pustych wierszy z tym samym tekstem angielskim.");
+        page.ShouldNotContain("Ten wiersz zapiszesz przyciskiem");
         translationSystem.Upserts.ShouldBeEmpty();
-        page.ShouldContain(NotSavedLine);
-        page.ShouldContain(NoEmptyRowLine);
-        TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(CleanText);
-        translationSystem.PanelReads.ShouldBe(1);
     }
 
     [Fact]
@@ -339,10 +386,14 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
     }
 
     [Fact]
-    public async Task Post_Fill_WhenTheConnectionFails_SaysNothingAboutAnUnknownOutcome()
+    public async Task Post_Fill_WhenTheConnectionIsNeverMade_SaysNothingAboutAnUnknownOutcome()
     {
-        // Arrange: the website made this failure itself.
-        StubTranslationSystem translationSystem = new() { EmptyRows = 3, FillThrows = true };
+        // Arrange: the request never left, so nothing was written.
+        StubTranslationSystem translationSystem = new()
+        {
+            EmptyRows = 3,
+            FillException = new HttpRequestException(HttpRequestError.ConnectionError, "The connection was refused.")
+        };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
@@ -353,9 +404,56 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
-        page.ShouldNotContain(UnknownLine);
+        page.ShouldNotContain("Nie wiadomo, czy tekst zapisano.");
         page.ShouldContain("Nie udało się połączyć z serwerem.");
         translationSystem.FillAttempts.ShouldBe(1);
+        translationSystem.PanelReads.ShouldBe(1);
+    }
+
+    [Theory]
+    [MemberData(nameof(FailuresAfterTheRequestLeft))]
+    public async Task Post_Fill_WhenTheAnswerIsLostAfterTheRequestLeft_SaysTheOutcomeIsUnknown(Exception failure)
+    {
+        // Arrange: a timeout or a broken answer can come after the API committed the rows.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 3, FillException = failure };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, CleanText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain(UnknownLine);
+        translationSystem.FillAttempts.ShouldBe(1);
+        translationSystem.PanelReads.ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Post_Fill_AfterAServerErrorWhenThePanelFailsToo_DoesNotPointAtThePanel()
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new()
+        {
+            EmptyRows = 3,
+            FillAnswer = HttpStatusCode.InternalServerError,
+            PanelFailsAfterTheFirstRead = true
+        };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, CleanText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain("Nie wiadomo, czy tekst zapisano.");
+        page.ShouldNotContain("Panel niżej pokazuje");
+        page.ShouldContain("Nie udało się wczytać innych wierszy z tym samym tekstem angielskim.");
     }
 
     [Theory]
@@ -475,13 +573,17 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
 
         public bool PanelFails { get; init; }
 
+        public bool PanelFailsAfterTheFirstRead { get; init; }
+
+        public string? StoredTranslatedText { get; init; } = StoredText;
+
         public bool RowLoads { get; init; } = true;
 
         public HttpStatusCode FillAnswer { get; init; } = HttpStatusCode.OK;
 
         public string? FillErrorCode { get; init; }
 
-        public bool FillThrows { get; init; }
+        public Exception? FillException { get; init; }
 
         public int FilledCount { get; init; }
 
@@ -519,14 +621,14 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
             if (uri == RowHref && request.Method == HttpMethod.Get)
             {
                 return RowLoads
-                    ? StubAnswers.HateoasJson(Row(StoredText))
+                    ? StubAnswers.HateoasJson(Row(StoredTranslatedText))
                     : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
             }
 
             if (uri == PanelHref && request.Method == HttpMethod.Get)
             {
-                Interlocked.Increment(ref _panelReads);
-                return PanelFails
+                int read = Interlocked.Increment(ref _panelReads);
+                return PanelFails || PanelFailsAfterTheFirstRead && read > 1
                     ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
                     : StubAnswers.HateoasJson(Panel());
             }
@@ -534,9 +636,9 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
             if (uri == FillHref && request.Method == HttpMethod.Post)
             {
                 Interlocked.Increment(ref _fillAttempts);
-                if (FillThrows)
+                if (FillException is not null)
                 {
-                    throw new HttpRequestException("The connection was refused.");
+                    throw FillException;
                 }
 
                 FillIdenticalTranslationsRequest fill = await request.Content.ShouldNotBeNull()

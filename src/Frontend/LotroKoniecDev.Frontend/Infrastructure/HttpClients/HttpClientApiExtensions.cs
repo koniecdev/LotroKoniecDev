@@ -329,12 +329,17 @@ internal static class HttpClientApiExtensions
             or BrokenCircuitException
             or TimeoutRejectedException;
 
+    /// <summary>
+    /// An open circuit breaker and a connection that was never made mean the request did not leave, which a
+    /// page that writes many rows tells apart from a timeout (#1587).
+    /// </summary>
     private static ProblemDetails MapTransportFailureToProblemDetails(Exception ex) => ex switch
     {
         BrokenCircuitException => ApiProblemCopy.FrontendAuthored(
             "Usługa chwilowo niedostępna",
             "Połączenie z serwerem zostało tymczasowo wstrzymane. Spróbuj ponownie za chwilę.",
-            StatusCodes.Status503ServiceUnavailable),
+            StatusCodes.Status503ServiceUnavailable,
+            neverSent: true),
         TimeoutRejectedException or TaskCanceledException => ApiProblemCopy.FrontendAuthored(
             "Przekroczono czas oczekiwania",
             "Serwer nie odpowiedział w wyznaczonym czasie. Spróbuj ponownie.",
@@ -342,6 +347,13 @@ internal static class HttpClientApiExtensions
         _ => ApiProblemCopy.FrontendAuthored(
             "Błąd połączenia",
             "Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.",
-            StatusCodes.Status503ServiceUnavailable)
+            StatusCodes.Status503ServiceUnavailable,
+            neverSent: ex is HttpRequestException
+            {
+                HttpRequestError: HttpRequestError.ConnectionError
+                    or HttpRequestError.NameResolutionError
+                    or HttpRequestError.SecureConnectionError
+                    or HttpRequestError.ProxyTunnelError
+            })
     };
 }

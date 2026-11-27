@@ -128,11 +128,17 @@ internal sealed partial class TranslationSaveBudgetGate
 
     /// <summary>
     /// Gives a failed fill's permits back (ADR-0072 amendment of 2026-11-27). Never on the request's token,
-    /// and a failure here is logged, not thrown, so the write's own error reaches the caller.
+    /// and a failure here is logged, not thrown, so the write's own error reaches the caller. A caller with no
+    /// budget took none.
     /// </summary>
     public async Task HandBackAsync(ILogger logger, TranslatorId translatorId, IReadOnlyList<TranslationSavePermit> permits)
     {
         ArgumentNullException.ThrowIfNull(permits);
+
+        if (!_currentUserAccessor.HasDailySaveBudget())
+        {
+            return;
+        }
 
         try
         {

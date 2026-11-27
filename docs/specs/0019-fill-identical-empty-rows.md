@@ -108,14 +108,16 @@ From the gate comment (2026-11-27):
   (yellow), as #1571 draws its own stop.
 - **The link.** With no slip (or after „mimo to”), the editor reads the panel and posts to the href of
   its `fill-identical` link. The fill button needs the link, so this read comes before the write; it is
-  the post's only panel read. When the panel has no link any more, no empty row is left, so the rule
-  above applies to this row alone: a changed text goes through the plain save, which writes what the
-  fill would, and an unchanged text writes nothing. The page then shows the N = 0 line below. When the
-  panel cannot be read, nothing is saved, the page says „Tekst nie jest jeszcze zapisany.” and the panel's
-  own failure line shows. When the row itself cannot be loaded, nothing is saved and the recovery form
-  says so. A slip stop whose panel has no link any more says „Tekst nie jest jeszcze zapisany.” and „Nie
-  ma już pustych wierszy z tym samym tekstem angielskim.”, plus „Ten wiersz zapiszesz przyciskiem
-  „Zapisz”.” only for a changed text: on an unchanged approved row, „Zapisz” would make a draft.
+  the post's only panel read, unless the outcome is unknown (below). When the panel has no link any
+  more, no empty row is left, so the rule above applies to this row alone: a changed text goes through
+  the plain save, which writes what the fill would, and an unchanged text writes nothing. The page then
+  shows the N = 0 line below. When the panel cannot be read, nothing is saved, the page says „Tekst nie
+  jest jeszcze zapisany.” (for the stored text: „Tekstu nie wpisano jeszcze w puste wiersze.”) and the
+  panel's own failure line shows. When the row itself cannot be loaded, nothing is saved and the recovery
+  form says so. A slip stop reads the panel too: with no empty row left and the stored text, nothing
+  would be written, so it shows the N = 0 line instead of a stop; with a changed text it says „Tekst nie
+  jest jeszcze zapisany.”, „Nie ma już pustych wierszy z tym samym tekstem angielskim. Ten wiersz
+  zapiszesz przyciskiem „Zapisz”.”, and offers no „mimo to”.
 - **Success.** The editor redirects to the same row (spec 0018's address) and shows, only on that GET:
   - this row saved, N ≥ 1: „Tłumaczenie zapisano. Ten sam tekst wpisano też w N pustych wierszach z tym
     samym angielskim tekstem.” (N = 1: „w 1 pustym wierszu”);

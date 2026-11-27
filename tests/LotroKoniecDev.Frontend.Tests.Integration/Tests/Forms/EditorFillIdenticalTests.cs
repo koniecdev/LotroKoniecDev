@@ -247,10 +247,79 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
     }
 
     [Fact]
-    public async Task Post_Fill_WithSlipsInTheStoredTextWhenNoEmptyRowIsLeft_GivesNoAdviceToSave()
+    public async Task Post_Fill_WithSlipsInTheStoredTextWhenNoEmptyRowIsLeft_WritesNothingAndSaysSo()
     {
-        // Arrange: „Zapisz” on an unchanged text would only turn the row into a draft.
+        // Arrange: nothing would be written, so the slip stop has nothing to stop, and „Zapisz” on an
+        // unchanged text would only turn the row into a draft.
         StubTranslationSystem translationSystem = new() { EmptyRows = 0, StoredTranslatedText = SlipText };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, SlipText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.Redirect);
+        posted.Headers.Location.ShouldNotBeNull().OriginalString.ShouldEndWith($"/editor/{RowId}?{ListState}&filled=0");
+        translationSystem.Upserts.ShouldBeEmpty();
+        translationSystem.Fills.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task Post_Fill_WhenNoEmptyRowIsLeftAndThePlainSaveFails_KeepsTheTextAndSaysNothingWasSaved(HttpStatusCode answer)
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new() { EmptyRows = 0, UpsertAnswer = answer };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, CleanText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(CleanText);
+        page.ShouldNotContain("Tłumaczenie zapisano");
+        page.ShouldNotContain("Ten sam tekst wpisano");
+        translationSystem.UpsertAttempts.ShouldBeGreaterThanOrEqualTo(1);
+        translationSystem.Fills.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(SlipText, "Tekst nie jest jeszcze zapisany.")]
+    [InlineData(StoredText + " ", "Tekst nie jest jeszcze zapisany.")]
+    public async Task Post_Fill_WithSlipsWhenThePanelFails_SendsNothingAndOffersNoMimoTo(string typed, string expectedLine)
+    {
+        // Arrange
+        StubTranslationSystem translationSystem = new() { EmptyRows = 3, PanelFails = true };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, typed, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain(expectedLine);
+        page.ShouldContain("Nie udało się wczytać innych wierszy z tym samym tekstem angielskim.");
+        FillAnywayButton().IsMatch(page).ShouldBeFalse();
+        translationSystem.Fills.ShouldBeEmpty();
+        translationSystem.Upserts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Fill_WithTheStoredSlipTextWhenThePanelFails_SaysOnlyTheEmptyRowsLackIt()
+    {
+        // Arrange: the text is this row's already, so "not saved yet" would be false.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 3, PanelFails = true, StoredTranslatedText = SlipText };
         using WebApplicationFactory<Program> host = CreateHost(translationSystem);
         using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
         string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
@@ -261,9 +330,31 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         // Assert
         posted.StatusCode.ShouldBe(HttpStatusCode.OK);
         string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
-        page.ShouldContain("Nie ma już pustych wierszy z tym samym tekstem angielskim.");
-        page.ShouldNotContain("Ten wiersz zapiszesz przyciskiem");
+        page.ShouldContain("Tekstu nie wpisano jeszcze w puste wiersze.");
+        page.ShouldNotContain(NotSavedLine);
+        translationSystem.Fills.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Post_Fill_OnARowThatLostItsPanelLink_SendsNothing()
+    {
+        // Arrange: without the panel there is no fill link to post to.
+        StubTranslationSystem translationSystem = new() { EmptyRows = 3, OffersPanel = false };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+        string antiforgeryToken = await browser.ReadAntiforgeryTokenAsync("/terms");
+
+        // Act
+        using HttpResponseMessage posted = await browser.SendAsync(FillPost(antiforgeryToken, CleanText, "fill"));
+
+        // Assert
+        posted.StatusCode.ShouldBe(HttpStatusCode.OK);
+        string page = WebUtility.HtmlDecode(await posted.Content.ReadAsStringAsync());
+        page.ShouldContain(NotSavedLine);
+        TranslatedTextarea().Match(page).Groups["text"].Value.ShouldBe(CleanText);
+        translationSystem.Fills.ShouldBeEmpty();
         translationSystem.Upserts.ShouldBeEmpty();
+        translationSystem.PanelReads.ShouldBe(0);
     }
 
     [Fact]
@@ -477,6 +568,24 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         Regex.Count(page, "Tłumaczenie zapisano").ShouldBe(expected.StartsWith("Tłumaczenie zapisano", StringComparison.Ordinal) ? 1 : 0);
     }
 
+    [Theory]
+    [InlineData("saved=true&filled=3", "Tłumaczenie zapisano. Ten sam tekst wpisano też w 3 pustych wierszach z tym samym angielskim tekstem.")]
+    [InlineData("filled=0", "Nie było już pustych wierszy z tym samym tekstem angielskim. Ten wiersz już miał ten tekst, więc nic nie zapisano.")]
+    public async Task Get_AfterAFillWhenTheRowFailsToLoad_StillShowsTheFillLine(string flags, string expected)
+    {
+        // Arrange: the fill happened even when the reload after its redirect fails (#1122).
+        StubTranslationSystem translationSystem = new() { EmptyRows = 0, RowLoads = false };
+        using WebApplicationFactory<Program> host = CreateHost(translationSystem);
+        using CookieJarBrowser browser = SignedInSession.OpenBrowser(host);
+
+        // Act
+        string page = await ReadPageAsync(browser, $"{EditorAddress}&{flags}");
+
+        // Assert
+        page.ShouldContain(expected);
+        FillButton().IsMatch(page).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Get_WithACountThatIsNotANumber_ShowsThePageWithoutTheFillLine()
     {
@@ -568,6 +677,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         private readonly ConcurrentQueue<UpsertTranslationRequest> _upserts = new();
         private int _panelReads;
         private int _fillAttempts;
+        private int _upsertAttempts;
 
         public int EmptyRows { get; init; }
 
@@ -578,6 +688,10 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         public string? StoredTranslatedText { get; init; } = StoredText;
 
         public bool RowLoads { get; init; } = true;
+
+        public bool OffersPanel { get; init; } = true;
+
+        public HttpStatusCode UpsertAnswer { get; init; } = HttpStatusCode.OK;
 
         public HttpStatusCode FillAnswer { get; init; } = HttpStatusCode.OK;
 
@@ -596,6 +710,8 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
         public int PanelReads => _panelReads;
 
         public int FillAttempts => _fillAttempts;
+
+        public int UpsertAttempts => _upsertAttempts;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
@@ -652,6 +768,14 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
 
             if (uri == UpsertHref && request.Method == HttpMethod.Put)
             {
+                // A refused save's body is not read: the website sends a 5xx save three times, and a body is
+                // read only once.
+                Interlocked.Increment(ref _upsertAttempts);
+                if (UpsertAnswer != HttpStatusCode.OK)
+                {
+                    return Problem(UpsertAnswer, "Some.Code");
+                }
+
                 UpsertTranslationRequest upsert = await request.Content.ShouldNotBeNull()
                     .ReadFromJsonAsync<UpsertTranslationRequest>(cancellationToken)
                     ?? throw new InvalidOperationException("An upsert with no body.");
@@ -673,7 +797,7 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
             };
         }
 
-        private static TranslationDetailResponse Row(string? translatedText) =>
+        private TranslationDetailResponse Row(string? translatedText) =>
             new(
                 TranslationId.Create(Guid.Parse(RowId)),
                 FileId,
@@ -689,11 +813,13 @@ public sealed partial class EditorFillIdenticalTests : IClassFixture<ProductionF
                 CreatedAt: DateTimeOffset.UnixEpoch,
                 UpdatedAt: DateTimeOffset.UnixEpoch)
             {
-                Links =
-                [
-                    new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT"),
-                    new LinkDto(PanelHref.AbsoluteUri, Rels.SameSourceText, "GET")
-                ]
+                Links = OffersPanel
+                    ?
+                    [
+                        new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT"),
+                        new LinkDto(PanelHref.AbsoluteUri, Rels.SameSourceText, "GET")
+                    ]
+                    : [new LinkDto(UpsertHref.AbsoluteUri, Rels.Upsert, "PUT")]
             };
     }
 

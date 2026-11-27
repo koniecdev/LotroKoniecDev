@@ -20,6 +20,7 @@ public sealed class HttpClientApiExtensionsTests
         { new HttpRequestException(HttpRequestError.ConnectionError, "connection refused"), true },
         { new HttpRequestException(HttpRequestError.NameResolutionError, "no such host"), true },
         { new HttpRequestException(HttpRequestError.SecureConnectionError, "the TLS handshake failed"), true },
+        { new HttpRequestException(HttpRequestError.ProxyTunnelError, "the proxy refused the tunnel"), true },
         { new HttpRequestException(HttpRequestError.ResponseEnded, "the answer stopped halfway"), false },
         { new HttpRequestException("no reason given"), false },
         { new TimeoutRejectedException(), false },

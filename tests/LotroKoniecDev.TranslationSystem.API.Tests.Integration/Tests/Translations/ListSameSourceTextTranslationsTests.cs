@@ -246,6 +246,27 @@ public sealed class ListSameSourceTextTranslationsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_FromARowWithArgs_ShouldCountOnlyTheEmptyTwinsWithBothArgsEqual()
+    {
+        // Arrange
+        Translation row = Row(1, SourceText, "Topór wojenny", argsOrder: "1-2", argsId: "1-2");
+        await SeedAsync(
+            row,
+            Row(2, SourceText, polish: null, argsOrder: "1-2", argsId: "1-2"),
+            Row(3, SourceText, polish: null, argsOrder: "1-2", argsId: null),
+            Row(4, SourceText, polish: null, argsOrder: null, argsId: "1-2"),
+            Row(5, SourceText, polish: null));
+
+        // Act
+        SameSourceTextTranslationsResponse body = await GetWithLinksAsync(row.Id);
+
+        // Assert
+        body.EmptyIdenticalCount.ShouldBe(1);
+        body.TotalCount.ShouldBe(4);
+        body.Links.ShouldHaveSingleItem().Rel.ShouldBe(Rels.FillIdentical);
+    }
+
+    [Fact]
     public async Task Get_WithAnEmptyTwin_ShouldOfferTheFillLinkForThisRow()
     {
         // Arrange

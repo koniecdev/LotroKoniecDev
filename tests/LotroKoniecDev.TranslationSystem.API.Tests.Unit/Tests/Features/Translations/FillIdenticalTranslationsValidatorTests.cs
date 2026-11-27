@@ -41,13 +41,14 @@ public sealed class FillIdenticalTranslationsValidatorTests
     }
 
     [Theory]
+    [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("\r\n")]
-    public void Validate_BlankText_ShouldBeRefusedAsEmpty(string text)
+    public void Validate_BlankText_ShouldBeRefusedAsEmpty(string? text)
     {
-        // Arrange
-        FillIdenticalTranslations.Command command = new(TranslationId.Create(), text);
+        // Arrange: a JSON body with a null text binds to null.
+        FillIdenticalTranslations.Command command = new(TranslationId.Create(), text!);
 
         // Act
         ValidationResult result = new FillIdenticalTranslations.Validator().Validate(command);

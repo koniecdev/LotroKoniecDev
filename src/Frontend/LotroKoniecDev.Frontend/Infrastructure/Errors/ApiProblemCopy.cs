@@ -36,6 +36,7 @@ internal static partial class ApiProblemCopy
     /// <summary>
     /// Marks a transport failure that never reached the API: an open circuit breaker, or a connection that
     /// was never made. Only <see cref="FrontendAuthored"/> sets it, so a wire answer cannot claim it (#1587).
+    /// It speaks of the last attempt only, so it proves nothing for a retried request; the fill is never retried.
     /// </summary>
     internal const string NeverSentExtensionKey = "neverSent";
 

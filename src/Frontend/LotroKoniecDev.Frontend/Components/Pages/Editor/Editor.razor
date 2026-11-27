@@ -199,10 +199,10 @@
                 }
                 else
                 {
-                    <p>Tekst nie jest jeszcze zapisany.</p>
+                    <p>@NotFilledLine(detail)</p>
                     @if (_fillStop is FillStop.Slips && _sameSourceText is not null)
                     {
-                        <p>@NoEmptyRowLeftLine(detail)</p>
+                        <p>Nie ma już pustych wierszy z tym samym tekstem angielskim. Ten wiersz zapiszesz przyciskiem „Zapisz”.</p>
                     }
                 }
             </div>
@@ -436,7 +436,10 @@
     private FillStop _fillStop;
     private bool _fillOutcomeUnknown;
 
-    /// <summary>A post reads the panel once: the fill before its write, any other post after it (#1482).</summary>
+    /// <summary>
+    /// A post reads the panel once: the fill before its write, any other post after it (#1482). Only a fill
+    /// whose outcome is unknown reads it again.
+    /// </summary>
     private bool _sameSourceTextLoaded;
 
     /// <summary>
@@ -546,7 +549,7 @@
     /// Every form of this page posts through here. A good post redirects to a GET that loads the panel. A
     /// post that stays on the page loads it after its write, so a good post costs no extra request (#1482).
     /// The fill is the one post that reads the panel before its write, because its link lives there; that
-    /// read is then the post's only one.
+    /// read is then the post's only one, unless the fill's outcome is unknown.
     /// </summary>
     private async Task PostAsync(Func<Task<bool>> postOrRedirect)
     {
@@ -670,6 +673,14 @@
 
         if (checkSlips && TranslationSlipChecker.Check(_detail.SourceText, _draftText).Count > 0)
         {
+            // With no empty row left, the stored text has nothing to stop: nothing would be written at all.
+            await LoadSameSourceTextAsync(_detail);
+            if (_sameSourceText is not null && FillLink is null && IsStoredText(_detail, _draftText))
+            {
+                Navigation.NavigateTo(FilledUri(saved: false, filled: 0));
+                return true;
+            }
+
             _fillStop = FillStop.Slips;
             return false;
         }
@@ -909,11 +920,11 @@
             ? "Nie wiadomo, czy tekst zapisano. Panel niżej pokazuje wiersze po tej próbie."
             : "Nie wiadomo, czy tekst zapisano.";
 
-    /// <summary>„Zapisz” is advice only for a changed text: on an unchanged approved row it would make a draft.</summary>
-    private string NoEmptyRowLeftLine(TranslationDetailResponse detail) =>
+    /// <summary>The stored text is saved in this row already; only the empty rows did not get it.</summary>
+    private string NotFilledLine(TranslationDetailResponse detail) =>
         IsStoredText(detail, _draftText ?? string.Empty)
-            ? "Nie ma już pustych wierszy z tym samym tekstem angielskim."
-            : "Nie ma już pustych wierszy z tym samym tekstem angielskim. Ten wiersz zapiszesz przyciskiem „Zapisz”.";
+            ? "Tekstu nie wpisano jeszcze w puste wiersze."
+            : "Tekst nie jest jeszcze zapisany.";
 
     /// <summary>
     /// "Unchanged" as the API decides it for the fill: the typed text, trimmed as the save trims it, is the

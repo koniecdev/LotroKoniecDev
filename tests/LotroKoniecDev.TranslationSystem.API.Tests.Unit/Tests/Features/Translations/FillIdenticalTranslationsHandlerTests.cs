@@ -366,6 +366,24 @@ public sealed class FillIdenticalTranslationsHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenTheWriteOfAnAdminFails_ShouldHandNothingBackAndLogNoWarning()
+    {
+        // Arrange: a caller with no budget took no permit, so there is nothing to give back.
+        _callerIsAdmin = true;
+        Translation row = Row(1);
+        GivenRows(row, Row(2));
+        _unitOfWork.SaveChangesInTransactionAsync(Arg.Any<Func<CancellationToken, Task<bool>>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new DbUpdateConcurrencyException("a parallel save"));
+        _saveLedger.RemoveFailure = new NpgsqlException("database down");
+
+        // Act
+        await Should.ThrowAsync<DbUpdateConcurrencyException>(async () => await Fill(row, Polish));
+
+        // Assert
+        _loggerFactory.Entries.ShouldNotContain(entry => entry.EventId.Id == EventIds.TranslationSavePermitsNotHandedBack);
+    }
+
+    [Fact]
     public async Task Handle_WhenTheClientLeavesAfterThePermitsAreTaken_ShouldStillFillEveryRow()
     {
         // Arrange: nothing from the permits to the commit listens to the request's token.
